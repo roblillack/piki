@@ -1,5 +1,7 @@
-use fltk::{prelude::*, *};
 use crate::link_handler::{extract_links, find_link_at_position, Link};
+use fltk::{prelude::*, *};
+
+const DEFAULT_FONT_SIZE: i32 = 14;
 
 // Style characters for different text styles
 const STYLE_PLAIN: char = 'A';
@@ -29,6 +31,7 @@ impl MarkdownEditor {
         let mut editor = text::TextEditor::new(x, y, w, h, None);
 
         editor.set_buffer(buffer.clone());
+        editor.set_frame(enums::FrameType::FlatBox);
 
         // Define style table
         let styles = vec![
@@ -36,67 +39,67 @@ impl MarkdownEditor {
             text::StyleTableEntry {
                 color: enums::Color::Black,
                 font: enums::Font::Helvetica,
-                size: 12,
+                size: DEFAULT_FONT_SIZE,
             },
             // STYLE_BOLD
             text::StyleTableEntry {
                 color: enums::Color::Black,
                 font: enums::Font::HelveticaBold,
-                size: 12,
+                size: DEFAULT_FONT_SIZE,
             },
             // STYLE_ITALIC
             text::StyleTableEntry {
                 color: enums::Color::Black,
                 font: enums::Font::HelveticaItalic,
-                size: 12,
+                size: DEFAULT_FONT_SIZE,
             },
             // STYLE_BOLD_ITALIC
             text::StyleTableEntry {
                 color: enums::Color::Black,
                 font: enums::Font::HelveticaBoldItalic,
-                size: 12,
+                size: DEFAULT_FONT_SIZE,
             },
             // STYLE_CODE
             text::StyleTableEntry {
                 color: enums::Color::from_rgb(0, 100, 200),
                 font: enums::Font::Courier,
-                size: 12,
+                size: DEFAULT_FONT_SIZE,
             },
             // STYLE_LINK (note: underline not directly supported in style table)
             text::StyleTableEntry {
                 color: enums::Color::Blue,
                 font: enums::Font::Helvetica,
-                size: 12,
+                size: DEFAULT_FONT_SIZE,
             },
             // STYLE_HEADER1
             text::StyleTableEntry {
                 color: enums::Color::Black,
                 font: enums::Font::HelveticaBold,
-                size: 18,
+                size: DEFAULT_FONT_SIZE + 4,
             },
             // STYLE_HEADER2
             text::StyleTableEntry {
                 color: enums::Color::Black,
                 font: enums::Font::HelveticaBold,
-                size: 16,
+                size: DEFAULT_FONT_SIZE + 2,
             },
             // STYLE_HEADER3
             text::StyleTableEntry {
                 color: enums::Color::Black,
                 font: enums::Font::HelveticaBold,
-                size: 14,
+                size: DEFAULT_FONT_SIZE + 2,
             },
             // STYLE_QUOTE
             text::StyleTableEntry {
                 color: enums::Color::from_rgb(100, 0, 0),
                 font: enums::Font::TimesItalic,
-                size: 12,
+                size: DEFAULT_FONT_SIZE,
             },
             // STYLE_DIMMED
             text::StyleTableEntry {
                 color: enums::Color::Gray0,
                 font: enums::Font::Helvetica,
-                size: 12,
+                size: DEFAULT_FONT_SIZE,
             },
         ];
 
@@ -136,7 +139,6 @@ impl MarkdownEditor {
             }
         });
     }
-
 
     pub fn widget(&self) -> text::TextEditor {
         self.editor.clone()

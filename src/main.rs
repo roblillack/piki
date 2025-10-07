@@ -171,9 +171,9 @@ fn main() {
         plugin_registry,
         args.page.clone(),
     )));
-    let editor = Rc::new(RefCell::new(MarkdownEditor::new(0, 25, 660, 350)));
-    let status = Rc::new(RefCell::new({
-        let mut f = frame::Frame::new(560, 0, 100, 25, None);
+    let autosave_state = Rc::new(RefCell::new(AutoSaveState::new()));
+    let editor = Rc::new(RefCell::new(MarkdownEditor::new(5, 25, 650, 350)));
+
         f.set_frame(enums::FrameType::FlatBox);
         f.set_color(enums::Color::Black);
         f.set_label_color(enums::Color::White);
