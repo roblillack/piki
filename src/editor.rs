@@ -19,6 +19,7 @@ pub struct MarkdownEditor {
     buffer: text::TextBuffer,
     style_buffer: text::TextBuffer,
     links: Vec<Link>,
+    readonly: bool,
 }
 
 impl MarkdownEditor {
@@ -107,6 +108,7 @@ impl MarkdownEditor {
             buffer,
             style_buffer,
             links: Vec::new(),
+            readonly: false,
         };
 
         // Set up auto-restyling on text changes
@@ -134,6 +136,7 @@ impl MarkdownEditor {
             }
         });
     }
+
 
     pub fn widget(&self) -> text::TextEditor {
         self.editor.clone()
@@ -167,6 +170,24 @@ impl MarkdownEditor {
     /// Manually trigger a full re-style of the current content
     pub fn restyle(&mut self) {
         self.update_links();
+    }
+
+    /// Set read-only mode for the editor
+    /// When read-only, text can be selected but not edited
+    pub fn set_readonly(&mut self, readonly: bool) {
+        self.readonly = readonly;
+
+        // Visual indicator: slightly different background color for read-only
+        if readonly {
+            self.editor.set_color(enums::Color::from_rgb(245, 245, 245));
+        } else {
+            self.editor.set_color(enums::Color::from_rgb(255, 255, 245));
+        }
+    }
+
+    /// Check if editor is in read-only mode
+    pub fn is_readonly(&self) -> bool {
+        self.readonly
     }
 
     /// Apply syntax highlighting styles to the text

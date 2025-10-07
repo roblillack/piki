@@ -1,10 +1,12 @@
 mod document;
 mod editor;
 mod link_handler;
+mod plugin;
 
 use clap::Parser;
 use document::DocumentStore;
 use editor::MarkdownEditor;
+use plugin::{IndexPlugin, PluginRegistry};
 use fltk::{prelude::*, *};
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -25,18 +27,28 @@ struct Args {
 
 struct AppState {
     store: DocumentStore,
+    plugin_registry: PluginRegistry,
     current_page: String,
 }
 
 impl AppState {
-    fn new(store: DocumentStore, initial_page: String) -> Self {
+    fn new(store: DocumentStore, plugin_registry: PluginRegistry, initial_page: String) -> Self {
         AppState {
             store,
+            plugin_registry,
             current_page: initial_page,
         }
     }
 
     fn load_page(&mut self, page_name: &str) -> Result<String, String> {
+        // Check if this is a plugin page (starts with !)
+        if let Some(plugin_name) = page_name.strip_prefix('!') {
+            // Generate content using the plugin
+            self.current_page = page_name.to_string();
+            return self.plugin_registry.generate(plugin_name, &self.store);
+        }
+
+        // Normal file loading
         match self.store.load(page_name) {
             Ok(doc) => {
                 self.current_page = page_name.to_string();
@@ -64,7 +76,7 @@ fn create_menu(
             enums::Shortcut::Ctrl | 'i',
             menu::MenuFlag::Normal,
             move |_| {
-                load_page_helper("INDEX", &app_state, &editor, &status);
+                load_page_helper("!index", &app_state, &editor, &status);
             },
         );
     }
@@ -95,11 +107,17 @@ fn load_page_helper(
 ) {
     match app_state.borrow_mut().load_page(page_name) {
         Ok(content) => {
-            editor.borrow_mut().set_content(&content);
+            let mut editor_mut = editor.borrow_mut();
+            editor_mut.set_content(&content);
 
-            // Check if this is a new document (content is empty and file doesn't exist)
-            let is_new = content.is_empty();
-            let status_text = if is_new {
+            // Set read-only mode for plugin pages, editable for regular pages
+            let is_plugin = page_name.starts_with('!');
+            editor_mut.set_readonly(is_plugin);
+
+            // Determine status text based on page type
+            let status_text = if let Some(plugin_name) = page_name.strip_prefix('!') {
+                format!("Page: {} (plugin: {})", page_name, plugin_name)
+            } else if content.is_empty() {
                 format!("Page: {} (new)", page_name)
             } else {
                 format!("Page: {}", page_name)
@@ -143,9 +161,16 @@ fn main() {
 
     wind.begin();
 
-    // Create state
+    // Create state and register plugins
     let store = DocumentStore::new(args.directory.clone());
-    let app_state = Rc::new(RefCell::new(AppState::new(store, args.page.clone())));
+    let mut plugin_registry = PluginRegistry::new();
+    plugin_registry.register("index", Box::new(IndexPlugin));
+
+    let app_state = Rc::new(RefCell::new(AppState::new(
+        store,
+        plugin_registry,
+        args.page.clone(),
+    )));
     let editor = Rc::new(RefCell::new(MarkdownEditor::new(0, 25, 660, 350)));
     let status = Rc::new(RefCell::new({
         let mut f = frame::Frame::new(560, 0, 100, 25, None);
@@ -197,6 +222,32 @@ fn main() {
         let status = status.clone();
 
         ed_widget.handle(move |widget, evt| {
+            // Block keyboard input if in read-only mode
+            if let Ok(ed) = editor_ref.try_borrow() {
+                if ed.is_readonly() {
+                    match evt {
+                        enums::Event::KeyDown | enums::Event::KeyUp => {
+                            // Allow arrow keys, page up/down, home/end for navigation
+                            let key = app::event_key();
+                            match key {
+                                enums::Key::Left | enums::Key::Right |
+                                enums::Key::Up | enums::Key::Down |
+                                enums::Key::Home | enums::Key::End |
+                                enums::Key::PageUp | enums::Key::PageDown => {
+                                    // Allow navigation keys
+                                    return false;
+                                }
+                                _ => {
+                                    // Block all other keys (typing, backspace, delete, etc.)
+                                    return true;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
             match evt {
                 enums::Event::Push => {
                     // Get the click position
