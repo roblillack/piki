@@ -481,19 +481,27 @@ fn main() {
 
             match evt {
                 enums::Event::Move => {
+                    let mut win = widget.window().unwrap();
                     if let Some(pos) = xy_to_position(widget, event_x(), event_y()) {
                         if editor_ref
                             .borrow()
                             .find_link_at_position(pos as usize)
                             .is_some()
                         {
-                            widget.window().unwrap().set_cursor(enums::Cursor::Hand);
-                        } else {
-                            widget.window().unwrap().set_cursor(enums::Cursor::Arrow);
+                            win.set_cursor(enums::Cursor::Hand);
+
+                            app::awake_callback(move || {
+                                win.set_cursor(enums::Cursor::Hand);
+                            });
+                            return true;
                         }
                     }
+                    win.set_cursor(enums::Cursor::Arrow);
+                    app::awake_callback(move || {
+                        win.set_cursor(enums::Cursor::Arrow);
+                    });
 
-                    false
+                    true
                 }
                 enums::Event::Push => {
                     if event_mouse_button() == MouseButton::Left {
