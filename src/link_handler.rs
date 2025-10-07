@@ -60,7 +60,9 @@ pub fn extract_links(content: &str) -> Vec<Link> {
 
 /// Find link at a specific character position in the text
 pub fn find_link_at_position(links: &[Link], pos: usize) -> Option<&Link> {
-    links.iter().find(|link| pos >= link.start && pos < link.end)
+    links
+        .iter()
+        .find(|link| pos >= link.start && pos < link.end)
 }
 
 #[cfg(test)]

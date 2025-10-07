@@ -9,3 +9,6 @@ pulldown-cmark = "0.11"
 clap = { version = "4.5", features = ["derive"] }
 walkdir = "2.5"
 regex = "1.10"
+
+[patch.crates-io]
+fltk = { git = "https://github.com/fltk-rs/fltk-rs" }

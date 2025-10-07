@@ -11,7 +11,7 @@ use editor::MarkdownEditor;
 use fltk::app::{event_mouse_button, event_x, event_y, MouseButton};
 #[cfg(target_os = "macos")]
 use fltk::enums::Color;
-use fltk::text::TextDisplay;
+use fltk::text::{PositionType, TextDisplay};
 use fltk::{prelude::*, *};
 use plugin::{IndexPlugin, PluginRegistry};
 use std::cell::RefCell;
@@ -482,20 +482,24 @@ fn main() {
             match evt {
                 enums::Event::Move => {
                     let mut win = widget.window().unwrap();
-                    if let Some(pos) = xy_to_position(widget, event_x(), event_y()) {
-                        if editor_ref
-                            .borrow()
-                            .find_link_at_position(pos as usize)
-                            .is_some()
-                        {
-                            win.set_cursor(enums::Cursor::Hand);
+                    let pos = widget.xy_to_position(
+                        event_x() - widget.x(),
+                        event_y() - widget.y(),
+                        PositionType::Cursor,
+                    );
+                    if editor_ref
+                        .borrow()
+                        .find_link_at_position(pos as usize)
+                        .is_some()
+                    {
+                        win.set_cursor(enums::Cursor::Hand);
 
-                            app::awake_callback(move || {
-                                win.set_cursor(enums::Cursor::Hand);
-                            });
-                            return true;
-                        }
+                        app::awake_callback(move || {
+                            win.set_cursor(enums::Cursor::Hand);
+                        });
+                        return true;
                     }
+
                     win.set_cursor(enums::Cursor::Arrow);
                     app::awake_callback(move || {
                         win.set_cursor(enums::Cursor::Arrow);
@@ -505,32 +509,35 @@ fn main() {
                 }
                 enums::Event::Push => {
                     if event_mouse_button() == MouseButton::Left {
-                        if let Some(click_pos) = xy_to_position(widget, event_x(), event_y()) {
-                            // Check if we clicked on a link
-                            if let Some(link_dest) = editor_ref
-                                .borrow()
-                                .find_link_at_position(click_pos as usize)
-                            {
-                                // Navigate to the linked page - defer to avoid borrow conflict
-                                let app_state = app_state.clone();
-                                let autosave_state = autosave_state_for_links.clone();
-                                let editor_ref = editor_ref.clone();
-                                let page_status = page_status_ref.clone();
-                                let save_status = save_status_ref.clone();
+                        let click_pos = widget.xy_to_position(
+                            event_x() - widget.x(),
+                            event_y() - widget.y(),
+                            PositionType::Cursor,
+                        );
+                        // Check if we clicked on a link
+                        if let Some(link_dest) = editor_ref
+                            .borrow()
+                            .find_link_at_position(click_pos as usize)
+                        {
+                            // Navigate to the linked page - defer to avoid borrow conflict
+                            let app_state = app_state.clone();
+                            let autosave_state = autosave_state_for_links.clone();
+                            let editor_ref = editor_ref.clone();
+                            let page_status = page_status_ref.clone();
+                            let save_status = save_status_ref.clone();
 
-                                // Use awake callback to defer the page load until after event handler returns
-                                app::awake_callback(move || {
-                                    load_page_helper(
-                                        &link_dest,
-                                        &app_state,
-                                        &autosave_state,
-                                        &editor_ref,
-                                        &page_status,
-                                        &save_status,
-                                    );
-                                });
-                                return true;
-                            }
+                            // Use awake callback to defer the page load until after event handler returns
+                            app::awake_callback(move || {
+                                load_page_helper(
+                                    &link_dest,
+                                    &app_state,
+                                    &autosave_state,
+                                    &editor_ref,
+                                    &page_status,
+                                    &save_status,
+                                );
+                            });
+                            return true;
                         }
                     }
                     false
@@ -562,23 +569,4 @@ fn main() {
     }
 
     app.run().unwrap();
-}
-
-fn xy_to_position(widget: &mut text::TextEditor, event_x: i32, event_y: i32) -> Option<i32> {
-    const MAX_DISTANCE: i32 = 20;
-    let offset = (widget.x(), widget.y());
-    let rel_x = event_x - offset.0;
-    let rel_y = event_y - offset.1;
-    if let Some(txtbuf) = widget.buffer() {
-        for d in 0..MAX_DISTANCE {
-            for i in 0..txtbuf.length() {
-                let (x, y) = widget.position_to_xy(i);
-                if x - d < rel_x && rel_x < x + d && y - d < rel_y && rel_y < y + d {
-                    return Some(i);
-                }
-            }
-        }
-    }
-
-    None
 }
