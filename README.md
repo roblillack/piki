@@ -13,19 +13,32 @@ A Rust reimplementation of fliki - a lightweight Markdown wiki browser with clic
    - Links shown in blue
    - **Updates instantly as you type!**
 
+✅ **Auto-Save**
+   - Saves changes automatically 1 second after you stop typing
+   - Debounced to prevent excessive disk writes
+   - Status bar shows save status ("Saving...", "saved 2 min ago", etc.)
+   - Creates new files and parent directories as needed
+
 ✅ **Interactive Navigation**
    - Click on links to navigate between pages
    - Cursor changes to hand icon when over links
    - Keyboard shortcuts for quick access
+   - Support for nested page paths (`[[project-a/standup]]`)
 
 ✅ **Link Support**
    - Standard Markdown: `[text](page.md)`
    - Wiki-style: `[[PageName]]`
+   - Nested paths: `[[folder/page]]`
 
-✅ **Simple FLTK-based GUI**
-   - Clean text editor interface
-   - Menu bar for navigation
-   - Status bar showing current page
+✅ **Plugin System**
+   - Dynamic page generation with `!` prefix
+   - Built-in `!index` plugin shows all pages
+   - Plugin pages are read-only
+   - Extensible architecture for custom plugins
+
+✅ **Smart Status Bar**
+   - Page status (left): Shows current page and type
+   - Save status (right): Real-time save feedback with time tracking
 
 ## Building
 
@@ -70,7 +83,7 @@ Try clicking on the links to see navigation in action!
 ## Keyboard Shortcuts
 
 - `Ctrl+F` - Go to frontpage
-- `Ctrl+I` - Go to INDEX
+- `Ctrl+I` - Go to dynamic index (`!index` plugin)
 
 ## Syntax Highlighting Examples
 
@@ -99,9 +112,11 @@ The editor supports:
 ### Architecture
 
 - `main.rs` - Application entry point, window management, event handling
-- `document.rs` - File system operations for loading markdown files
+- `document.rs` - File system operations for loading/saving markdown files
 - `editor.rs` - Custom text editor with syntax highlighting using FLTK style buffers
 - `link_handler.rs` - Markdown and wiki-link parsing using `pulldown-cmark`
+- `autosave.rs` - Auto-save state management and debouncing
+- `plugin.rs` - Plugin system for dynamic content generation
 
 ### How Link Following Works
 
@@ -128,9 +143,12 @@ This Rust version:
 - ✅ Reads from local filesystem instead of network
 - ✅ Has full syntax highlighting for Markdown
 - ✅ Clickable links with visual feedback
-- ❌ No page locking/unlocking (filesystem-only)
-- ❌ No server push/pull operations
-- ❌ No multi-user editing
+- ✅ Auto-save functionality
+- ✅ Plugin system for dynamic pages
+- ✅ Nested directory support
+- ❌ No page locking/unlocking (uses auto-save instead)
+- ❌ No server push/pull operations (local-only)
+- ❌ No multi-user editing (single-user with file locking possible)
 
 ## Dependencies
 
@@ -149,12 +167,21 @@ This is a demonstration project showing how to build a wiki-style editor in Rust
 - Markdown parsing
 
 Feel free to extend it with features like:
-- Save functionality
+- Manual save shortcut (Ctrl+S)
 - Search across pages
 - Link preview on hover
 - Backlinks
 - Full-text search
 - Recent pages history
+- Version control integration
+- Custom plugins
+- Configurable auto-save delay
+
+## Documentation
+
+- **[AUTOSAVE.md](AUTOSAVE.md)** - Auto-save implementation details
+- **[PLUGIN_SYSTEM.md](PLUGIN_SYSTEM.md)** - Plugin system guide
+- **[READONLY_IMPLEMENTATION.md](READONLY_IMPLEMENTATION.md)** - Read-only mode for plugins
 
 ## License
 

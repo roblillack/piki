@@ -165,8 +165,7 @@ impl MarkdownEditor {
     }
 
     pub fn find_link_at_position(&self, pos: usize) -> Option<String> {
-        find_link_at_position(&self.links, pos)
-            .map(|link| link.destination.clone())
+        find_link_at_position(&self.links, pos).map(|link| link.destination.clone())
     }
 
     /// Manually trigger a full re-style of the current content
@@ -202,8 +201,10 @@ impl MarkdownEditor {
 
         // Apply line-by-line styling
         for (line_idx, line) in content.lines().enumerate() {
-            let line_start = content.lines().take(line_idx)
-                .map(|l| l.len() + 1)  // +1 for newline
+            let line_start = content
+                .lines()
+                .take(line_idx)
+                .map(|l| l.len() + 1) // +1 for newline
                 .sum::<usize>();
 
             self.style_line(line, line_start, &mut styles);
@@ -271,7 +272,7 @@ impl MarkdownEditor {
         while i < chars.len() {
             // Code spans `code`
             if chars[i] == '`' {
-                if let Some(end) = chars[i+1..].iter().position(|&c| c == '`') {
+                if let Some(end) = chars[i + 1..].iter().position(|&c| c == '`') {
                     let end_idx = i + 1 + end;
                     for j in i..=end_idx {
                         if line_start + j < styles.len() {
@@ -284,10 +285,10 @@ impl MarkdownEditor {
             }
 
             // Bold **text**
-            if i + 1 < chars.len() && chars[i] == '*' && chars[i+1] == '*' {
-                if let Some(end) = find_delimiter(&chars[i+2..], "**") {
+            if i + 1 < chars.len() && chars[i] == '*' && chars[i + 1] == '*' {
+                if let Some(end) = find_delimiter(&chars[i + 2..], "**") {
                     let end_idx = i + 2 + end;
-                    for j in i..=end_idx+1 {
+                    for j in i..=end_idx + 1 {
                         if line_start + j < styles.len() {
                             styles[line_start + j] = STYLE_BOLD as u8;
                         }
@@ -299,7 +300,7 @@ impl MarkdownEditor {
 
             // Italic *text*
             if chars[i] == '*' {
-                if let Some(end) = chars[i+1..].iter().position(|&c| c == '*') {
+                if let Some(end) = chars[i + 1..].iter().position(|&c| c == '*') {
                     let end_idx = i + 1 + end;
                     for j in i..=end_idx {
                         if line_start + j < styles.len() {
@@ -323,7 +324,7 @@ fn find_delimiter(chars: &[char], delim: &str) -> Option<usize> {
 
     for i in 0..chars.len() {
         if i + delim_len <= chars.len() {
-            if chars[i..i+delim_len] == delim_chars[..] {
+            if chars[i..i + delim_len] == delim_chars[..] {
                 return Some(i);
             }
         }

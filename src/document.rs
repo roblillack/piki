@@ -1,11 +1,13 @@
 use std::fs;
 use std::path::PathBuf;
+use std::time::SystemTime;
 
 #[derive(Clone)]
 pub struct Document {
     pub name: String,
     pub path: PathBuf,
     pub content: String,
+    pub modified_time: Option<SystemTime>,
 }
 
 pub struct DocumentStore {
@@ -27,18 +29,26 @@ impl DocumentStore {
             path.set_extension("md");
         }
 
-        // Read file content if it exists, otherwise create empty document
-        let content = if path.exists() {
-            fs::read_to_string(&path)
-                .map_err(|e| format!("Failed to read '{}': {}", name, e))?
+        // Read file content and metadata if it exists, otherwise create empty document
+        let (content, modified_time) = if path.exists() {
+            let content = fs::read_to_string(&path)
+                .map_err(|e| format!("Failed to read '{}': {}", name, e))?;
+
+            // Get modification time
+            let mtime = fs::metadata(&path)
+                .ok()
+                .and_then(|m| m.modified().ok());
+
+            (content, mtime)
         } else {
-            String::new()
+            (String::new(), None)
         };
 
         Ok(Document {
             name: name.to_string(),
             path,
             content,
+            modified_time,
         })
     }
 
