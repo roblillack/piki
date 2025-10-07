@@ -8,6 +8,8 @@ use autosave::AutoSaveState;
 use clap::Parser;
 use document::DocumentStore;
 use editor::MarkdownEditor;
+#[cfg(target_os = "macos")]
+use fltk::enums::Color;
 use fltk::{prelude::*, *};
 use plugin::{IndexPlugin, PluginRegistry};
 use std::cell::RefCell;
@@ -61,6 +63,66 @@ impl AppState {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn create_menu(
+    app_state: Rc<RefCell<AppState>>,
+    autosave_state: Rc<RefCell<AutoSaveState>>,
+    editor: Rc<RefCell<MarkdownEditor>>,
+    page_status: Rc<RefCell<frame::Frame>>,
+    save_status: Rc<RefCell<frame::Frame>>,
+) {
+    // Use system menu bar on macOS
+    let mut menu_bar = menu::SysMenuBar::default();
+
+    // Navigate menu
+    menu_bar.add(
+        "Navigate/Index\t",
+        enums::Shortcut::Ctrl | 'i',
+        menu::MenuFlag::Normal,
+        {
+            let app_state = app_state.clone();
+            let autosave_state = autosave_state.clone();
+            let editor = editor.clone();
+            let page_status = page_status.clone();
+            let save_status = save_status.clone();
+            move |_| {
+                load_page_helper(
+                    "!index",
+                    &app_state,
+                    &autosave_state,
+                    &editor,
+                    &page_status,
+                    &save_status,
+                );
+            }
+        },
+    );
+
+    menu_bar.add(
+        "Navigate/Frontpage\t",
+        enums::Shortcut::Ctrl | 'f',
+        menu::MenuFlag::Normal,
+        {
+            let app_state = app_state.clone();
+            let autosave_state = autosave_state.clone();
+            let editor = editor.clone();
+            let page_status = page_status.clone();
+            let save_status = save_status.clone();
+            move |_| {
+                load_page_helper(
+                    "frontpage",
+                    &app_state,
+                    &autosave_state,
+                    &editor,
+                    &page_status,
+                    &save_status,
+                );
+            }
+        },
+    );
+}
+
+#[cfg(not(target_os = "macos"))]
 fn create_menu(
     app_state: Rc<RefCell<AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
@@ -68,6 +130,7 @@ fn create_menu(
     page_status: Rc<RefCell<frame::Frame>>,
     save_status: Rc<RefCell<frame::Frame>>,
 ) -> menu::MenuBar {
+    // Use regular menu bar on other platforms
     let mut menu_bar = menu::MenuBar::new(0, 0, 660, 25, None);
 
     // Index menu item
@@ -218,6 +281,9 @@ fn main() {
         .with_size(660, 400)
         .with_label("fliki-rs");
 
+    // #[cfg(target_os = "macos")]
+    // wind.set_color(Color::White);
+
     wind.begin();
 
     // Create state and register plugins
@@ -231,7 +297,19 @@ fn main() {
         args.page.clone(),
     )));
     let autosave_state = Rc::new(RefCell::new(AutoSaveState::new()));
-    let editor = Rc::new(RefCell::new(MarkdownEditor::new(5, 25, 650, 350)));
+
+    // macOS uses system menu bar (no space needed), other platforms use window menu bar (25px)
+    #[cfg(target_os = "macos")]
+    let (editor_y, editor_height) = (5, 370);
+    #[cfg(not(target_os = "macos"))]
+    let (editor_y, editor_height) = (30, 345);
+
+    let editor = Rc::new(RefCell::new(MarkdownEditor::new(
+        5,
+        editor_y,
+        650,
+        editor_height,
+    )));
 
     // Create two status frames at the bottom: page status and save status
     let page_status = Rc::new(RefCell::new({
@@ -250,7 +328,17 @@ fn main() {
         f
     }));
 
-    // Create menu
+    // Create menu (system menu bar on macOS, window menu bar on other platforms)
+    #[cfg(target_os = "macos")]
+    create_menu(
+        app_state.clone(),
+        autosave_state.clone(),
+        editor.clone(),
+        page_status.clone(),
+        save_status.clone(),
+    );
+
+    #[cfg(not(target_os = "macos"))]
     let _menu_bar = create_menu(
         app_state.clone(),
         autosave_state.clone(),

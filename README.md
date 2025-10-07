@@ -82,8 +82,13 @@ Try clicking on the links to see navigation in action!
 
 ## Keyboard Shortcuts
 
-- `Ctrl+F` - Go to frontpage
-- `Ctrl+I` - Go to dynamic index (`!index` plugin)
+- `Ctrl+F` (or `Cmd+F` on Mac) - Go to frontpage
+- `Ctrl+I` (or `Cmd+I` on Mac) - Go to dynamic index (`!index` plugin)
+
+## Platform Integration
+
+- **macOS**: Uses native system menu bar (appears at top of screen)
+- **Linux/Windows**: Uses window menu bar (appears in application window)
 
 ## Syntax Highlighting Examples
 
