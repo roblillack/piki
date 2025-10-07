@@ -18,6 +18,7 @@ impl DocumentStore {
     }
 
     /// Load a document by name (with or without .md extension)
+    /// If the file doesn't exist, creates an empty document that will be saved on first write
     pub fn load(&self, name: &str) -> Result<Document, String> {
         let mut path = self.base_path.join(name);
 
@@ -26,14 +27,13 @@ impl DocumentStore {
             path.set_extension("md");
         }
 
-        // Check if file exists
-        if !path.exists() {
-            return Err(format!("Document '{}' not found", name));
-        }
-
-        // Read file content
-        let content = fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read '{}': {}", name, e))?;
+        // Read file content if it exists, otherwise create empty document
+        let content = if path.exists() {
+            fs::read_to_string(&path)
+                .map_err(|e| format!("Failed to read '{}': {}", name, e))?
+        } else {
+            String::new()
+        };
 
         Ok(Document {
             name: name.to_string(),
@@ -65,8 +65,83 @@ impl DocumentStore {
     }
 
     /// Save document content
+    /// Creates parent directories if they don't exist
     pub fn save(&self, doc: &Document) -> Result<(), String> {
+        // Create parent directories if they don't exist
+        if let Some(parent) = doc.path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create directories for '{}': {}", doc.name, e))?;
+        }
+
         fs::write(&doc.path, &doc.content)
             .map_err(|e| format!("Failed to save '{}': {}", doc.name, e))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+
+    #[test]
+    fn test_load_existing_file() {
+        let store = DocumentStore::new("example-wiki".into());
+        let doc = store.load("frontpage").unwrap();
+        assert!(!doc.content.is_empty());
+        assert_eq!(doc.name, "frontpage");
+    }
+
+    #[test]
+    fn test_load_non_existent_file() {
+        let temp_dir = env::temp_dir().join("fliki-test-load");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let store = DocumentStore::new(temp_dir.clone());
+        let doc = store.load("non-existent").unwrap();
+
+        assert_eq!(doc.content, "");
+        assert_eq!(doc.name, "non-existent");
+        assert_eq!(doc.path, temp_dir.join("non-existent.md"));
+
+        // Cleanup
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_load_nested_path() {
+        let temp_dir = env::temp_dir().join("fliki-test-nested");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let store = DocumentStore::new(temp_dir.clone());
+        let doc = store.load("project-a/standup").unwrap();
+
+        assert_eq!(doc.content, "");
+        assert_eq!(doc.name, "project-a/standup");
+        assert_eq!(doc.path, temp_dir.join("project-a/standup.md"));
+
+        // Cleanup
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_save_creates_parent_directories() {
+        let temp_dir = env::temp_dir().join("fliki-test-save");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let store = DocumentStore::new(temp_dir.clone());
+        let mut doc = store.load("nested/dir/page").unwrap();
+        doc.content = "Test content".to_string();
+
+        store.save(&doc).unwrap();
+
+        // Verify file was created
+        assert!(doc.path.exists());
+        assert_eq!(fs::read_to_string(&doc.path).unwrap(), "Test content");
+
+        // Cleanup
+        fs::remove_dir_all(&temp_dir).ok();
     }
 }

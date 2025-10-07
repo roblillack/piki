@@ -96,9 +96,16 @@ fn load_page_helper(
     match app_state.borrow_mut().load_page(page_name) {
         Ok(content) => {
             editor.borrow_mut().set_content(&content);
-            status
-                .borrow_mut()
-                .set_label(&format!("Page: {}", page_name));
+
+            // Check if this is a new document (content is empty and file doesn't exist)
+            let is_new = content.is_empty();
+            let status_text = if is_new {
+                format!("Page: {} (new)", page_name)
+            } else {
+                format!("Page: {}", page_name)
+            };
+
+            status.borrow_mut().set_label(&status_text);
             app::redraw();
         }
         Err(e) => {
