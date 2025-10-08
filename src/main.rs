@@ -1,6 +1,7 @@
 mod autosave;
 mod document;
 mod editor;
+mod history;
 mod link_handler;
 mod plugin;
 
@@ -8,6 +9,7 @@ use autosave::AutoSaveState;
 use clap::Parser;
 use document::DocumentStore;
 use editor::MarkdownEditor;
+use history::History;
 use fltk::app::{event_mouse_button, event_x, event_y, MouseButton};
 #[cfg(target_os = "macos")]
 use fltk::enums::Color;
@@ -35,6 +37,7 @@ struct AppState {
     store: DocumentStore,
     plugin_registry: PluginRegistry,
     current_page: String,
+    history: History,
 }
 
 impl AppState {
@@ -43,6 +46,7 @@ impl AppState {
             store,
             plugin_registry,
             current_page: initial_page,
+            history: History::new(),
         }
     }
 
@@ -95,6 +99,7 @@ fn create_menu(
                     &editor,
                     &page_status,
                     &save_status,
+                    None,
                 );
             }
         },
@@ -118,7 +123,40 @@ fn create_menu(
                     &editor,
                     &page_status,
                     &save_status,
+                    None,
                 );
+            }
+        },
+    );
+
+    menu_bar.add(
+        "Navigate/Back\t",
+        enums::Shortcut::Ctrl | '[',
+        menu::MenuFlag::Normal,
+        {
+            let app_state = app_state.clone();
+            let autosave_state = autosave_state.clone();
+            let editor = editor.clone();
+            let page_status = page_status.clone();
+            let save_status = save_status.clone();
+            move |_| {
+                navigate_back(&app_state, &autosave_state, &editor, &page_status, &save_status);
+            }
+        },
+    );
+
+    menu_bar.add(
+        "Navigate/Forward\t",
+        enums::Shortcut::Ctrl | ']',
+        menu::MenuFlag::Normal,
+        {
+            let app_state = app_state.clone();
+            let autosave_state = autosave_state.clone();
+            let editor = editor.clone();
+            let page_status = page_status.clone();
+            let save_status = save_status.clone();
+            move |_| {
+                navigate_forward(&app_state, &autosave_state, &editor, &page_status, &save_status);
             }
         },
     );
@@ -154,6 +192,7 @@ fn create_menu(
                     &editor,
                     &page_status,
                     &save_status,
+                    None,
                 );
             },
         );
@@ -178,7 +217,42 @@ fn create_menu(
                     &editor,
                     &page_status,
                     &save_status,
+                    None,
                 );
+            },
+        );
+    }
+
+    // Back menu item
+    {
+        let app_state = app_state.clone();
+        let autosave_state = autosave_state.clone();
+        let editor = editor.clone();
+        let page_status = page_status.clone();
+        let save_status = save_status.clone();
+        menu_bar.add(
+            "&Back",
+            enums::Shortcut::Alt | enums::Key::Left,
+            menu::MenuFlag::Normal,
+            move |_| {
+                navigate_back(&app_state, &autosave_state, &editor, &page_status, &save_status);
+            },
+        );
+    }
+
+    // Forward menu item
+    {
+        let app_state = app_state.clone();
+        let autosave_state = autosave_state.clone();
+        let editor = editor.clone();
+        let page_status = page_status.clone();
+        let save_status = save_status.clone();
+        menu_bar.add(
+            "&Forward",
+            enums::Shortcut::Alt | enums::Key::Right,
+            menu::MenuFlag::Normal,
+            move |_| {
+                navigate_forward(&app_state, &autosave_state, &editor, &page_status, &save_status);
             },
         );
     }
@@ -193,7 +267,14 @@ fn load_page_helper(
     editor: &Rc<RefCell<MarkdownEditor>>,
     page_status: &Rc<RefCell<frame::Frame>>,
     save_status: &Rc<RefCell<frame::Frame>>,
+    restore_scroll: Option<i32>,
 ) {
+    // If we're not restoring from history, update the scroll position of the current history entry
+    if restore_scroll.is_none() {
+        let scroll_pos = editor.borrow().widget().scroll_row();
+        app_state.borrow_mut().history.update_scroll_position(scroll_pos);
+    }
+
     // Check if this is a plugin page
     let is_plugin = page_name.starts_with('!');
 
@@ -219,6 +300,24 @@ fn load_page_helper(
 
             // Set read-only mode for plugin pages, editable for regular pages
             editor_mut.set_readonly(is_plugin);
+
+            // Restore scroll position if provided (from history navigation)
+            // Otherwise, scroll to top for normal navigation
+            let final_scroll_pos = if let Some(scroll_pos) = restore_scroll {
+                editor_mut.widget_mut().scroll(scroll_pos, 0);
+                scroll_pos
+            } else {
+                editor_mut.widget_mut().scroll(0, 0);
+                0
+            };
+
+            // Drop the editor borrow before manipulating history
+            drop(editor_mut);
+
+            // If normal navigation (not history), add new page to history
+            if restore_scroll.is_none() {
+                app_state.borrow_mut().history.push(page_name.to_string(), final_scroll_pos);
+            }
 
             // Reset autosave state for the new page
             if let Ok(mut as_state) = autosave_state.try_borrow_mut() {
@@ -257,6 +356,66 @@ fn load_page_helper(
             save_status.borrow_mut().set_label("");
             app::redraw();
         }
+    }
+}
+
+fn navigate_back(
+    app_state: &Rc<RefCell<AppState>>,
+    autosave_state: &Rc<RefCell<AutoSaveState>>,
+    editor: &Rc<RefCell<MarkdownEditor>>,
+    page_status: &Rc<RefCell<frame::Frame>>,
+    save_status: &Rc<RefCell<frame::Frame>>,
+) {
+    // Update current entry's scroll position before navigating
+    let scroll_pos = editor.borrow().widget().scroll_row();
+    app_state.borrow_mut().history.update_scroll_position(scroll_pos);
+
+    // Try to navigate back and extract values before calling load_page_helper
+    let target = {
+        let mut state = app_state.borrow_mut();
+        state.history.go_back().map(|entry| (entry.page_name.clone(), entry.scroll_position))
+    }; // Borrow is dropped here
+
+    if let Some((page_name, scroll_position)) = target {
+        load_page_helper(
+            &page_name,
+            app_state,
+            autosave_state,
+            editor,
+            page_status,
+            save_status,
+            Some(scroll_position),
+        );
+    }
+}
+
+fn navigate_forward(
+    app_state: &Rc<RefCell<AppState>>,
+    autosave_state: &Rc<RefCell<AutoSaveState>>,
+    editor: &Rc<RefCell<MarkdownEditor>>,
+    page_status: &Rc<RefCell<frame::Frame>>,
+    save_status: &Rc<RefCell<frame::Frame>>,
+) {
+    // Update current entry's scroll position before navigating
+    let scroll_pos = editor.borrow().widget().scroll_row();
+    app_state.borrow_mut().history.update_scroll_position(scroll_pos);
+
+    // Try to navigate forward and extract values before calling load_page_helper
+    let target = {
+        let mut state = app_state.borrow_mut();
+        state.history.go_forward().map(|entry| (entry.page_name.clone(), entry.scroll_position))
+    }; // Borrow is dropped here
+
+    if let Some((page_name, scroll_position)) = target {
+        load_page_helper(
+            &page_name,
+            app_state,
+            autosave_state,
+            editor,
+            page_status,
+            save_status,
+            Some(scroll_position),
+        );
     }
 }
 
@@ -365,6 +524,7 @@ fn main() {
         &editor,
         &page_status,
         &save_status,
+        None,
     );
 
     // Set up immediate restyling on text changes and auto-save
@@ -535,6 +695,7 @@ fn main() {
                                     &editor_ref,
                                     &page_status,
                                     &save_status,
+                                    None,
                                 );
                             });
                             return true;
