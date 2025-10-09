@@ -4,6 +4,9 @@ mod editor;
 mod history;
 mod link_handler;
 mod plugin;
+pub mod text_buffer;
+pub mod text_display;
+pub mod fltk_text_display;
 
 use autosave::AutoSaveState;
 use clap::Parser;
@@ -13,7 +16,7 @@ use history::History;
 use fltk::app::{event_mouse_button, event_x, event_y, MouseButton};
 #[cfg(target_os = "macos")]
 use fltk::enums::Color;
-use fltk::text::{PositionType, TextDisplay};
+use fltk::text::PositionType;
 use fltk::{prelude::*, *};
 use plugin::{IndexPlugin, PluginRegistry};
 use std::cell::RefCell;

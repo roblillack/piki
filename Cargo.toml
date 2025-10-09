@@ -3,6 +3,10 @@ name = "fliki-rs"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "fliki_rs"
+path = "src/lib.rs"
+
 [dependencies]
 fltk = "1.4"
 pulldown-cmark = "0.11"
