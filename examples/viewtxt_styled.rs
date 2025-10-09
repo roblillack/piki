@@ -132,13 +132,14 @@ fn main() {
 
     // Handle window resize
     wind.handle({
-        let text_display = text_display.clone();
+        let mut text_widget_handle = text_widget.clone();
         move |w, event| {
             match event {
                 enums::Event::Resize => {
+                    // Resize the text widget (which will trigger its resize callback)
                     let new_w = w.w() - 10;
                     let new_h = w.h() - 10;
-                    text_display.borrow_mut().resize(5, 5, new_w, new_h);
+                    text_widget_handle.resize(5, 5, new_w, new_h);
                     true
                 }
                 _ => false,

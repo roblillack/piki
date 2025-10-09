@@ -820,6 +820,12 @@ impl TextDisplay {
 
     /// Recalculate the display
     pub fn recalc_display(&mut self) {
+        // Update text area position to account for line numbers
+        self.text_area_x = self.x + self.linenumber_width;
+        self.text_area_y = self.y;
+        self.text_area_w = self.w - self.linenumber_width;
+        self.text_area_h = self.h;
+
         if let Some(ref buffer) = self.buffer {
             let buf = buffer.borrow();
 
@@ -1610,7 +1616,7 @@ impl TextDisplay {
         let mut fsize = self.text_size;
         let mut foreground = self.text_color;
         let mut background;
-        let mut bgbasecolor = self.text_color; // Widget background color would go here
+        let mut bgbasecolor = 0xFFFFFFFF; // Default white background
 
         // Get style-specific colors
         if (style & STYLE_LOOKUP_MASK) != 0 {

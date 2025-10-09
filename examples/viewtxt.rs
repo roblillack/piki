@@ -4,11 +4,11 @@
 use fliki_rs::fltk_text_display::create_text_display_widget;
 use fliki_rs::text_buffer::TextBuffer;
 use fltk::{prelude::*, *};
+use std::cell::RefCell;
 use std::env;
 use std::fs;
 use std::process;
 use std::rc::Rc;
-use std::cell::RefCell;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -41,10 +41,10 @@ fn main() {
 
     // Create text display widget with 5px padding
     let (mut text_widget, text_display) = create_text_display_widget(
-        5,      // x
-        5,      // y
-        790,    // width (800 - 10)
-        590,    // height (600 - 10)
+        5,   // x
+        5,   // y
+        790, // width (800 - 10)
+        590, // height (600 - 10)
     );
 
     // Set up the buffer
@@ -69,14 +69,14 @@ fn main() {
 
     // Handle window resize
     wind.handle({
-        let text_display = text_display.clone();
+        let mut text_widget_handle = text_widget.clone();
         move |w, event| {
             match event {
                 enums::Event::Resize => {
-                    // Update text display size when window resizes
+                    // Resize the text widget (which will trigger its resize callback)
                     let new_w = w.w() - 10;
                     let new_h = w.h() - 10;
-                    text_display.borrow_mut().resize(5, 5, new_w, new_h);
+                    text_widget_handle.resize(5, 5, new_w, new_h);
                     true
                 }
                 _ => false,
@@ -84,9 +84,9 @@ fn main() {
         }
     });
 
+    wind.make_resizable(true);
     wind.end();
     wind.show();
-    wind.make_resizable(true);
 
     // Make the text widget take focus initially
     text_widget.take_focus().ok();
