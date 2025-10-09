@@ -2,9 +2,9 @@
 // Simple wrapper implementation
 
 use crate::text_display::{DrawContext, TextDisplay};
-use fltk::{prelude::*, enums::*, draw as fltk_draw, valuator::Scrollbar};
-use std::rc::Rc;
+use fltk::{draw as fltk_draw, enums::*, prelude::*, valuator::Scrollbar};
 use std::cell::RefCell;
+use std::rc::Rc;
 
 /// FLTK implementation of DrawContext
 pub struct FltkDrawContext {
@@ -34,7 +34,17 @@ impl DrawContext for FltkDrawContext {
     }
 
     fn draw_text(&mut self, text: &str, x: i32, y: i32) {
-        fltk_draw::draw_text2(text, x, y, 0, 0, Align::Left);
+        // y is the baseline coordinate from text_display
+        // For draw_text2, offset by negative descent plus 2 for fine-tuning
+        // This allows descenders to extend below the baseline
+        fltk_draw::draw_text2(
+            text,
+            x,
+            y, /*- fltk_draw::descent() + 2*/
+            0,
+            0,
+            Align::Left,
+        );
     }
 
     fn draw_rect_filled(&mut self, x: i32, y: i32, w: i32, h: i32) {
@@ -134,7 +144,12 @@ pub fn create_text_display_widget(
     let scrollbar_size = 15; // Standard scrollbar width
 
     // Create text display with room for scrollbars
-    let text_display = Rc::new(RefCell::new(TextDisplay::new(x, y, w - scrollbar_size, h - scrollbar_size)));
+    let text_display = Rc::new(RefCell::new(TextDisplay::new(
+        x,
+        y,
+        w - scrollbar_size,
+        h - scrollbar_size,
+    )));
 
     // Create vertical scrollbar
     let mut vscroll = Scrollbar::default()
@@ -212,8 +227,9 @@ pub fn create_text_display_widget(
         let mut vscroll_draw = vscroll.clone();
         let mut hscroll_draw = hscroll.clone();
         move |w| {
-            let disp = text_display.borrow();
-            let has_focus = fltk::app::focus().map(|f| f.as_base_widget()).as_ref() == Some(&w.as_base_widget());
+            let mut disp = text_display.borrow_mut();
+            let has_focus = fltk::app::focus().map(|f| f.as_base_widget()).as_ref()
+                == Some(&w.as_base_widget());
             let is_active = w.active();
             let mut ctx = FltkDrawContext::new(has_focus, is_active);
 
@@ -375,7 +391,9 @@ pub fn create_text_display_widget(
         let sb_size = scrollbar_size;
         move |_w, x, y, width, height| {
             // Update text display size (leaving room for scrollbars)
-            text_display.borrow_mut().resize(x, y, width - sb_size, height - sb_size);
+            text_display
+                .borrow_mut()
+                .resize(x, y, width - sb_size, height - sb_size);
 
             // Reposition and resize scrollbars
             vscroll_resize.resize(x + width - sb_size, y, sb_size, height - sb_size);

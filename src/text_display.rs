@@ -187,6 +187,9 @@ pub struct TextDisplay {
 
     // Display recalc flag
     needs_recalc: bool,
+
+    // Font metrics calculated flag
+    font_metrics_calculated: bool,
 }
 
 impl TextDisplay {
@@ -240,6 +243,7 @@ impl TextDisplay {
             text_area_w: w,
             text_area_h: h,
             needs_recalc: true,
+            font_metrics_calculated: false,
         }
     }
 
@@ -250,11 +254,14 @@ impl TextDisplay {
     /// Calculate font metrics based on current font and style settings
     fn calculate_font_metrics(&mut self) {
         // Base metrics from default font
-        self.max_font_height = self.text_size as i32;
+        // Font height is approximately 1.2x the point size (accounts for ascent + descent + leading)
+        // This matches typical font metrics behavior
+        self.max_font_height = ((self.text_size as f64) * 1.2) as i32;
 
         // Check all style fonts to find maximum height
         for style in &self.style_table {
-            self.max_font_height = max(self.max_font_height, style.size as i32);
+            let style_height = ((style.size as f64) * 1.2) as i32;
+            self.max_font_height = max(self.max_font_height, style_height);
         }
 
         // Calculate average character width for monospace assumption
@@ -263,6 +270,25 @@ impl TextDisplay {
         self.max_font_width = (self.text_size as f64 * 0.6) as i32;
 
         // Update column scale for x/col conversions
+        self.column_scale = self.max_font_width as f64;
+    }
+
+    /// Update font metrics using actual font measurements from DrawContext
+    /// This should be called during draw to get precise measurements
+    fn update_font_metrics_from_context(&mut self, ctx: &mut dyn DrawContext) {
+        // Get actual height from default font
+        self.max_font_height = ctx.text_height(self.text_font, self.text_size);
+
+        // Check all style fonts to find maximum height
+        for style in &self.style_table {
+            let style_height = ctx.text_height(style.font, style.size);
+            self.max_font_height = max(self.max_font_height, style_height);
+        }
+
+        // Update width measurement using actual font metrics
+        let sample = "Mitg";
+        let sample_width = ctx.text_width(sample, self.text_font, self.text_size);
+        self.max_font_width = (sample_width / 4.0) as i32;
         self.column_scale = self.max_font_width as f64;
     }
 
@@ -646,6 +672,7 @@ impl TextDisplay {
     /// Set text font
     pub fn set_textfont(&mut self, font: u8) {
         self.text_font = font;
+        self.font_metrics_calculated = false; // Need to recalculate with new font
         self.calculate_font_metrics();
         self.display_needs_recalc();
     }
@@ -658,6 +685,7 @@ impl TextDisplay {
     /// Set text size
     pub fn set_textsize(&mut self, size: u8) {
         self.text_size = size;
+        self.font_metrics_calculated = false; // Need to recalculate with new size
         self.calculate_font_metrics();
         self.display_needs_recalc();
     }
@@ -810,6 +838,7 @@ impl TextDisplay {
     pub fn set_highlight_data(&mut self, style_table: Vec<StyleTableEntry>) {
         self.n_styles = style_table.len();
         self.style_table = style_table;
+        self.font_metrics_calculated = false; // Need to recalculate with new styles
         self.calculate_font_metrics(); // Styles may have different font sizes
         self.display_needs_recalc();
     }
@@ -1307,7 +1336,9 @@ impl TextDisplay {
             None
         } else if let Some(ref buffer) = self.buffer {
             let buf = buffer.borrow();
-            Some(buf.text_range(line_start_pos, line_start_pos + line_len))
+            let text = buf.text_range(line_start_pos, line_start_pos + line_len);
+            // Filter out carriage returns to prevent ^M display on Windows line endings
+            Some(text.replace('\r', ""))
         } else {
             None
         };
@@ -1870,7 +1901,15 @@ impl TextDisplay {
     }
 
     /// Main drawing function - draws the entire text display
-    pub fn draw(&self, ctx: &mut dyn DrawContext) {
+    pub fn draw(&mut self, ctx: &mut dyn DrawContext) {
+        // Update font metrics on first draw to get accurate measurements
+        if !self.font_metrics_calculated {
+            self.update_font_metrics_from_context(ctx);
+            self.font_metrics_calculated = true;
+            // Recalculate display with correct metrics
+            self.recalc_display();
+        }
+
         // Draw the text content
         self.draw_text(
             self.text_area_x,
