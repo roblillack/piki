@@ -34,17 +34,7 @@ impl DrawContext for FltkDrawContext {
     }
 
     fn draw_text(&mut self, text: &str, x: i32, y: i32) {
-        // y is the baseline coordinate from text_display
-        // For draw_text2, offset by negative descent plus 2 for fine-tuning
-        // This allows descenders to extend below the baseline
-        fltk_draw::draw_text2(
-            text,
-            x,
-            y, /*- fltk_draw::descent() + 2*/
-            0,
-            0,
-            Align::Left,
-        );
+        fltk_draw::draw_text(text, x, y);
     }
 
     fn draw_rect_filled(&mut self, x: i32, y: i32, w: i32, h: i32) {
