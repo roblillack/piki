@@ -190,6 +190,11 @@ pub struct TextDisplay {
 
     // Font metrics calculated flag
     font_metrics_calculated: bool,
+
+    // Selection/drag state
+    drag_pos: usize,
+    drag_type: DragType,
+    dragging: bool,
 }
 
 impl TextDisplay {
@@ -244,6 +249,9 @@ impl TextDisplay {
             text_area_h: h,
             needs_recalc: true,
             font_metrics_calculated: false,
+            drag_pos: 0,
+            drag_type: DragType::None,
+            dragging: false,
         }
     }
 
@@ -1075,6 +1083,216 @@ impl TextDisplay {
         } else {
             false
         }
+    }
+
+    // ========================================================================
+    // Mouse/Selection Handling
+    // ========================================================================
+
+    /// Handle mouse press event
+    /// Returns true if the event was handled
+    pub fn handle_push(&mut self, x: i32, y: i32, shift: bool, clicks: i32) -> bool {
+        if self.buffer.is_none() {
+            return false;
+        }
+
+        let pos = self.xy_to_position(x, y, PositionType::CursorPos);
+
+        if shift {
+            // Shift-click: extend selection from current cursor to clicked position
+            if let Some(ref buffer) = self.buffer {
+                let buf = buffer.borrow();
+                if buf.primary_selection().selected() {
+                    self.drag_pos = self.cursor_pos;
+                } else {
+                    self.drag_pos = self.cursor_pos;
+                }
+            }
+            self.dragging = true;
+            self.update_drag_selection(pos);
+            return true;
+        }
+
+        // Check if clicking within existing selection
+        if let Some(ref buffer) = self.buffer {
+            let buf = buffer.borrow();
+            if buf.primary_selection().contains(pos) {
+                self.drag_type = DragType::StartDnd;
+                self.drag_pos = pos;
+                self.dragging = true;
+                return true;
+            }
+        }
+
+        // Start new selection based on click count
+        self.dragging = true;
+        self.drag_pos = pos;
+
+        match clicks {
+            0 => {
+                // Single click: character selection
+                self.drag_type = DragType::Char;
+                if let Some(ref buffer) = self.buffer {
+                    buffer.borrow_mut().unselect();
+                }
+                self.set_insert_position(pos);
+            }
+            1 => {
+                // Double click: word selection
+                self.drag_type = DragType::Word;
+                let start = self.word_start(pos);
+                let end = self.word_end(pos);
+                if let Some(ref buffer) = self.buffer {
+                    buffer.borrow_mut().select(start, end);
+                }
+                self.drag_pos = start;
+                self.set_insert_position(end);
+            }
+            _ => {
+                // Triple+ click: set drag type but actual selection happens on release
+                // This matches C++ FLTK behavior where line selection is finalized on release
+                self.drag_type = if clicks == 2 { DragType::Line } else { DragType::Char };
+                if let Some(ref buffer) = self.buffer {
+                    buffer.borrow_mut().unselect();
+                }
+                self.set_insert_position(pos);
+            }
+        }
+
+        self.show_insert_position();
+        true
+    }
+
+    /// Handle mouse drag event
+    /// Returns true if the event was handled
+    pub fn handle_drag(&mut self, x: i32, y: i32) -> bool {
+        if !self.dragging || self.buffer.is_none() {
+            return false;
+        }
+
+        if matches!(self.drag_type, DragType::StartDnd) {
+            // DND not yet implemented
+            return true;
+        }
+
+        let pos = self.xy_to_position(x, y, PositionType::CursorPos);
+        self.update_drag_selection(pos);
+        self.show_insert_position();
+        true
+    }
+
+    /// Handle mouse release event
+    /// Returns true if the event was handled
+    pub fn handle_release(&mut self, _x: i32, _y: i32, clicks: i32) -> bool {
+        if !self.dragging {
+            return false;
+        }
+
+        self.dragging = false;
+
+        // Handle triple-click line selection on release (matches C++ FLTK behavior)
+        // C++ checks event_clicks() on release, which is preserved through the event
+        if clicks == 2 {
+            // Triple-click: select entire line
+            if let Some(ref buffer) = self.buffer {
+                let buf = buffer.borrow();
+                let start = buf.line_start(self.drag_pos);
+                let line_end = buf.line_end(self.drag_pos);
+                let end = if line_end < buf.length() {
+                    buf.next_char(line_end)
+                } else {
+                    line_end
+                };
+                drop(buf);
+                buffer.borrow_mut().select(start, end);
+            }
+            self.drag_pos = self.line_start(self.drag_pos);
+        }
+
+        // Convert word/line selection back to character selection for future drags
+        if !matches!(self.drag_type, DragType::Char) {
+            self.drag_type = DragType::Char;
+        }
+
+        true
+    }
+
+    /// Update selection based on drag position
+    fn update_drag_selection(&mut self, pos: usize) {
+        if self.buffer.is_none() {
+            return;
+        }
+
+        let new_cursor_pos = match self.drag_type {
+            DragType::Char => {
+                // Character-by-character selection
+                let buffer = self.buffer.as_ref().unwrap();
+                let mut buf = buffer.borrow_mut();
+                if pos >= self.drag_pos {
+                    buf.select(self.drag_pos, pos);
+                    pos
+                } else {
+                    buf.select(pos, self.drag_pos);
+                    pos
+                }
+            }
+            DragType::Word => {
+                // Word selection
+                let start;
+                let end;
+                if pos >= self.drag_pos {
+                    start = self.word_start(self.drag_pos);
+                    end = self.word_end(pos);
+                } else {
+                    start = self.word_start(pos);
+                    end = self.word_end(self.drag_pos);
+                }
+                let buffer = self.buffer.as_ref().unwrap();
+                buffer.borrow_mut().select(start, end);
+                if pos >= self.drag_pos {
+                    end
+                } else {
+                    start
+                }
+            }
+            DragType::Line => {
+                // Line selection
+                let buffer = self.buffer.as_ref().unwrap();
+                let buf = buffer.borrow();
+                let start;
+                let end;
+                if pos >= self.drag_pos {
+                    start = buf.line_start(self.drag_pos);
+                    let line_end = buf.line_end(pos);
+                    end = if line_end < buf.length() {
+                        buf.next_char(line_end)
+                    } else {
+                        line_end
+                    };
+                } else {
+                    start = buf.line_start(pos);
+                    let line_end = buf.line_end(self.drag_pos);
+                    end = if line_end < buf.length() {
+                        buf.next_char(line_end)
+                    } else {
+                        line_end
+                    };
+                }
+                drop(buf); // Drop the borrow before the next mutable borrow
+                buffer.borrow_mut().select(start, end);
+                if pos >= self.drag_pos {
+                    end
+                } else {
+                    start
+                }
+            }
+            DragType::None | DragType::StartDnd => {
+                // No selection update
+                return;
+            }
+        };
+
+        self.set_insert_position(new_cursor_pos);
     }
 
     // ========================================================================

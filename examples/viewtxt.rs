@@ -3,6 +3,7 @@
 
 use fliki_rs::fltk_text_display::create_text_display_widget;
 use fliki_rs::text_buffer::TextBuffer;
+use fliki_rs::text_display::WrapMode;
 use fltk::{prelude::*, *};
 use std::cell::RefCell;
 use std::env;
@@ -58,6 +59,9 @@ fn main() {
     text_display.borrow_mut().set_textcolor(0x000000FF); // Black text
     text_display.borrow_mut().set_cursor_color(0x000000FF); // Black cursor
     text_display.borrow_mut().show_cursor(true);
+
+    // Enable text wrapping at window bounds
+    text_display.borrow_mut().set_wrap_mode(WrapMode::AtBounds, 0);
 
     // Enable line numbers
     text_display.borrow_mut().set_linenumber_width(50);

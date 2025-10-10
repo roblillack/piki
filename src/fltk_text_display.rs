@@ -130,6 +130,8 @@ impl DrawContext for FltkDrawContext {
     }
 }
 
+use std::time::{Instant, Duration};
+
 /// Simple FLTK widget wrapper for TextDisplay
 /// Use fltk::group::Group::new() and add custom draw/handle callbacks
 pub fn create_text_display_widget(
@@ -139,6 +141,10 @@ pub fn create_text_display_widget(
     h: i32,
 ) -> (fltk::group::Group, Rc<RefCell<TextDisplay>>) {
     let mut widget = fltk::group::Group::new(x, y, w, h, None);
+
+    // Track click timing for triple-click detection
+    let last_click_time = Rc::new(RefCell::new(Instant::now() - Duration::from_secs(10)));
+    let click_count = Rc::new(RefCell::new(0i32));
 
     // Calculate scrollbar size
     let scrollbar_size = 15; // Standard scrollbar width
@@ -285,12 +291,73 @@ pub fn create_text_display_widget(
         let text_display = text_display.clone();
         let mut vscroll_handle = vscroll.clone();
         let mut hscroll_handle = hscroll.clone();
+        let last_click_time = last_click_time.clone();
+        let click_count = click_count.clone();
         move |w, event| {
             match event {
                 Event::Push => {
                     w.take_focus().ok();
+
+                    // Handle mouse click for text selection
+                    let x = fltk::app::event_x();
+                    let y = fltk::app::event_y();
+                    let shift = fltk::app::event_state().contains(fltk::enums::Shortcut::Shift);
+
+                    // Track multi-clicks manually since FLTK Rust only gives us bool
+                    let now = Instant::now();
+                    let elapsed = now.duration_since(*last_click_time.borrow());
+                    let mut count = click_count.borrow_mut();
+
+                    // FLTK typically uses 500ms for multi-click detection
+                    if elapsed < Duration::from_millis(500) {
+                        *count += 1;
+                    } else {
+                        *count = 0;
+                    }
+                    *last_click_time.borrow_mut() = now;
+
+                    let clicks = *count;
+                    eprintln!("PUSH: clicks={}", clicks);
+
+                    let mut disp = text_display.borrow_mut();
+                    if disp.handle_push(x, y, shift, clicks) {
+                        w.redraw();
+                        return true;
+                    }
+
                     w.redraw();
                     true
+                }
+                Event::Drag => {
+                    // Handle mouse drag for text selection
+                    let x = fltk::app::event_x();
+                    let y = fltk::app::event_y();
+
+                    let mut disp = text_display.borrow_mut();
+                    if disp.handle_drag(x, y) {
+                        // Update scrollbar positions during drag
+                        vscroll_handle.set_value(disp.top_line_num() as f64);
+                        hscroll_handle.set_value(disp.horiz_offset() as f64);
+                        w.redraw();
+                        return true;
+                    }
+                    false
+                }
+                Event::Released => {
+                    // Handle mouse release to finalize selection
+                    let x = fltk::app::event_x();
+                    let y = fltk::app::event_y();
+                    let clicks = *click_count.borrow();
+                    let is_click = fltk::app::event_is_click();
+
+                    eprintln!("RELEASE: clicks={}, is_click={}", clicks, is_click);
+
+                    let mut disp = text_display.borrow_mut();
+                    if disp.handle_release(x, y, clicks) {
+                        w.redraw();
+                        return true;
+                    }
+                    false
                 }
                 Event::Focus | Event::Unfocus => {
                     w.redraw();
