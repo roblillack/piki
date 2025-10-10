@@ -143,9 +143,12 @@ pub fn create_text_display_widget(
     let text_display = Rc::new(RefCell::new(TextDisplay::new(
         x,
         y,
-        w - scrollbar_size,
-        h - scrollbar_size,
+        w,
+        h,
     )));
+
+    // Set scrollbar width so text wrapping accounts for it
+    text_display.borrow_mut().set_scrollbar_width(scrollbar_size);
 
     // Create vertical scrollbar
     let mut vscroll = Scrollbar::default()
@@ -513,16 +516,20 @@ pub fn create_text_display_widget(
         let text_display = text_display.clone();
         let mut vscroll_resize = vscroll.clone();
         let mut hscroll_resize = hscroll.clone();
+        let mut widget_resize = widget.clone();
         let sb_size = scrollbar_size;
         move |_w, x, y, width, height| {
-            // Update text display size (leaving room for scrollbars)
+            // Update text display size (full size, scrollbar accounted for internally)
             text_display
                 .borrow_mut()
-                .resize(x, y, width - sb_size, height - sb_size);
+                .resize(x, y, width, height);
 
             // Reposition and resize scrollbars
             vscroll_resize.resize(x + width - sb_size, y, sb_size, height - sb_size);
             hscroll_resize.resize(x, y + height - sb_size, width - sb_size, sb_size);
+
+            // Trigger redraw to show updated wrapping
+            widget_resize.redraw();
         }
     });
 

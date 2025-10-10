@@ -195,6 +195,10 @@ fn main() {
     // Disable line numbers (like main application)
     text_display.borrow_mut().set_linenumber_width(0);
 
+    // Set padding: 10px vertical, 25px horizontal
+    text_display.borrow_mut().set_padding_vertical(10);
+    text_display.borrow_mut().set_padding_horizontal(25);
+
     // Set widget color to match main application
     text_widget.set_color(enums::Color::from_rgb(255, 255, 245));
     text_widget.set_frame(enums::FrameType::FlatBox);

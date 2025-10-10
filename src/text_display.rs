@@ -168,6 +168,12 @@ pub struct TextDisplay {
     scrollbar_width: i32,
     scrollbar_align: u32,
 
+    // Padding
+    padding_top: i32,
+    padding_bottom: i32,
+    padding_left: i32,
+    padding_right: i32,
+
     // Tab distance
     column_scale: f64,
 
@@ -238,6 +244,10 @@ impl TextDisplay {
             linenumber_align: 0,
             scrollbar_width: 0,
             scrollbar_align: 0,
+            padding_top: 0,
+            padding_bottom: 0,
+            padding_left: 0,
+            padding_right: 0,
             column_scale: 0.0,
             damage_range1: (0, 0),
             damage_range2: (0, 0),
@@ -821,6 +831,7 @@ impl TextDisplay {
     /// Set scrollbar width
     pub fn set_scrollbar_width(&mut self, width: i32) {
         self.scrollbar_width = width;
+        self.display_needs_recalc();
     }
 
     /// Get scrollbar width
@@ -839,6 +850,38 @@ impl TextDisplay {
     }
 
     // ========================================================================
+    // Padding
+    // ========================================================================
+
+    /// Set padding for all sides (top, bottom, left, right)
+    pub fn set_padding(&mut self, top: i32, bottom: i32, left: i32, right: i32) {
+        self.padding_top = top;
+        self.padding_bottom = bottom;
+        self.padding_left = left;
+        self.padding_right = right;
+        self.display_needs_recalc();
+    }
+
+    /// Set vertical padding (top and bottom)
+    pub fn set_padding_vertical(&mut self, padding: i32) {
+        self.padding_top = padding;
+        self.padding_bottom = padding;
+        self.display_needs_recalc();
+    }
+
+    /// Set horizontal padding (left and right)
+    pub fn set_padding_horizontal(&mut self, padding: i32) {
+        self.padding_left = padding;
+        self.padding_right = padding;
+        self.display_needs_recalc();
+    }
+
+    /// Get padding values (top, bottom, left, right)
+    pub fn padding(&self) -> (i32, i32, i32, i32) {
+        (self.padding_top, self.padding_bottom, self.padding_left, self.padding_right)
+    }
+
+    // ========================================================================
     // Highlighting
     // ========================================================================
 
@@ -852,16 +895,60 @@ impl TextDisplay {
     }
 
     // ========================================================================
+    // Text Measurement with Styling
+    // ========================================================================
+
+    /// Measure the pixel width of text accounting for styled fonts and sizes
+    fn measure_text_width_styled(&self, text: &str, start_pos: usize, ctx: &mut dyn DrawContext) -> f64 {
+        // If no style buffer, use default font
+        let Some(ref style_buffer) = self.style_buffer else {
+            return ctx.text_width(text, self.text_font, self.text_size);
+        };
+
+        let style_buf = style_buffer.borrow();
+        let mut total_width = 0.0;
+        let mut current_pos = start_pos;
+        let mut chars = text.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            // Get style for this character
+            let (font, size) = if current_pos < style_buf.length() {
+                let style_char = style_buf.byte_at(current_pos);
+                let style_index = ((style_char as i32 - b'A' as i32)
+                    .max(0)
+                    .min((self.n_styles - 1) as i32)) as usize;
+
+                if style_index < self.style_table.len() {
+                    let style = &self.style_table[style_index];
+                    (style.font, style.size)
+                } else {
+                    (self.text_font, self.text_size)
+                }
+            } else {
+                (self.text_font, self.text_size)
+            };
+
+            // Measure this character with its style
+            let char_str = ch.to_string();
+            total_width += ctx.text_width(&char_str, font, size);
+
+            current_pos += ch.len_utf8();
+        }
+
+        total_width
+    }
+
+    // ========================================================================
     // Display Recalculation
     // ========================================================================
 
-    /// Recalculate the display
-    pub fn recalc_display(&mut self) {
-        // Update text area position to account for line numbers
-        self.text_area_x = self.x + self.linenumber_width;
-        self.text_area_y = self.y;
-        self.text_area_w = self.w - self.linenumber_width;
-        self.text_area_h = self.h;
+    /// Recalculate the display with DrawContext for accurate pixel-based text measurement
+    pub fn recalc_display_with_context(&mut self, ctx: &mut dyn DrawContext) {
+        // Update text area position to account for line numbers and padding
+        self.text_area_x = self.x + self.linenumber_width + self.padding_left;
+        self.text_area_y = self.y + self.padding_top;
+        self.text_area_w = self.w - self.linenumber_width - self.scrollbar_width - self.padding_left - self.padding_right;
+        self.text_area_h = self.h - self.scrollbar_width - self.padding_top - self.padding_bottom;
 
         if let Some(ref buffer) = self.buffer {
             let buf = buffer.borrow();
@@ -894,36 +981,64 @@ impl TextDisplay {
                     let line_end = buf.line_end(pos);
                     let line_text_len = line_end - pos;
 
-                    // Calculate how many characters fit in wrap margin
-                    let chars_per_line = match self.wrap_mode {
-                        WrapMode::AtColumn => self.wrap_margin as usize,
-                        WrapMode::AtPixel => (self.wrap_margin / self.max_font_width) as usize,
-                        WrapMode::AtBounds => (self.text_area_w / self.max_font_width) as usize,
-                        WrapMode::None => usize::MAX,
-                    };
+                    if line_text_len > 0 {
+                        // Pixel-based wrapping: measure actual text width with proper styling
+                        let line_text = buf.text_range(pos, line_end);
 
-                    if chars_per_line < usize::MAX && line_text_len > 0 {
-                        // Count characters that fit on this wrapped line
-                        let chars_on_line = buf.count_displayed_characters(pos, line_end);
+                        // Calculate wrap width based on wrap mode
+                        let wrap_width = match self.wrap_mode {
+                            WrapMode::AtColumn => (self.wrap_margin * self.max_font_width) as f64,
+                            WrapMode::AtPixel => self.wrap_margin as f64,
+                            WrapMode::AtBounds => self.text_area_w as f64,
+                            WrapMode::None => f64::MAX,
+                        };
 
-                        if chars_on_line > chars_per_line {
-                            // Line needs wrapping - advance by wrap margin
-                            pos = buf.skip_displayed_characters(pos, chars_per_line);
+                        // Measure width with styling
+                        let text_width = self.measure_text_width_styled(&line_text, pos, ctx);
 
-                            // Try to break at word boundary if possible
-                            if pos < line_end && pos > 0 {
-                                // Look back a few characters for whitespace
-                                let mut wrap_pos = pos;
-                                let lookback = min(10, chars_per_line / 4);
-                                for _ in 0..lookback {
-                                    if wrap_pos <= self.line_starts[i] {
-                                        break;
+                        if text_width > wrap_width {
+                            // Text is too wide, need to find wrap point by binary search
+                            let mut low = 0;
+                            let mut high = line_text.chars().count();
+                            let mut wrap_chars = high;
+
+                            while low < high {
+                                let mid = (low + high + 1) / 2;
+                                let test_text: String = line_text.chars().take(mid).collect();
+                                let test_width = self.measure_text_width_styled(&test_text, pos, ctx);
+
+                                if test_width <= wrap_width {
+                                    wrap_chars = mid;
+                                    low = mid;
+                                } else {
+                                    high = mid - 1;
+                                }
+                            }
+
+                            if wrap_chars > 0 {
+                                pos = buf.skip_displayed_characters(pos, wrap_chars);
+
+                                // Try to break at word boundary
+                                if pos < line_end && pos > 0 {
+                                    let mut wrap_pos = pos;
+                                    let lookback = min(10, wrap_chars / 4);
+                                    for _ in 0..lookback {
+                                        if wrap_pos <= self.line_starts[i] {
+                                            break;
+                                        }
+                                        wrap_pos = buf.prev_char(wrap_pos);
+                                        if buf.is_word_separator(wrap_pos) {
+                                            pos = buf.next_char(wrap_pos);
+                                            break;
+                                        }
                                     }
-                                    wrap_pos = buf.prev_char(wrap_pos);
-                                    if buf.is_word_separator(wrap_pos) {
-                                        pos = buf.next_char(wrap_pos); // After the separator
-                                        break;
-                                    }
+                                }
+                            } else {
+                                // Can't fit even one character, move to next line
+                                if line_end < buf.length() {
+                                    pos = buf.next_char(line_end);
+                                } else {
+                                    pos = line_end;
                                 }
                             }
                         } else {
@@ -933,13 +1048,6 @@ impl TextDisplay {
                             } else {
                                 pos = buf.length();
                             }
-                        }
-                    } else {
-                        // No wrapping needed or at end of line
-                        if line_end < buf.length() {
-                            pos = buf.next_char(line_end);
-                        } else {
-                            pos = buf.length();
                         }
                     }
                 } else {
@@ -958,6 +1066,19 @@ impl TextDisplay {
 
         // Always clear the flag, even if there's no buffer
         self.needs_recalc = false;
+    }
+
+    /// Recalculate the display (simple version - just updates coordinates)
+    /// Full line wrapping recalculation happens during draw() with context
+    pub fn recalc_display(&mut self) {
+        // Just update text area position
+        self.text_area_x = self.x + self.linenumber_width + self.padding_left;
+        self.text_area_y = self.y + self.padding_top;
+        self.text_area_w = self.w - self.linenumber_width - self.scrollbar_width - self.padding_left - self.padding_right;
+        self.text_area_h = self.h - self.scrollbar_width - self.padding_top - self.padding_bottom;
+
+        // Mark that full recalculation with wrapping is needed on next draw
+        self.needs_recalc = true;
     }
 
     /// Mark display as needing recalculation
@@ -1322,6 +1443,26 @@ impl TextDisplay {
     /// Get widget height
     pub fn h(&self) -> i32 {
         self.h
+    }
+
+    /// Get text area x position (accounts for line numbers and padding)
+    pub fn text_area_x(&self) -> i32 {
+        self.text_area_x
+    }
+
+    /// Get text area y position (accounts for padding)
+    pub fn text_area_y(&self) -> i32 {
+        self.text_area_y
+    }
+
+    /// Get text area width (accounts for line numbers, scrollbar, and padding)
+    pub fn text_area_w(&self) -> i32 {
+        self.text_area_w
+    }
+
+    /// Get text area height (accounts for scrollbar and padding)
+    pub fn text_area_h(&self) -> i32 {
+        self.text_area_h
     }
 
     /// Resize the widget
@@ -2264,11 +2405,17 @@ impl TextDisplay {
         if !self.font_metrics_calculated {
             self.update_font_metrics_from_context(ctx);
             self.font_metrics_calculated = true;
-            // Recalculate display with correct metrics
-            self.recalc_display();
+            // Recalculate display with correct metrics and pixel-based wrapping
+            self.recalc_display_with_context(ctx);
         }
 
-        // Draw the text content
+        // Check if display needs recalculation (e.g., after padding change)
+        if self.needs_recalc {
+            // Use pixel-based wrapping during recalculation
+            self.recalc_display_with_context(ctx);
+        }
+
+        // Draw the text content (draw_text handles its own clipping)
         self.draw_text(
             self.text_area_x,
             self.text_area_y,
