@@ -298,6 +298,36 @@ pub fn create_text_display_widget(
                 Event::Push => {
                     w.take_focus().ok();
 
+                    // Handle right-click context menu
+                    if fltk::app::event_mouse_button() == fltk::app::MouseButton::Right {
+                        let disp = text_display.borrow();
+                        if let Some(ref buffer) = disp.buffer() {
+                            let buf = buffer.borrow();
+                            if buf.primary_selection().selected() {
+                                // Create and show context menu
+                                use fltk::menu::MenuButton;
+                                let x = fltk::app::event_x();
+                                let y = fltk::app::event_y();
+
+                                let mut menu = MenuButton::new(x, y, 0, 0, None);
+                                menu.add_choice("Copy");
+
+                                // Show popup menu at mouse position
+                                let choice = menu.popup();
+
+                                if let Some(item) = choice {
+                                    if item.label().unwrap_or_default() == "Copy" {
+                                        // Copy selected text to clipboard
+                                        let text = buf.selection_text();
+                                        fltk::app::copy(&text);
+                                    }
+                                }
+                                return true;
+                            }
+                        }
+                        return true;
+                    }
+
                     // Handle mouse click for text selection
                     let x = fltk::app::event_x();
                     let y = fltk::app::event_y();
@@ -317,7 +347,6 @@ pub fn create_text_display_widget(
                     *last_click_time.borrow_mut() = now;
 
                     let clicks = *count;
-                    eprintln!("PUSH: clicks={}", clicks);
 
                     let mut disp = text_display.borrow_mut();
                     if disp.handle_push(x, y, shift, clicks) {
@@ -348,9 +377,6 @@ pub fn create_text_display_widget(
                     let x = fltk::app::event_x();
                     let y = fltk::app::event_y();
                     let clicks = *click_count.borrow();
-                    let is_click = fltk::app::event_is_click();
-
-                    eprintln!("RELEASE: clicks={}, is_click={}", clicks, is_click);
 
                     let mut disp = text_display.borrow_mut();
                     if disp.handle_release(x, y, clicks) {
@@ -365,9 +391,50 @@ pub fn create_text_display_widget(
                 }
                 Event::KeyDown => {
                     let key = fltk::app::event_key();
+                    let state = fltk::app::event_state();
+                    let ctrl_cmd = if cfg!(target_os = "macos") {
+                        state.contains(fltk::enums::Shortcut::Command)
+                    } else {
+                        state.contains(fltk::enums::Shortcut::Ctrl)
+                    };
+
                     let mut disp = text_display.borrow_mut();
 
-                    let handled = match key {
+                    // Check for keyboard shortcuts first by checking key code
+                    let handled = if ctrl_cmd {
+                        // Get the key character code
+                        let key_val = key.bits();
+
+                        // Check for 'c' or 'C' (key codes 99 and 67)
+                        if key_val == 99 || key_val == 67 {
+                            // Ctrl-C / Cmd-C: Copy selection to clipboard
+                            if let Some(ref buffer) = disp.buffer() {
+                                let buf = buffer.borrow();
+                                if buf.primary_selection().selected() {
+                                    let text = buf.selection_text();
+                                    fltk::app::copy(&text);
+                                }
+                            }
+                            true
+                        } else if key_val == 97 || key_val == 65 {
+                            // Ctrl-A / Cmd-A: Select all
+                            if let Some(ref buffer) = disp.buffer() {
+                                let len = buffer.borrow().length();
+                                buffer.borrow_mut().select(0, len);
+                                w.redraw();
+                            }
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    let handled = if handled {
+                        true
+                    } else {
+                        match key {
                         Key::Left => {
                             disp.move_left();
                             disp.show_insert_position();
@@ -418,18 +485,19 @@ pub fn create_text_display_widget(
                             disp.show_insert_position();
                             true
                         }
-                        _ => {
-                            // Handle text input
-                            if let Some(text) = fltk::app::event_text().chars().next() {
-                                if !text.is_control() {
-                                    disp.insert(&text.to_string());
-                                    disp.show_insert_position();
-                                    true
+                            _ => {
+                                // Handle text input
+                                if let Some(text) = fltk::app::event_text().chars().next() {
+                                    if !text.is_control() {
+                                        disp.insert(&text.to_string());
+                                        disp.show_insert_position();
+                                        true
+                                    } else {
+                                        false
+                                    }
                                 } else {
                                     false
                                 }
-                            } else {
-                                false
                             }
                         }
                     };

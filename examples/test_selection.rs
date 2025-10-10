@@ -14,12 +14,15 @@ fn main() {
     let buffer = Rc::new(RefCell::new(TextBuffer::new()));
     buffer.borrow_mut().insert(
         0,
-        "Text Selection Test\n\n\
+        "Text Selection & Copy Test\n\n\
         Try the following:\n\
         - Click and drag to select text\n\
         - Double-click to select a word\n\
         - Triple-click to select a line\n\
-        - Shift-click to extend selection\n\n\
+        - Shift-click to extend selection\n\
+        - Right-click selected text for context menu\n\
+        - Ctrl-C (Cmd-C on Mac) to copy selection\n\
+        - Ctrl-A (Cmd-A on Mac) to select all\n\n\
         Lorem ipsum dolor sit amet, consectetur adipiscing elit.\n\
         Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.\n\
         Ut enim ad minim veniam, quis nostrud exercitation ullamco.\n\
