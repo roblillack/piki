@@ -9,10 +9,10 @@ path = "src/lib.rs"
 
 [dependencies]
 fltk = "1.4"
-pulldown-cmark = "0.11"
+pulldown-cmark = "0.13.0"
 clap = { version = "4.5", features = ["derive"] }
 walkdir = "2.5"
 regex = "1.10"
 
 [patch.crates-io]
-fltk = { git = "https://github.com/fltk-rs/fltk-rs" }
+fltk = { git = "https://github.com/fltk-rs/fltk-rs", rev = "5348ba42" }

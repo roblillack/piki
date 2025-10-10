@@ -1221,7 +1221,7 @@ impl TextDisplay {
                 // Check previous character's style for background extension
                 let style_char = style_buf.byte_at(pos - 1);
                 if style_char != 0 {
-                    let si = ((style_char - b'A') as usize).min(self.n_styles.saturating_sub(1));
+                    let si = (style_char as i32 - b'A' as i32).max(0).min((self.n_styles - 1) as i32) as usize;
                     if si < self.style_table.len() {
                         let style_rec = &self.style_table[si];
                         if (style_rec.attr & style_attr::BGCOLOR_EXT_) == 0 {
@@ -1257,8 +1257,7 @@ impl TextDisplay {
     /// Measure the width of a styled string
     fn string_width(&self, string: &str, length: usize, style: i32, ctx: &mut dyn DrawContext) -> f64 {
         let (font, fsize) = if self.n_styles > 0 && (style & STYLE_LOOKUP_MASK) != 0 {
-            let si = ((style & STYLE_LOOKUP_MASK) - b'A' as i32) as usize;
-            let si = si.min(self.n_styles.saturating_sub(1));
+            let si = ((style & STYLE_LOOKUP_MASK) - b'A' as i32).max(0).min((self.n_styles - 1) as i32) as usize;
             if si < self.style_table.len() {
                 (self.style_table[si].font, self.style_table[si].size)
             } else {
@@ -1611,8 +1610,7 @@ impl TextDisplay {
 
             // Draw underlines or strikethrough if needed
             if (style & STYLE_LOOKUP_MASK) != 0 {
-                let si = ((style & STYLE_LOOKUP_MASK) - b'A' as i32) as usize;
-                let si = si.min(self.n_styles.saturating_sub(1));
+                let si = ((style & STYLE_LOOKUP_MASK) - b'A' as i32).max(0).min((self.n_styles - 1) as i32) as usize;
                 if si < self.style_table.len() {
                     let style_rec = &self.style_table[si];
                     if (style_rec.attr & style_attr::LINES_MASK) != 0 {
@@ -1651,8 +1649,7 @@ impl TextDisplay {
 
         // Get style-specific colors
         if (style & STYLE_LOOKUP_MASK) != 0 {
-            let si = ((style & STYLE_LOOKUP_MASK) - b'A' as i32) as usize;
-            let si = si.min(self.n_styles.saturating_sub(1));
+            let si = ((style & STYLE_LOOKUP_MASK) - b'A' as i32).max(0).min((self.n_styles - 1) as i32) as usize;
 
             if si < self.style_table.len() {
                 let style_rec = &self.style_table[si];
@@ -1738,8 +1735,7 @@ impl TextDisplay {
         let mut bgbasecolor = 0xFFFFFFFF; // Default widget background
 
         if (style & STYLE_LOOKUP_MASK) != 0 {
-            let si = ((style & STYLE_LOOKUP_MASK) - b'A' as i32) as usize;
-            let si = si.min(self.n_styles.saturating_sub(1));
+            let si = ((style & STYLE_LOOKUP_MASK) - b'A' as i32).max(0).min((self.n_styles - 1) as i32) as usize;
 
             if si < self.style_table.len() {
                 let style_rec = &self.style_table[si];
