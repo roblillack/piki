@@ -7,6 +7,7 @@ mod plugin;
 pub mod text_buffer;
 pub mod text_display;
 pub mod fltk_text_display;
+pub mod responsive_scrollbar;
 
 use autosave::AutoSaveState;
 use clap::Parser;

@@ -2,6 +2,7 @@
 // Simple wrapper implementation
 
 use crate::text_display::{DrawContext, TextDisplay};
+use crate::responsive_scrollbar::ResponsiveScrollbar;
 use fltk::{draw as fltk_draw, enums::*, prelude::*, valuator::Scrollbar};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -150,10 +151,17 @@ pub fn create_text_display_widget(
     // Set scrollbar width so text wrapping accounts for it
     text_display.borrow_mut().set_scrollbar_width(scrollbar_size);
 
-    // Create vertical scrollbar
-    let mut vscroll = Scrollbar::default()
-        .with_pos(x + w - scrollbar_size, y)
-        .with_size(scrollbar_size, h - scrollbar_size);
+    // Get background color from widget
+    let bg_color = widget.color();
+
+    // Create responsive vertical scrollbar
+    let mut vscroll = ResponsiveScrollbar::new(
+        x + w - scrollbar_size,
+        y,
+        scrollbar_size,
+        h - scrollbar_size,
+        bg_color,
+    );
     vscroll.set_type(fltk::valuator::ScrollbarType::Vertical);
     vscroll.set_callback({
         let text_display = text_display.clone();
@@ -283,11 +291,31 @@ pub fn create_text_display_widget(
     widget.handle({
         let text_display = text_display.clone();
         let mut vscroll_handle = vscroll.clone();
+        let vscroll_base = vscroll.as_base_widget();
         let mut hscroll_handle = hscroll.clone();
         let last_click_time = last_click_time.clone();
         let click_count = click_count.clone();
         move |w, event| {
             match event {
+                Event::Move => {
+                    // Check if mouse is over scrollbar
+                    let mx = fltk::app::event_x();
+                    let my = fltk::app::event_y();
+                    let sb_x = vscroll_base.x();
+                    let sb_y = vscroll_base.y();
+                    let sb_w = vscroll_base.w();
+                    let sb_h = vscroll_base.h();
+
+                    let over_scrollbar = mx >= sb_x && mx < sb_x + sb_w &&
+                                       my >= sb_y && my < sb_y + sb_h;
+
+                    if !over_scrollbar {
+                        // Only wake scrollbar if mouse is NOT over it
+                        // (let scrollbar handle hover itself)
+                        vscroll_handle.wake();
+                    }
+                    false
+                }
                 Event::Push => {
                     w.take_focus().ok();
 
@@ -360,6 +388,8 @@ pub fn create_text_display_widget(
                         // Update scrollbar positions during drag
                         vscroll_handle.set_value(disp.top_line_num() as f64);
                         hscroll_handle.set_value(disp.horiz_offset() as f64);
+                        // Wake scrollbar when dragging causes scrolling
+                        vscroll_handle.wake();
                         w.redraw();
                         return true;
                     }
@@ -499,6 +529,8 @@ pub fn create_text_display_widget(
                         // Update scrollbar positions after keyboard navigation
                         vscroll_handle.set_value(disp.top_line_num() as f64);
                         hscroll_handle.set_value(disp.horiz_offset() as f64);
+                        // Wake scrollbar when keyboard scrolling
+                        vscroll_handle.wake();
                         w.redraw();
                     }
                     handled
