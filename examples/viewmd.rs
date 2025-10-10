@@ -284,10 +284,14 @@ fn main() {
                         .borrow()
                         .xy_to_position(x, y, PositionType::CursorPos);
 
-                    // Check if we clicked on a link
-                    if let Some(link) = find_link_at_position(&links.borrow(), pos) {
-                        let link_dest = link.destination.clone();
+                    // Check if we clicked on a link - extract link destination and drop borrow
+                    let link_dest = {
+                        let links_borrow = links.borrow();
+                        find_link_at_position(&links_borrow, pos)
+                            .map(|link| link.destination.clone())
+                    }; // Borrow is dropped here
 
+                    if let Some(link_dest) = link_dest {
                         // Resolve the link path relative to current file
                         let target_path = resolve_link_path(&current_dir, &link_dest);
 
