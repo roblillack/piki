@@ -231,14 +231,23 @@ fn main() {
 
                     // Update hovered link and restyle if it changed
                     let new_hover = Some((link.start, link.end));
-                    let mut current_hover = hovered_link.borrow_mut();
-                    if *current_hover != new_hover {
-                        *current_hover = new_hover;
+                    let should_update = {
+                        let mut current_hover = hovered_link.borrow_mut();
+                        let needs_update = *current_hover != new_hover;
+                        if needs_update {
+                            *current_hover = new_hover;
+                        }
+                        needs_update
+                    }; // Borrow is dropped here
 
-                        // Update style buffer with hover styling
+                    if should_update {
+                        // Now safe to restyle and redraw without holding the borrow
                         let content = buffer.borrow().text();
-                        let styled_text =
-                            style_markdown_with_hover(&content, &links.borrow(), *current_hover);
+                        let styled_text = style_markdown_with_hover(
+                            &content,
+                            &links.borrow(),
+                            *hovered_link.borrow(),
+                        );
                         style_buffer.borrow_mut().set_text(&styled_text);
                         widget_clone.redraw();
                     }
@@ -246,11 +255,17 @@ fn main() {
                     wind_clone.set_cursor(enums::Cursor::Arrow);
 
                     // Clear hovered link if it was set
-                    let mut current_hover = hovered_link.borrow_mut();
-                    if current_hover.is_some() {
-                        *current_hover = None;
+                    let should_update = {
+                        let mut current_hover = hovered_link.borrow_mut();
+                        let needs_update = current_hover.is_some();
+                        if needs_update {
+                            *current_hover = None;
+                        }
+                        needs_update
+                    }; // Borrow is dropped here
 
-                        // Update style buffer without hover styling
+                    if should_update {
+                        // Now safe to restyle and redraw without holding the borrow
                         let content = buffer.borrow().text();
                         let styled_text =
                             style_markdown_with_hover(&content, &links.borrow(), None);
