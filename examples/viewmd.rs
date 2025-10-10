@@ -7,6 +7,7 @@ use fliki_rs::text_buffer::TextBuffer;
 use fliki_rs::text_display::{style_attr, PositionType, StyleTableEntry, WrapMode};
 use fltk::app::{event_mouse_button, event_x, event_y, MouseButton};
 use fltk::{prelude::*, *};
+use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use std::cell::RefCell;
 use std::env;
 use std::fs;
@@ -369,7 +370,7 @@ fn style_markdown(content: &str, links: &[Link]) -> String {
     style_markdown_with_hover(content, links, None)
 }
 
-/// Style markdown text with optional hover highlighting
+/// Style markdown text with optional hover highlighting using pulldown-cmark parser
 fn style_markdown_with_hover(
     content: &str,
     links: &[Link],
@@ -378,18 +379,63 @@ fn style_markdown_with_hover(
     let len = content.len();
     let mut styles = vec![STYLE_PLAIN as u8; len];
 
-    // Apply line-by-line styling
-    for (line_idx, line) in content.lines().enumerate() {
-        let line_start = content
-            .lines()
-            .take(line_idx)
-            .map(|l| l.len() + 2) // +1 for newline
-            .sum::<usize>();
+    // Use pulldown-cmark parser to apply styles
+    let parser = Parser::new(content);
 
-        style_line(line, line_start, &mut styles);
+    // Track style state stack for nested elements
+    let mut style_stack: Vec<u8> = Vec::new();
+
+    for (event, range) in parser.into_offset_iter() {
+        match event {
+            Event::Start(tag) => {
+                let style = match tag {
+                    Tag::Heading { level, .. } => match level {
+                        pulldown_cmark::HeadingLevel::H1 => STYLE_HEADER1 as u8,
+                        pulldown_cmark::HeadingLevel::H2 => STYLE_HEADER2 as u8,
+                        pulldown_cmark::HeadingLevel::H3 => STYLE_HEADER3 as u8,
+                        _ => STYLE_HEADER3 as u8, // H4+ use H3 style
+                    },
+                    Tag::BlockQuote(_) => STYLE_QUOTE as u8,
+                    Tag::CodeBlock(_) => STYLE_CODE as u8,
+                    Tag::Emphasis => STYLE_ITALIC as u8,
+                    Tag::Strong => STYLE_BOLD as u8,
+                    Tag::Link { .. } => STYLE_LINK as u8,
+                    _ => STYLE_PLAIN as u8,
+                };
+                style_stack.push(style);
+            }
+            Event::End(tag_end) => {
+                match tag_end {
+                    TagEnd::Heading(_) | TagEnd::BlockQuote(_) | TagEnd::CodeBlock
+                    | TagEnd::Emphasis | TagEnd::Strong | TagEnd::Link => {
+                        style_stack.pop();
+                    }
+                    _ => {}
+                }
+            }
+            Event::Text(_) | Event::Code(_) => {
+                // Apply the current style from the stack
+                let current_style = if matches!(event, Event::Code(_)) {
+                    STYLE_CODE as u8
+                } else {
+                    style_stack.last().copied().unwrap_or(STYLE_PLAIN as u8)
+                };
+
+                for i in range.start..range.end.min(len) {
+                    styles[i] = current_style;
+                }
+            }
+            Event::SoftBreak | Event::HardBreak => {
+                // Line breaks keep plain style
+                for i in range.start..range.end.min(len) {
+                    styles[i] = STYLE_PLAIN as u8;
+                }
+            }
+            _ => {}
+        }
     }
 
-    // Apply link styling (overrides other styles)
+    // Apply link styling with hover support (overrides other styles)
     for link in links {
         let style = if let Some((hover_start, hover_end)) = hovered {
             // Use hover style if this is the hovered link
@@ -409,113 +455,4 @@ fn style_markdown_with_hover(
 
     // Convert to string
     styles.iter().map(|&b| b as char).collect()
-}
-
-/// Style a single line based on Markdown syntax
-fn style_line(line: &str, line_start: usize, styles: &mut [u8]) {
-    let line_end = line_start + line.len();
-
-    // Headers
-    if line.starts_with("# ") {
-        for i in line_start..line_end {
-            styles[i] = STYLE_HEADER1 as u8;
-        }
-        return;
-    } else if line.starts_with("## ") {
-        for i in line_start..line_end {
-            styles[i] = STYLE_HEADER2 as u8;
-        }
-        return;
-    } else if line.starts_with("### ") {
-        for i in line_start..line_end {
-            styles[i] = STYLE_HEADER3 as u8;
-        }
-        return;
-    }
-
-    // Blockquotes
-    if line.starts_with("> ") {
-        for i in line_start..line_end {
-            styles[i] = STYLE_QUOTE as u8;
-        }
-        return;
-    }
-
-    // Code blocks (indented with 4 spaces or tab)
-    if line.starts_with("    ") || line.starts_with("\t") {
-        for i in line_start..line_end {
-            styles[i] = STYLE_CODE as u8;
-        }
-        return;
-    }
-
-    // Inline styles (bold, italic, code)
-    apply_inline_styles(line, line_start, styles);
-}
-
-/// Apply inline styles like **bold**, *italic*, `code`
-fn apply_inline_styles(line: &str, line_start: usize, styles: &mut [u8]) {
-    let chars: Vec<char> = line.chars().collect();
-    let mut i = 0;
-
-    while i < chars.len() {
-        // Code spans `code`
-        if chars[i] == '`' {
-            if let Some(end) = chars[i + 1..].iter().position(|&c| c == '`') {
-                let end_idx = i + 1 + end;
-                for j in i..=end_idx {
-                    if line_start + j < styles.len() {
-                        styles[line_start + j] = STYLE_CODE as u8;
-                    }
-                }
-                i = end_idx + 1;
-                continue;
-            }
-        }
-
-        // Bold **text**
-        if i + 1 < chars.len() && chars[i] == '*' && chars[i + 1] == '*' {
-            if let Some(end) = find_delimiter(&chars[i + 2..], "**") {
-                let end_idx = i + 2 + end;
-                for j in i..=end_idx + 1 {
-                    if line_start + j < styles.len() {
-                        styles[line_start + j] = STYLE_BOLD as u8;
-                    }
-                }
-                i = end_idx + 2;
-                continue;
-            }
-        }
-
-        // Italic *text*
-        if chars[i] == '*' {
-            if let Some(end) = chars[i + 1..].iter().position(|&c| c == '*') {
-                let end_idx = i + 1 + end;
-                for j in i..=end_idx {
-                    if line_start + j < styles.len() {
-                        styles[line_start + j] = STYLE_ITALIC as u8;
-                    }
-                }
-                i = end_idx + 1;
-                continue;
-            }
-        }
-
-        i += 1;
-    }
-}
-
-/// Helper function to find a delimiter in a character slice
-fn find_delimiter(chars: &[char], delim: &str) -> Option<usize> {
-    let delim_chars: Vec<char> = delim.chars().collect();
-    let delim_len = delim_chars.len();
-
-    for i in 0..chars.len() {
-        if i + delim_len <= chars.len() {
-            if chars[i..i + delim_len] == delim_chars[..] {
-                return Some(i);
-            }
-        }
-    }
-    None
 }
