@@ -81,97 +81,99 @@ fn main() {
     let style_buffer = Rc::new(RefCell::new(TextBuffer::new()));
     let styled_text = style_markdown(&contents, &links.borrow());
     style_buffer.borrow_mut().set_text(&styled_text);
-    text_display.borrow_mut().set_style_buffer(style_buffer.clone());
+    text_display
+        .borrow_mut()
+        .set_style_buffer(style_buffer.clone());
 
     // Define style table matching main application
     let style_table = vec![
         // Style A - STYLE_PLAIN
         StyleTableEntry {
-            color: 0x000000FF,      // Black
-            font: 0,                // Helvetica
+            color: 0x000000FF, // Black
+            font: 0,           // Helvetica
             size: DEFAULT_FONT_SIZE,
-            attr: 0,
-            bgcolor: 0xFFFFF5FF,    // Light yellow background (255, 255, 245)
+            attr: style_attr::BGCOLOR,
+            bgcolor: 0xFFFFF5FF, // Light yellow background (255, 255, 245)
         },
         // Style B - STYLE_BOLD
         StyleTableEntry {
-            color: 0x000000FF,      // Black
-            font: 1,                // HelveticaBold
+            color: 0x000000FF, // Black
+            font: 1,           // HelveticaBold
             size: DEFAULT_FONT_SIZE,
-            attr: 0,
+            attr: style_attr::BGCOLOR,
             bgcolor: 0xFFFFF5FF,
         },
         // Style C - STYLE_ITALIC
         StyleTableEntry {
-            color: 0x000000FF,      // Black
-            font: 2,                // HelveticaItalic
+            color: 0x000000FF, // Black
+            font: 2,           // HelveticaItalic
             size: DEFAULT_FONT_SIZE,
-            attr: 0,
+            attr: style_attr::BGCOLOR,
             bgcolor: 0xFFFFF5FF,
         },
         // Style D - STYLE_BOLD_ITALIC
         StyleTableEntry {
-            color: 0x000000FF,      // Black
-            font: 3,                // HelveticaBoldItalic
+            color: 0x000000FF, // Black
+            font: 3,           // HelveticaBoldItalic
             size: DEFAULT_FONT_SIZE,
-            attr: 0,
+            attr: style_attr::BGCOLOR,
             bgcolor: 0xFFFFF5FF,
         },
         // Style E - STYLE_CODE
         StyleTableEntry {
-            color: 0x0064C8FF,      // Blue (0, 100, 200)
-            font: 4,                // Courier
+            color: 0x0064C8FF, // Blue (0, 100, 200)
+            font: 4,           // Courier
             size: DEFAULT_FONT_SIZE,
-            attr: 0,
+            attr: style_attr::BGCOLOR,
             bgcolor: 0xFFFFF5FF,
         },
         // Style F - STYLE_LINK
         StyleTableEntry {
-            color: 0x0000FFFF,      // Blue
-            font: 0,                // Helvetica
+            color: 0x0000FFFF, // Blue
+            font: 0,           // Helvetica
             size: DEFAULT_FONT_SIZE,
-            attr: style_attr::UNDERLINE,
+            attr: style_attr::UNDERLINE | style_attr::BGCOLOR,
             bgcolor: 0xFFFFF5FF,
         },
         // Style G - STYLE_HEADER1
         StyleTableEntry {
-            color: 0x000000FF,      // Black
-            font: 1,                // HelveticaBold
+            color: 0x000000FF, // Black
+            font: 1,           // HelveticaBold
             size: DEFAULT_FONT_SIZE + 4,
-            attr: 0,
+            attr: style_attr::BGCOLOR,
             bgcolor: 0xFFFFF5FF,
         },
         // Style H - STYLE_HEADER2
         StyleTableEntry {
-            color: 0x000000FF,      // Black
-            font: 1,                // HelveticaBold
+            color: 0x000000FF, // Black
+            font: 1,           // HelveticaBold
             size: DEFAULT_FONT_SIZE + 2,
-            attr: 0,
+            attr: style_attr::BGCOLOR,
             bgcolor: 0xFFFFF5FF,
         },
         // Style I - STYLE_HEADER3
         StyleTableEntry {
-            color: 0x000000FF,      // Black
-            font: 1,                // HelveticaBold
+            color: 0x000000FF, // Black
+            font: 1,           // HelveticaBold
             size: DEFAULT_FONT_SIZE + 2,
-            attr: 0,
+            attr: style_attr::BGCOLOR,
             bgcolor: 0xFFFFF5FF,
         },
         // Style J - STYLE_QUOTE
         StyleTableEntry {
-            color: 0x640000FF,      // Dark red (100, 0, 0)
-            font: 10,               // TimesItalic
+            color: 0x640000FF, // Dark red (100, 0, 0)
+            font: 10,          // TimesItalic
             size: DEFAULT_FONT_SIZE,
-            attr: 0,
+            attr: style_attr::BGCOLOR,
             bgcolor: 0xFFFFF5FF,
         },
         // Style K - STYLE_LINK_HOVER (link with gray background when hovered)
         StyleTableEntry {
-            color: 0x0000FFFF,      // Blue
-            font: 0,                // Helvetica
+            color: 0x0000FFFF, // Blue
+            font: 0,           // Helvetica
             size: DEFAULT_FONT_SIZE,
-            attr: style_attr::UNDERLINE,
-            bgcolor: 0xD3D3D3FF,    // Light gray background (211, 211, 211)
+            attr: style_attr::UNDERLINE | style_attr::BGCOLOR,
+            bgcolor: 0xD3D3D3FF, // Light gray background (211, 211, 211)
         },
     ];
 
@@ -185,7 +187,9 @@ fn main() {
     text_display.borrow_mut().show_cursor(true);
 
     // Enable text wrapping at window bounds
-    text_display.borrow_mut().set_wrap_mode(WrapMode::AtBounds, 0);
+    text_display
+        .borrow_mut()
+        .set_wrap_mode(WrapMode::AtBounds, 0);
 
     // Disable line numbers (like main application)
     text_display.borrow_mut().set_linenumber_width(0);
@@ -217,7 +221,9 @@ fn main() {
             enums::Event::Move => {
                 let x = event_x() - widget.x();
                 let y = event_y() - widget.y();
-                let pos = text_display.borrow().xy_to_position(x, y, PositionType::CursorPos);
+                let pos = text_display
+                    .borrow()
+                    .xy_to_position(x, y, PositionType::CursorPos);
 
                 // Check if cursor is over a link
                 if let Some(link) = find_link_at_position(&links.borrow(), pos) {
@@ -231,7 +237,8 @@ fn main() {
 
                         // Update style buffer with hover styling
                         let content = buffer.borrow().text();
-                        let styled_text = style_markdown_with_hover(&content, &links.borrow(), *current_hover);
+                        let styled_text =
+                            style_markdown_with_hover(&content, &links.borrow(), *current_hover);
                         style_buffer.borrow_mut().set_text(&styled_text);
                         widget_clone.redraw();
                     }
@@ -245,7 +252,8 @@ fn main() {
 
                         // Update style buffer without hover styling
                         let content = buffer.borrow().text();
-                        let styled_text = style_markdown_with_hover(&content, &links.borrow(), None);
+                        let styled_text =
+                            style_markdown_with_hover(&content, &links.borrow(), None);
                         style_buffer.borrow_mut().set_text(&styled_text);
                         widget_clone.redraw();
                     }
@@ -256,7 +264,9 @@ fn main() {
                 if event_mouse_button() == MouseButton::Left {
                     let x = event_x() - widget.x();
                     let y = event_y() - widget.y();
-                    let pos = text_display.borrow().xy_to_position(x, y, PositionType::CursorPos);
+                    let pos = text_display
+                        .borrow()
+                        .xy_to_position(x, y, PositionType::CursorPos);
 
                     // Check if we clicked on a link
                     if let Some(link) = find_link_at_position(&links.borrow(), pos) {
@@ -273,13 +283,15 @@ fn main() {
 
                                 // Update links
                                 let new_links = extract_links(&new_contents);
-                                let styled_text = style_markdown_with_hover(&new_contents, &new_links, None);
+                                let styled_text =
+                                    style_markdown_with_hover(&new_contents, &new_links, None);
                                 style_buffer.borrow_mut().set_text(&styled_text);
                                 *links.borrow_mut() = new_links;
                                 *hovered_link.borrow_mut() = None;
 
                                 // Update window title
-                                wind_clone.set_label(&format!("ViewMD - {}", target_path.display()));
+                                wind_clone
+                                    .set_label(&format!("ViewMD - {}", target_path.display()));
 
                                 // Update current directory
                                 // Note: We can't update current_dir here due to borrow rules,
@@ -343,7 +355,11 @@ fn style_markdown(content: &str, links: &[Link]) -> String {
 }
 
 /// Style markdown text with optional hover highlighting
-fn style_markdown_with_hover(content: &str, links: &[Link], hovered: Option<(usize, usize)>) -> String {
+fn style_markdown_with_hover(
+    content: &str,
+    links: &[Link],
+    hovered: Option<(usize, usize)>,
+) -> String {
     let len = content.len();
     let mut styles = vec![STYLE_PLAIN as u8; len];
 
@@ -352,7 +368,7 @@ fn style_markdown_with_hover(content: &str, links: &[Link], hovered: Option<(usi
         let line_start = content
             .lines()
             .take(line_idx)
-            .map(|l| l.len() + 1) // +1 for newline
+            .map(|l| l.len() + 2) // +1 for newline
             .sum::<usize>();
 
         style_line(line, line_start, &mut styles);
