@@ -2,9 +2,9 @@
 // Based on FLTK's Fl_Text_Display
 
 use crate::text_buffer::TextBuffer;
+use std::cell::RefCell;
 use std::cmp::{max, min};
 use std::rc::Rc;
-use std::cell::RefCell;
 
 // Drawing backend trait - abstracts over FLTK's drawing primitives
 pub trait DrawContext {
@@ -28,19 +28,19 @@ pub trait DrawContext {
 /// Cursor style enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CursorStyle {
-    Normal,      // I-beam
-    Caret,       // Caret under the text
-    Dim,         // Dim I-beam
-    Block,       // Unfilled box under current character
-    Heavy,       // Thick I-beam
-    Simple,      // Simple cursor like Fl_Input
+    Normal, // I-beam
+    Caret,  // Caret under the text
+    Dim,    // Dim I-beam
+    Block,  // Unfilled box under current character
+    Heavy,  // Thick I-beam
+    Simple, // Simple cursor like Fl_Input
 }
 
 /// Position type for xy_to_position conversions
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PositionType {
-    CursorPos,     // Position is between characters
-    CharacterPos,  // Position is at character edge
+    CursorPos,    // Position is between characters
+    CharacterPos, // Position is at character edge
 }
 
 /// Drag type enumeration
@@ -56,20 +56,20 @@ pub enum DragType {
 /// Wrap mode enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WrapMode {
-    None,       // Don't wrap text
-    AtColumn,   // Wrap at given column
-    AtPixel,    // Wrap at pixel position
-    AtBounds,   // Wrap to fit widget width
+    None,     // Don't wrap text
+    AtColumn, // Wrap at given column
+    AtPixel,  // Wrap at pixel position
+    AtBounds, // Wrap to fit widget width
 }
 
 /// Style table entry for syntax highlighting
 #[derive(Debug, Clone, Copy)]
 pub struct StyleTableEntry {
-    pub color: u32,           // Text color (RGB)
-    pub font: u8,             // Font face
-    pub size: u8,             // Font size
-    pub attr: u32,            // Attributes (underline, etc.)
-    pub bgcolor: u32,         // Background color
+    pub color: u32,   // Text color (RGB)
+    pub font: u8,     // Font face
+    pub size: u8,     // Font size
+    pub attr: u32,    // Attributes (underline, etc.)
+    pub bgcolor: u32, // Background color
 }
 
 /// Style attribute flags
@@ -162,7 +162,7 @@ pub struct TextDisplay {
     linenumber_size: u8,
     linenumber_fgcolor: u32,
     linenumber_bgcolor: u32,
-    linenumber_align: u32,  // Alignment flags
+    linenumber_align: u32, // Alignment flags
 
     // Scrollbar settings
     scrollbar_width: i32,
@@ -227,8 +227,8 @@ impl TextDisplay {
             text_font: 0,
             text_size: 14,
             text_color: 0x000000FF,
-            grammar_underline_color: 0x0000FFFF, // Blue
-            spelling_underline_color: 0xFF0000FF, // Red
+            grammar_underline_color: 0x0000FFFF,   // Blue
+            spelling_underline_color: 0xFF0000FF,  // Red
             secondary_selection_color: 0xD3D3D3FF, // Light gray
             linenumber_width: 0,
             linenumber_font: 0,
@@ -241,8 +241,8 @@ impl TextDisplay {
             column_scale: 0.0,
             damage_range1: (0, 0),
             damage_range2: (0, 0),
-            max_font_height: 14,  // Will be calculated from text_size
-            max_font_width: 8,    // Will be calculated from font metrics
+            max_font_height: 14, // Will be calculated from text_size
+            max_font_width: 8,   // Will be calculated from font metrics
             text_area_x: x,
             text_area_y: y,
             text_area_w: w,
@@ -1062,7 +1062,8 @@ impl TextDisplay {
         // Adjust for cursor vs character position
         if matches!(pos_type, PositionType::CursorPos) {
             // Round to nearest position (add half character width)
-            col = ((x - self.text_area_x + self.horiz_offset + self.max_font_width / 2) / self.max_font_width) as usize;
+            col = ((x - self.text_area_x + self.horiz_offset + self.max_font_width / 2)
+                / self.max_font_width) as usize;
         }
 
         // Skip to the column position
@@ -1151,7 +1152,11 @@ impl TextDisplay {
             _ => {
                 // Triple+ click: set drag type but actual selection happens on release
                 // This matches C++ FLTK behavior where line selection is finalized on release
-                self.drag_type = if clicks == 2 { DragType::Line } else { DragType::Char };
+                self.drag_type = if clicks == 2 {
+                    DragType::Line
+                } else {
+                    DragType::Char
+                };
                 if let Some(ref buffer) = self.buffer {
                     buffer.borrow_mut().unselect();
                 }
@@ -1370,8 +1375,7 @@ impl TextDisplay {
 
     /// Check if there are empty visible lines
     fn empty_vlines(&self) -> bool {
-        self.n_visible_lines > 0 &&
-        self.line_starts[self.n_visible_lines - 1] == usize::MAX
+        self.n_visible_lines > 0 && self.line_starts[self.n_visible_lines - 1] == usize::MAX
     }
 
     /// Find the visible line number for a buffer position
@@ -1439,7 +1443,9 @@ impl TextDisplay {
                 // Check previous character's style for background extension
                 let style_char = style_buf.byte_at(pos - 1);
                 if style_char != 0 {
-                    let si = (style_char as i32 - b'A' as i32).max(0).min((self.n_styles - 1) as i32) as usize;
+                    let si = (style_char as i32 - b'A' as i32)
+                        .max(0)
+                        .min((self.n_styles - 1) as i32) as usize;
                     if si < self.style_table.len() {
                         let style_rec = &self.style_table[si];
                         if (style_rec.attr & style_attr::BGCOLOR_EXT_) == 0 {
@@ -1473,9 +1479,17 @@ impl TextDisplay {
     }
 
     /// Measure the width of a styled string
-    fn string_width(&self, string: &str, length: usize, style: i32, ctx: &mut dyn DrawContext) -> f64 {
+    fn string_width(
+        &self,
+        string: &str,
+        length: usize,
+        style: i32,
+        ctx: &mut dyn DrawContext,
+    ) -> f64 {
         let (font, fsize) = if self.n_styles > 0 && (style & STYLE_LOOKUP_MASK) != 0 {
-            let si = ((style & STYLE_LOOKUP_MASK) - b'A' as i32).max(0).min((self.n_styles - 1) as i32) as usize;
+            let si = ((style & STYLE_LOOKUP_MASK) - b'A' as i32)
+                .max(0)
+                .min((self.n_styles - 1) as i32) as usize;
             if si < self.style_table.len() {
                 (self.style_table[si].font, self.style_table[si].size)
             } else {
@@ -1530,8 +1544,18 @@ impl TextDisplay {
             return 0;
         }
 
-        self.handle_vline(GET_WIDTH, line_start_pos, line_len, 0, usize::MAX,
-                         0, 0, 0, 0, ctx)
+        self.handle_vline(
+            GET_WIDTH,
+            line_start_pos,
+            line_len,
+            0,
+            usize::MAX,
+            0,
+            0,
+            0,
+            0,
+            ctx,
+        )
     }
 
     /// Universal pixel machine - handles drawing, measuring, and position finding
@@ -1583,8 +1607,15 @@ impl TextDisplay {
                 // No text - just clear background if in draw mode
                 if mode == DRAW_LINE {
                     let style = self.position_style(line_start_pos, line_len, -1);
-                    self.draw_string(style | BG_ONLY_MASK, self.text_area_x, y,
-                                   self.text_area_x + self.text_area_w, "", 0, ctx);
+                    self.draw_string(
+                        style | BG_ONLY_MASK,
+                        self.text_area_x,
+                        y,
+                        self.text_area_x + self.text_area_w,
+                        "",
+                        0,
+                        ctx,
+                    );
                 }
                 if mode == FIND_INDEX {
                     return line_start_pos as i32;
@@ -1595,7 +1626,11 @@ impl TextDisplay {
 
         // Draw in two passes: backgrounds first, then text
         for loop_pass in 1..=2 {
-            let mask = if loop_pass == 1 { BG_ONLY_MASK } else { TEXT_ONLY_MASK };
+            let mask = if loop_pass == 1 {
+                BG_ONLY_MASK
+            } else {
+                TEXT_ONLY_MASK
+            };
 
             let mut start_x = x;
             let mut start_index = 0;
@@ -1617,13 +1652,11 @@ impl TextDisplay {
 
                     if prev_char == '\t' {
                         // Handle tab spacing
-                        let tab_width = self.col_to_x(
-                            if let Some(ref buf) = self.buffer {
-                                buf.borrow().tab_distance() as f64
-                            } else {
-                                8.0
-                            }
-                        );
+                        let tab_width = self.col_to_x(if let Some(ref buf) = self.buffer {
+                            buf.borrow().tab_distance() as f64
+                        } else {
+                            8.0
+                        });
                         let x_abs = if mode == GET_WIDTH {
                             start_x
                         } else {
@@ -1635,8 +1668,15 @@ impl TextDisplay {
                         start_style = i;
 
                         if mode == DRAW_LINE && loop_pass == 1 {
-                            self.draw_string(style | BG_ONLY_MASK, start_x as i32, y,
-                                           (start_x + w) as i32, "", 0, ctx);
+                            self.draw_string(
+                                style | BG_ONLY_MASK,
+                                start_x as i32,
+                                y,
+                                (start_x + w) as i32,
+                                "",
+                                0,
+                                ctx,
+                            );
                         }
                         if mode == FIND_INDEX && start_x + w > right_clip as f64 {
                             if cursor_pos && (start_x + w / 2.0 < right_clip as f64) {
@@ -1650,8 +1690,13 @@ impl TextDisplay {
                         let segment_len = segment.len();
 
                         w = if (style & 0xff) == (char_style & 0xff) {
-                            self.string_width(&chars[start_style..i].iter().collect::<String>(),
-                                            i - start_style, style, ctx) - start_x + style_x
+                            self.string_width(
+                                &chars[start_style..i].iter().collect::<String>(),
+                                i - start_style,
+                                style,
+                                ctx,
+                            ) - start_x
+                                + style_x
                         } else {
                             self.string_width(&segment, segment_len, style, ctx)
                         };
@@ -1664,25 +1709,52 @@ impl TextDisplay {
                             };
 
                             if start_index != start_style {
-                                ctx.push_clip(start_x as i32, y, w as i32 + 1, self.max_font_height);
-                                self.draw_string(style | mask, style_x as i32, y,
-                                               (start_x + w) as i32, &draw_segment,
-                                               draw_segment.len(), ctx);
+                                ctx.push_clip(
+                                    start_x as i32,
+                                    y,
+                                    w as i32 + 1,
+                                    self.max_font_height,
+                                );
+                                self.draw_string(
+                                    style | mask,
+                                    style_x as i32,
+                                    y,
+                                    (start_x + w) as i32,
+                                    &draw_segment,
+                                    draw_segment.len(),
+                                    ctx,
+                                );
                                 ctx.pop_clip();
                             } else {
-                                self.draw_string(style | mask, start_x as i32, y,
-                                               (start_x + w) as i32, &draw_segment,
-                                               draw_segment.len(), ctx);
+                                self.draw_string(
+                                    style | mask,
+                                    start_x as i32,
+                                    y,
+                                    (start_x + w) as i32,
+                                    &draw_segment,
+                                    draw_segment.len(),
+                                    ctx,
+                                );
                             }
                         }
 
                         if mode == FIND_INDEX && start_x + w > right_clip as f64 {
                             let di = if start_index != start_style {
-                                self.find_x(&chars[start_style..i].iter().collect::<String>(),
-                                          i - start_style, style, -(right_clip as i32 - style_x as i32), ctx)
+                                self.find_x(
+                                    &chars[start_style..i].iter().collect::<String>(),
+                                    i - start_style,
+                                    style,
+                                    -(right_clip as i32 - style_x as i32),
+                                    ctx,
+                                )
                             } else {
-                                self.find_x(&segment, segment_len, style,
-                                          -(right_clip as i32 - start_x as i32), ctx)
+                                self.find_x(
+                                    &segment,
+                                    segment_len,
+                                    style,
+                                    -(right_clip as i32 - start_x as i32),
+                                    ctx,
+                                )
                             };
                             return (line_start_pos + start_index + di) as i32;
                         }
@@ -1705,13 +1777,11 @@ impl TextDisplay {
             // Draw final segment
             let mut w = 0.0;
             if prev_char == '\t' {
-                let tab_width = self.col_to_x(
-                    if let Some(ref buf) = self.buffer {
-                        buf.borrow().tab_distance() as f64
-                    } else {
-                        8.0
-                    }
-                );
+                let tab_width = self.col_to_x(if let Some(ref buf) = self.buffer {
+                    buf.borrow().tab_distance() as f64
+                } else {
+                    8.0
+                });
                 let x_abs = if mode == GET_WIDTH {
                     start_x
                 } else {
@@ -1720,16 +1790,33 @@ impl TextDisplay {
                 w = ((x_abs / tab_width) as i32 + 1) as f64 * tab_width - x_abs;
 
                 if mode == DRAW_LINE && loop_pass == 1 {
-                    self.draw_string(style | BG_ONLY_MASK, start_x as i32, y,
-                                   (start_x + w) as i32, "", 0, ctx);
+                    self.draw_string(
+                        style | BG_ONLY_MASK,
+                        start_x as i32,
+                        y,
+                        (start_x + w) as i32,
+                        "",
+                        0,
+                        ctx,
+                    );
                 }
                 if mode == FIND_INDEX {
                     if cursor_pos {
-                        return (line_start_pos + start_index +
-                               if right_clip as f64 - start_x > w / 2.0 { 1 } else { 0 }) as i32;
+                        return (line_start_pos
+                            + start_index
+                            + if right_clip as f64 - start_x > w / 2.0 {
+                                1
+                            } else {
+                                0
+                            }) as i32;
                     }
-                    return (line_start_pos + start_index +
-                           if right_clip as f64 - start_x > w { 1 } else { 0 }) as i32;
+                    return (line_start_pos
+                        + start_index
+                        + if right_clip as f64 - start_x > w {
+                            1
+                        } else {
+                            0
+                        }) as i32;
                 }
             } else {
                 let segment: String = chars[start_index..i].iter().collect();
@@ -1744,24 +1831,46 @@ impl TextDisplay {
 
                     if start_index != start_style {
                         ctx.push_clip(start_x as i32, y, w as i32 + 1, self.max_font_height);
-                        self.draw_string(style | mask, style_x as i32, y,
-                                       (start_x + w) as i32, &draw_segment,
-                                       draw_segment.len(), ctx);
+                        self.draw_string(
+                            style | mask,
+                            style_x as i32,
+                            y,
+                            (start_x + w) as i32,
+                            &draw_segment,
+                            draw_segment.len(),
+                            ctx,
+                        );
                         ctx.pop_clip();
                     } else {
-                        self.draw_string(style | mask, start_x as i32, y,
-                                       (start_x + w) as i32, &draw_segment,
-                                       draw_segment.len(), ctx);
+                        self.draw_string(
+                            style | mask,
+                            start_x as i32,
+                            y,
+                            (start_x + w) as i32,
+                            &draw_segment,
+                            draw_segment.len(),
+                            ctx,
+                        );
                     }
                 }
 
                 if mode == FIND_INDEX {
                     let di = if start_index != start_style {
-                        self.find_x(&chars[start_style..i].iter().collect::<String>(),
-                                  i - start_style, style, -(right_clip as i32 - style_x as i32), ctx)
+                        self.find_x(
+                            &chars[start_style..i].iter().collect::<String>(),
+                            i - start_style,
+                            style,
+                            -(right_clip as i32 - style_x as i32),
+                            ctx,
+                        )
                     } else {
-                        self.find_x(&segment, i - start_index, style,
-                                  -(right_clip as i32 - start_x as i32), ctx)
+                        self.find_x(
+                            &segment,
+                            i - start_index,
+                            style,
+                            -(right_clip as i32 - start_x as i32),
+                            ctx,
+                        )
                     };
                     return (line_start_pos + start_index + di) as i32;
                 }
@@ -1775,8 +1884,15 @@ impl TextDisplay {
             start_x += w;
             let style = self.position_style(line_start_pos, line_len, i as isize);
             if mode == DRAW_LINE && loop_pass == 1 {
-                self.draw_string(style | BG_ONLY_MASK, start_x as i32, y,
-                               self.text_area_x + self.text_area_w, "", 0, ctx);
+                self.draw_string(
+                    style | BG_ONLY_MASK,
+                    start_x as i32,
+                    y,
+                    self.text_area_x + self.text_area_w,
+                    "",
+                    0,
+                    ctx,
+                );
             }
         }
 
@@ -1828,7 +1944,9 @@ impl TextDisplay {
 
             // Draw underlines or strikethrough if needed
             if (style & STYLE_LOOKUP_MASK) != 0 {
-                let si = ((style & STYLE_LOOKUP_MASK) - b'A' as i32).max(0).min((self.n_styles - 1) as i32) as usize;
+                let si = ((style & STYLE_LOOKUP_MASK) - b'A' as i32)
+                    .max(0)
+                    .min((self.n_styles - 1) as i32) as usize;
                 if si < self.style_table.len() {
                     let style_rec = &self.style_table[si];
                     if (style_rec.attr & style_attr::LINES_MASK) != 0 {
@@ -1836,19 +1954,33 @@ impl TextDisplay {
 
                         if attr == style_attr::UNDERLINE {
                             ctx.set_color(foreground);
-                            ctx.draw_line(x, baseline + ctx.text_descent(font, fsize) / 2,
-                                        to_x, baseline + ctx.text_descent(font, fsize) / 2);
+                            ctx.draw_line(
+                                x,
+                                baseline + ctx.text_descent(font, fsize) / 2,
+                                to_x,
+                                baseline + ctx.text_descent(font, fsize) / 2,
+                            );
                         } else if attr == style_attr::GRAMMAR {
                             ctx.set_color(self.grammar_underline_color);
-                            ctx.draw_line(x, baseline + ctx.text_descent(font, fsize) / 2,
-                                        to_x, baseline + ctx.text_descent(font, fsize) / 2);
+                            ctx.draw_line(
+                                x,
+                                baseline + ctx.text_descent(font, fsize) / 2,
+                                to_x,
+                                baseline + ctx.text_descent(font, fsize) / 2,
+                            );
                         } else if attr == style_attr::SPELLING {
                             ctx.set_color(self.spelling_underline_color);
-                            ctx.draw_line(x, baseline + ctx.text_descent(font, fsize) / 2,
-                                        to_x, baseline + ctx.text_descent(font, fsize) / 2);
+                            ctx.draw_line(
+                                x,
+                                baseline + ctx.text_descent(font, fsize) / 2,
+                                to_x,
+                                baseline + ctx.text_descent(font, fsize) / 2,
+                            );
                         } else if attr == style_attr::STRIKE_THROUGH {
                             ctx.set_color(foreground);
-                            let strike_y = baseline - (ctx.text_height(font, fsize) - ctx.text_descent(font, fsize)) / 3;
+                            let strike_y = baseline
+                                - (ctx.text_height(font, fsize) - ctx.text_descent(font, fsize))
+                                    / 3;
                             ctx.draw_line(x, strike_y, to_x, strike_y);
                         }
                     }
@@ -1867,7 +1999,9 @@ impl TextDisplay {
 
         // Get style-specific colors
         if (style & STYLE_LOOKUP_MASK) != 0 {
-            let si = ((style & STYLE_LOOKUP_MASK) - b'A' as i32).max(0).min((self.n_styles - 1) as i32) as usize;
+            let si = ((style & STYLE_LOOKUP_MASK) - b'A' as i32)
+                .max(0)
+                .min((self.n_styles - 1) as i32) as usize;
 
             if si < self.style_table.len() {
                 let style_rec = &self.style_table[si];
@@ -1945,7 +2079,15 @@ impl TextDisplay {
     }
 
     /// Clear a rectangle with appropriate background color
-    fn clear_rect(&self, style: i32, x: i32, y: i32, width: i32, height: i32, ctx: &mut dyn DrawContext) {
+    fn clear_rect(
+        &self,
+        style: i32,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        ctx: &mut dyn DrawContext,
+    ) {
         if width == 0 {
             return;
         }
@@ -1953,7 +2095,9 @@ impl TextDisplay {
         let mut bgbasecolor = 0xFFFFFFFF; // Default widget background
 
         if (style & STYLE_LOOKUP_MASK) != 0 {
-            let si = ((style & STYLE_LOOKUP_MASK) - b'A' as i32).max(0).min((self.n_styles - 1) as i32) as usize;
+            let si = ((style & STYLE_LOOKUP_MASK) - b'A' as i32)
+                .max(0)
+                .min((self.n_styles - 1) as i32) as usize;
 
             if si < self.style_table.len() {
                 let style_rec = &self.style_table[si];
@@ -2086,7 +2230,14 @@ impl TextDisplay {
     }
 
     /// Draw text in a specific region
-    pub fn draw_text(&self, left: i32, top: i32, width: i32, height: i32, ctx: &mut dyn DrawContext) {
+    pub fn draw_text(
+        &self,
+        left: i32,
+        top: i32,
+        width: i32,
+        height: i32,
+        ctx: &mut dyn DrawContext,
+    ) {
         let font_height = if self.max_font_height > 0 {
             self.max_font_height
         } else {
@@ -2100,14 +2251,7 @@ impl TextDisplay {
 
         for line in first_line..=last_line {
             if line >= 0 && (line as usize) < self.n_visible_lines {
-                self.draw_vline(
-                    line as usize,
-                    left,
-                    left + width,
-                    0,
-                    usize::MAX,
-                    ctx,
-                );
+                self.draw_vline(line as usize, left, left + width, 0, usize::MAX, ctx);
             }
         }
 
@@ -2183,7 +2327,8 @@ impl TextDisplay {
             };
 
             let y = ln_y + (vis_line as i32 * font_height);
-            let baseline = y + font_height - ctx.text_descent(self.linenumber_font, self.linenumber_size);
+            let baseline =
+                y + font_height - ctx.text_descent(self.linenumber_font, self.linenumber_size);
 
             // Format line number
             let line_text = format!("{}", line_num);
@@ -2388,7 +2533,9 @@ mod tests {
     fn test_move_up_down_column_preservation() {
         let mut display = TextDisplay::new(0, 0, 100, 100);
         let buffer = Rc::new(RefCell::new(TextBuffer::new()));
-        buffer.borrow_mut().insert(0, "Short\nThis is a longer line\nMed");
+        buffer
+            .borrow_mut()
+            .insert(0, "Short\nThis is a longer line\nMed");
         display.set_buffer(buffer.clone());
 
         display.set_insert_position(10); // Position 10 in "This is a longer line"
@@ -2407,7 +2554,9 @@ mod tests {
         // The exact position depends on how column is calculated
         let pos_after = display.insert_position();
         let line_start_after = buffer.borrow().line_start(pos_after);
-        let col_after = buffer.borrow().count_displayed_characters(line_start_after, pos_after);
+        let col_after = buffer
+            .borrow()
+            .count_displayed_characters(line_start_after, pos_after);
 
         // Column should be preserved (or close)
         assert!(col_after == col_before || col_after == col_before - 1);
@@ -2448,7 +2597,9 @@ mod tests {
     fn test_recalc_display() {
         let mut display = TextDisplay::new(0, 0, 100, 100);
         let buffer = Rc::new(RefCell::new(TextBuffer::new()));
-        buffer.borrow_mut().insert(0, "Line 1\nLine 2\nLine 3\nLine 4\nLine 5");
+        buffer
+            .borrow_mut()
+            .insert(0, "Line 1\nLine 2\nLine 3\nLine 4\nLine 5");
         display.set_buffer(buffer);
 
         display.recalc_display();
@@ -2522,9 +2673,9 @@ mod tests {
         display.recalc_display();
 
         // Check that line starts are cached correctly
-        assert_eq!(display.line_starts[0], 0);  // "A"
-        assert_eq!(display.line_starts[1], 2);  // "B"
-        assert_eq!(display.line_starts[2], 4);  // "C"
+        assert_eq!(display.line_starts[0], 0); // "A"
+        assert_eq!(display.line_starts[1], 2); // "B"
+        assert_eq!(display.line_starts[2], 4); // "C"
     }
 
     #[test]
@@ -2660,7 +2811,9 @@ mod tests {
     fn test_wrapped_line_break_at_word() {
         let mut display = TextDisplay::new(0, 0, 100, 100);
         let buffer = Rc::new(RefCell::new(TextBuffer::new()));
-        buffer.borrow_mut().insert(0, "This is a very long line that will need to wrap");
+        buffer
+            .borrow_mut()
+            .insert(0, "This is a very long line that will need to wrap");
         display.set_buffer(buffer);
 
         display.set_wrap_mode(WrapMode::AtColumn, 15);

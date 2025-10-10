@@ -120,7 +120,7 @@ impl DrawContext for FltkDrawContext {
     }
 }
 
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 
 /// Simple FLTK widget wrapper for TextDisplay
 /// Use fltk::group::Group::new() and add custom draw/handle callbacks
@@ -425,56 +425,56 @@ pub fn create_text_display_widget(
                         true
                     } else {
                         match key {
-                        Key::Left => {
-                            disp.move_left();
-                            disp.show_insert_position();
-                            true
-                        }
-                        Key::Right => {
-                            disp.move_right();
-                            disp.show_insert_position();
-                            true
-                        }
-                        Key::Up => {
-                            disp.move_up();
-                            disp.show_insert_position();
-                            true
-                        }
-                        Key::Down => {
-                            disp.move_down();
-                            disp.show_insert_position();
-                            true
-                        }
-                        Key::Home => {
-                            let line_start = disp.line_start(disp.insert_position());
-                            disp.set_insert_position(line_start);
-                            disp.show_insert_position();
-                            true
-                        }
-                        Key::End => {
-                            let line_end = disp.line_end(disp.insert_position());
-                            disp.set_insert_position(line_end);
-                            disp.show_insert_position();
-                            true
-                        }
-                        Key::PageUp => {
-                            let n_visible_lines = (disp.h() / 14).max(1) as usize;
-                            let current_line = disp.count_lines(0, disp.insert_position());
-                            let new_line = current_line.saturating_sub(n_visible_lines);
-                            let new_pos = disp.skip_lines(0, new_line);
-                            disp.set_insert_position(new_pos);
-                            disp.show_insert_position();
-                            true
-                        }
-                        Key::PageDown => {
-                            let n_visible_lines = (disp.h() / 14).max(1) as usize;
-                            let current_line = disp.count_lines(0, disp.insert_position());
-                            let new_line = current_line + n_visible_lines;
-                            let new_pos = disp.skip_lines(0, new_line);
-                            disp.set_insert_position(new_pos);
-                            disp.show_insert_position();
-                            true
-                        }
+                            Key::Left => {
+                                disp.move_left();
+                                disp.show_insert_position();
+                                true
+                            }
+                            Key::Right => {
+                                disp.move_right();
+                                disp.show_insert_position();
+                                true
+                            }
+                            Key::Up => {
+                                disp.move_up();
+                                disp.show_insert_position();
+                                true
+                            }
+                            Key::Down => {
+                                disp.move_down();
+                                disp.show_insert_position();
+                                true
+                            }
+                            Key::Home => {
+                                let line_start = disp.line_start(disp.insert_position());
+                                disp.set_insert_position(line_start);
+                                disp.show_insert_position();
+                                true
+                            }
+                            Key::End => {
+                                let line_end = disp.line_end(disp.insert_position());
+                                disp.set_insert_position(line_end);
+                                disp.show_insert_position();
+                                true
+                            }
+                            Key::PageUp => {
+                                let n_visible_lines = (disp.h() / 14).max(1) as usize;
+                                let current_line = disp.count_lines(0, disp.insert_position());
+                                let new_line = current_line.saturating_sub(n_visible_lines);
+                                let new_pos = disp.skip_lines(0, new_line);
+                                disp.set_insert_position(new_pos);
+                                disp.show_insert_position();
+                                true
+                            }
+                            Key::PageDown => {
+                                let n_visible_lines = (disp.h() / 14).max(1) as usize;
+                                let current_line = disp.count_lines(0, disp.insert_position());
+                                let new_line = current_line + n_visible_lines;
+                                let new_pos = disp.skip_lines(0, new_line);
+                                disp.set_insert_position(new_pos);
+                                disp.show_insert_position();
+                                true
+                            }
                             _ => {
                                 // Handle text input
                                 if let Some(text) = fltk::app::event_text().chars().next() {

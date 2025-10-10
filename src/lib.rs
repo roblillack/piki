@@ -4,3 +4,4 @@ pub mod text_buffer;
 pub mod text_display;
 pub mod fltk_text_display;
 pub mod svg_draw_context;
+pub mod link_handler;
