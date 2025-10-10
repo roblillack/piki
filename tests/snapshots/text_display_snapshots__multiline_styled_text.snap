@@ -1,0 +1,29 @@
+---
+source: tests/text_display_snapshots.rs
+assertion_line: 227
+expression: svg
+---
+<svg xmlns="http://www.w3.org/2000/svg" width="500" height="150" viewBox="0 0 500 150">
+  <rect width="500" height="150" fill="#ffffff"/>
+  <defs>
+    <clipPath id="clip-0-0-500-150">
+      <rect x="0" y="0" width="500" height="150"/>
+    </clipPath>
+  </defs>
+  <rect x="0" y="0" width="117" height="19" fill="#ffffff" clip-path="url(#clip-0-0-500-150)"/>
+  <rect x="117" y="0" width="383" height="19" fill="#ffffff" clip-path="url(#clip-0-0-500-150)"/>
+  <text x="0" y="17" fill="#000000" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-500-150)">Line 1: Normal</text>
+  <rect x="0" y="19" width="230" height="19" fill="#ffffff" clip-path="url(#clip-0-0-500-150)"/>
+  <rect x="230" y="19" width="270" height="19" fill="#ffffff" clip-path="url(#clip-0-0-500-150)"/>
+  <text x="0" y="35" fill="#00aaaa" font-family="Courier, 'Courier New', monospace" font-size="16" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-500-150)">Line 2: EEEE Header EEEE</text>
+  <rect x="0" y="38" width="168" height="19" fill="#ffffff" clip-path="url(#clip-0-0-500-150)"/>
+  <rect x="168" y="38" width="332" height="19" fill="#ffffff" clip-path="url(#clip-0-0-500-150)"/>
+  <text x="0" y="55" fill="#000000" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-500-150)">Line 3: Normal again</text>
+  <rect x="0" y="57" width="500" height="19" fill="#ffffff" clip-path="url(#clip-0-0-500-150)"/>
+  <rect x="0" y="76" width="500" height="19" fill="#ffffff" clip-path="url(#clip-0-0-500-150)"/>
+  <rect x="0" y="95" width="500" height="19" fill="#ffffff" clip-path="url(#clip-0-0-500-150)"/>
+  <rect x="0" y="114" width="500" height="19" fill="#ffffff" clip-path="url(#clip-0-0-500-150)"/>
+  <line x1="-2" y1="0" x2="2" y2="0" stroke="#000000" stroke-width="1"/>
+  <line x1="0" y1="0" x2="0" y2="18" stroke="#000000" stroke-width="1"/>
+  <line x1="-2" y1="18" x2="2" y2="18" stroke="#000000" stroke-width="1"/>
+</svg>

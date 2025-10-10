@@ -1,0 +1,29 @@
+---
+source: tests/text_display_snapshots.rs
+assertion_line: 170
+expression: svg
+---
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="150" viewBox="0 0 400 150">
+  <rect width="400" height="150" fill="#ffffff"/>
+  <defs>
+    <clipPath id="clip-0-0-400-150">
+      <rect x="0" y="0" width="400" height="150"/>
+    </clipPath>
+  </defs>
+  <rect x="0" y="0" width="92" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-150)"/>
+  <rect x="92" y="0" width="308" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-150)"/>
+  <text x="0" y="17" fill="#000000" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-150)">Normal text</text>
+  <rect x="0" y="19" width="92" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-150)"/>
+  <rect x="92" y="19" width="308" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-150)"/>
+  <text x="0" y="36" fill="#ff00ff" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-150)">`code here`</text>
+  <rect x="0" y="38" width="75" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-150)"/>
+  <rect x="75" y="38" width="325" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-150)"/>
+  <text x="0" y="55" fill="#000000" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-150)">More text</text>
+  <rect x="0" y="57" width="400" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-150)"/>
+  <rect x="0" y="76" width="400" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-150)"/>
+  <rect x="0" y="95" width="400" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-150)"/>
+  <rect x="0" y="114" width="400" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-150)"/>
+  <line x1="-2" y1="0" x2="2" y2="0" stroke="#000000" stroke-width="1"/>
+  <line x1="0" y1="0" x2="0" y2="18" stroke="#000000" stroke-width="1"/>
+  <line x1="-2" y1="18" x2="2" y2="18" stroke="#000000" stroke-width="1"/>
+</svg>

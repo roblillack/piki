@@ -1,0 +1,29 @@
+---
+source: tests/text_display_snapshots.rs
+assertion_line: 190
+expression: svg
+---
+<svg xmlns="http://www.w3.org/2000/svg" width="500" height="100" viewBox="0 0 500 100">
+  <rect width="500" height="100" fill="#ffffff"/>
+  <defs>
+    <clipPath id="clip-0-0-500-100">
+      <rect x="0" y="0" width="500" height="100"/>
+    </clipPath>
+  </defs>
+  <rect x="0" y="0" width="84" height="19" fill="#ffffff" clip-path="url(#clip-0-0-500-100)"/>
+  <rect x="84" y="0" width="75" height="19" fill="#ffffff" clip-path="url(#clip-0-0-500-100)"/>
+  <rect x="159" y="0" width="51" height="19" fill="#ffffff" clip-path="url(#clip-0-0-500-100)"/>
+  <rect x="210" y="0" width="25" height="19" fill="#ffffff" clip-path="url(#clip-0-0-500-100)"/>
+  <rect x="235" y="0" width="265" height="19" fill="#ffffff" clip-path="url(#clip-0-0-500-100)"/>
+  <text x="0" y="17" fill="#000000" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-500-100)">Normal AAA</text>
+  <text x="84" y="17" fill="#ff00ff" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-500-100)">A Code DD</text>
+  <text x="159" y="17" fill="#000000" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-500-100)">DD Nor</text>
+  <text x="210" y="17" fill="#000000" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-500-100)">mal</text>
+  <rect x="0" y="19" width="500" height="19" fill="#ffffff" clip-path="url(#clip-0-0-500-100)"/>
+  <rect x="0" y="38" width="500" height="19" fill="#ffffff" clip-path="url(#clip-0-0-500-100)"/>
+  <rect x="0" y="57" width="500" height="19" fill="#ffffff" clip-path="url(#clip-0-0-500-100)"/>
+  <rect x="0" y="76" width="500" height="19" fill="#ffffff" clip-path="url(#clip-0-0-500-100)"/>
+  <line x1="-2" y1="0" x2="2" y2="0" stroke="#000000" stroke-width="1"/>
+  <line x1="0" y1="0" x2="0" y2="18" stroke="#000000" stroke-width="1"/>
+  <line x1="-2" y1="18" x2="2" y2="18" stroke="#000000" stroke-width="1"/>
+</svg>

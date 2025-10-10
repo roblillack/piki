@@ -1,0 +1,28 @@
+---
+source: tests/text_display_snapshots.rs
+assertion_line: 200
+expression: svg
+---
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="100" viewBox="0 0 400 100">
+  <rect width="400" height="100" fill="#ffffff"/>
+  <defs>
+    <clipPath id="clip-0-0-400-100">
+      <rect x="0" y="0" width="400" height="100"/>
+    </clipPath>
+  </defs>
+  <rect x="0" y="0" width="100" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-100)"/>
+  <rect x="100" y="0" width="84" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-100)"/>
+  <rect x="184" y="0" width="17" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-100)"/>
+  <rect x="201" y="0" width="199" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-100)"/>
+  <text x="0" y="17" fill="#000000" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-100)">This text ha</text>
+  <text x="100" y="17" fill="#0000ff" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-100)">s underlin</text>
+  <line x1="100" y1="18" x2="184" y2="18" stroke="#0000ff" stroke-width="1"/>
+  <text x="184" y="17" fill="#000000" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-100)">es</text>
+  <rect x="0" y="19" width="400" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-100)"/>
+  <rect x="0" y="38" width="400" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-100)"/>
+  <rect x="0" y="57" width="400" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-100)"/>
+  <rect x="0" y="76" width="400" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-100)"/>
+  <line x1="-2" y1="0" x2="2" y2="0" stroke="#000000" stroke-width="1"/>
+  <line x1="0" y1="0" x2="0" y2="18" stroke="#000000" stroke-width="1"/>
+  <line x1="-2" y1="18" x2="2" y2="18" stroke="#000000" stroke-width="1"/>
+</svg>
