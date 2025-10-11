@@ -59,13 +59,17 @@ impl ResponsiveScrollbar {
 
                 match st.state {
                     ScrollbarState::Asleep => {
+                        println!("Drawing asleep scrollbar: {}x{} at {},{}", w, h, x, y);
                         // Only draw background
                         fltk_draw::set_draw_color(st.background_color);
+                        // fltk_draw::set_draw_color(Color::Red);
                         fltk_draw::draw_rectf(x, y, w, h);
                     }
                     ScrollbarState::Awake => {
+                        println!("Drawing awake scrollbar: {}x{} at {},{}", w, h, x, y);
                         // Draw background
-                        fltk_draw::set_draw_color(st.background_color);
+                        // fltk_draw::set_draw_color(st.background_color);
+                        fltk_draw::set_draw_color(Color::Yellow);
                         fltk_draw::draw_rectf(x, y, w, h);
 
                         // Draw light gray rectangle where slider would be
@@ -97,16 +101,19 @@ impl ResponsiveScrollbar {
                         }
                     }
                     ScrollbarState::Hovered => {
+                        println!("Drawing hovered scrollbar: {}x{} at {},{}", w, h, x, y);
                         // Draw a proper scrollbar
                         // Draw scrollbar background
-                        fltk_draw::draw_box(
-                            FrameType::FlatBox,
-                            x,
-                            y,
-                            w,
-                            h,
-                            Color::from_rgb(240, 240, 240),
-                        );
+                        // fltk_draw::draw_box(
+                        //     FrameType::FlatBox,
+                        //     x,
+                        //     y,
+                        //     w,
+                        //     h,
+                        //     Color::from_rgb(240, 240, 240),
+                        // );
+                        fltk_draw::set_draw_color(Color::Green);
+                        fltk_draw::draw_rectf(x, y, w, h);
 
                         // Calculate slider position and size
                         let min = sb.minimum();

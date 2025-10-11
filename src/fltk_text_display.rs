@@ -1,8 +1,8 @@
 // FLTK integration for TextDisplay widget
 // Simple wrapper implementation
 
-use crate::text_display::{DrawContext, TextDisplay};
 use crate::responsive_scrollbar::ResponsiveScrollbar;
+use crate::text_display::{DrawContext, TextDisplay};
 use fltk::{draw as fltk_draw, enums::*, prelude::*, valuator::Scrollbar};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -141,15 +141,12 @@ pub fn create_text_display_widget(
     let scrollbar_size = 15; // Standard scrollbar width
 
     // Create text display with room for scrollbars
-    let text_display = Rc::new(RefCell::new(TextDisplay::new(
-        x,
-        y,
-        w,
-        h,
-    )));
+    let text_display = Rc::new(RefCell::new(TextDisplay::new(x, y, w, h)));
 
     // Set scrollbar width so text wrapping accounts for it
-    text_display.borrow_mut().set_scrollbar_width(scrollbar_size);
+    text_display
+        .borrow_mut()
+        .set_scrollbar_width(scrollbar_size);
 
     // Get background color from widget
     let bg_color = widget.color();
@@ -277,8 +274,8 @@ pub fn create_text_display_widget(
             }
 
             // Draw background only for the text area, not the scrollbars
-            fltk_draw::set_draw_color(w.color());
-            fltk_draw::draw_rectf(disp.x(), disp.y(), disp.w(), disp.h());
+            // fltk_draw::set_draw_color(w.color());
+            // fltk_draw::draw_rectf(disp.x(), disp.y(), disp.w(), disp.h());
 
             // Draw the text display
             disp.draw(&mut ctx);
@@ -306,8 +303,8 @@ pub fn create_text_display_widget(
                     let sb_w = vscroll_base.w();
                     let sb_h = vscroll_base.h();
 
-                    let over_scrollbar = mx >= sb_x && mx < sb_x + sb_w &&
-                                       my >= sb_y && my < sb_y + sb_h;
+                    let over_scrollbar =
+                        mx >= sb_x && mx < sb_x + sb_w && my >= sb_y && my < sb_y + sb_h;
 
                     if !over_scrollbar {
                         // Only wake scrollbar if mouse is NOT over it
@@ -552,9 +549,7 @@ pub fn create_text_display_widget(
         let sb_size = scrollbar_size;
         move |_w, x, y, width, height| {
             // Update text display size (full size, scrollbar accounted for internally)
-            text_display
-                .borrow_mut()
-                .resize(x, y, width, height);
+            text_display.borrow_mut().resize(x, y, width, height);
 
             // Reposition and resize scrollbars
             vscroll_resize.resize(x + width - sb_size, y, sb_size, height - sb_size);

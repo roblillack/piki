@@ -878,7 +878,12 @@ impl TextDisplay {
 
     /// Get padding values (top, bottom, left, right)
     pub fn padding(&self) -> (i32, i32, i32, i32) {
-        (self.padding_top, self.padding_bottom, self.padding_left, self.padding_right)
+        (
+            self.padding_top,
+            self.padding_bottom,
+            self.padding_left,
+            self.padding_right,
+        )
     }
 
     // ========================================================================
@@ -899,7 +904,12 @@ impl TextDisplay {
     // ========================================================================
 
     /// Measure the pixel width of text accounting for styled fonts and sizes
-    fn measure_text_width_styled(&self, text: &str, start_pos: usize, ctx: &mut dyn DrawContext) -> f64 {
+    fn measure_text_width_styled(
+        &self,
+        text: &str,
+        start_pos: usize,
+        ctx: &mut dyn DrawContext,
+    ) -> f64 {
         // If no style buffer, use default font
         let Some(ref style_buffer) = self.style_buffer else {
             return ctx.text_width(text, self.text_font, self.text_size);
@@ -947,7 +957,11 @@ impl TextDisplay {
         // Update text area position to account for line numbers and padding
         self.text_area_x = self.x + self.linenumber_width + self.padding_left;
         self.text_area_y = self.y + self.padding_top;
-        self.text_area_w = self.w - self.linenumber_width - self.scrollbar_width - self.padding_left - self.padding_right;
+        self.text_area_w = self.w
+            - self.linenumber_width
+            - self.scrollbar_width
+            - self.padding_left
+            - self.padding_right;
         self.text_area_h = self.h - self.scrollbar_width - self.padding_top - self.padding_bottom;
 
         if let Some(ref buffer) = self.buffer {
@@ -1005,7 +1019,8 @@ impl TextDisplay {
                             while low < high {
                                 let mid = (low + high + 1) / 2;
                                 let test_text: String = line_text.chars().take(mid).collect();
-                                let test_width = self.measure_text_width_styled(&test_text, pos, ctx);
+                                let test_width =
+                                    self.measure_text_width_styled(&test_text, pos, ctx);
 
                                 if test_width <= wrap_width {
                                     wrap_chars = mid;
@@ -1081,7 +1096,11 @@ impl TextDisplay {
         // Just update text area position
         self.text_area_x = self.x + self.linenumber_width + self.padding_left;
         self.text_area_y = self.y + self.padding_top;
-        self.text_area_w = self.w - self.linenumber_width - self.scrollbar_width - self.padding_left - self.padding_right;
+        self.text_area_w = self.w
+            - self.linenumber_width
+            - self.scrollbar_width
+            - self.padding_left
+            - self.padding_right;
         self.text_area_h = self.h - self.scrollbar_width - self.padding_top - self.padding_bottom;
 
         // Mark that full recalculation with wrapping is needed on next draw
@@ -2386,6 +2405,10 @@ impl TextDisplay {
         height: i32,
         ctx: &mut dyn DrawContext,
     ) {
+        println!(
+            "draw_text: left={}, top={}, width={}, height={}",
+            left, top, width, height
+        );
         let font_height = if self.max_font_height > 0 {
             self.max_font_height
         } else {
