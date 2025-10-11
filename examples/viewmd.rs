@@ -1,6 +1,7 @@
 // viewmd - Markdown file viewer with clickable links
 // Usage: cargo run --example viewmd <filename>
 
+use fliki_rs::fltk_rich_text_display::create_rich_text_display_widget;
 use fliki_rs::fltk_text_display::create_text_display_widget;
 use fliki_rs::link_handler::{extract_links, find_link_at_position, Link};
 use fliki_rs::text_buffer::TextBuffer;
@@ -34,12 +35,25 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: {} <filename>", args[0]);
+        eprintln!("Usage: {} [--ast] <filename>", args[0]);
         eprintln!("Example: {} README.md", args[0]);
+        eprintln!("         {} --ast README.md  (use AST-based rendering)", args[0]);
         process::exit(1);
     }
 
-    let filename = PathBuf::from(&args[1]);
+    // Check for --ast flag
+    let use_ast = args.contains(&"--ast".to_string());
+    let filename_arg = if use_ast {
+        // Find the filename (not --ast)
+        args.iter()
+            .skip(1)
+            .find(|a| *a != "--ast")
+            .expect("Filename required")
+    } else {
+        &args[1]
+    };
+
+    let filename = PathBuf::from(filename_arg);
 
     // Read the file
     let contents = match fs::read_to_string(&filename) {
@@ -56,9 +70,26 @@ fn main() {
     // Create main window
     let mut wind = window::Window::default()
         .with_size(800, 600)
-        .with_label(&format!("ViewMD - {}", filename.display()))
+        .with_label(&format!(
+            "ViewMD{} - {}",
+            if use_ast { " (AST)" } else { "" },
+            filename.display()
+        ))
         .center_screen();
 
+    if use_ast {
+        // Use AST-based rendering
+        run_ast_viewer(wind, filename, contents);
+    } else {
+        // Use original buffer-based rendering
+        run_buffer_viewer(wind, filename, contents);
+    }
+
+    app.run().unwrap();
+}
+
+/// Run the original buffer-based viewer
+fn run_buffer_viewer(mut wind: window::Window, filename: PathBuf, contents: String) {
     // Create text display widget with 5px padding
     let (mut text_widget, text_display) = create_text_display_widget(
         5,   // x
@@ -357,8 +388,213 @@ fn main() {
     wind.show();
 
     text_widget.take_focus().ok();
+}
 
-    app.run().unwrap();
+/// Run the AST-based viewer
+fn run_ast_viewer(mut wind: window::Window, filename: PathBuf, contents: String) {
+    // Create rich text display widget
+    let (mut rich_widget, rich_display) = create_rich_text_display_widget(
+        5,   // x
+        5,   // y
+        790, // width
+        590, // height
+    );
+
+    // Set markdown content
+    rich_display.borrow_mut().set_markdown(&contents);
+
+    // Set up style table (same as buffer-based version)
+    let style_table = vec![
+        // Style 0 - STYLE_PLAIN
+        StyleTableEntry {
+            color: 0x000000FF,
+            font: 0,
+            size: DEFAULT_FONT_SIZE,
+            attr: style_attr::BGCOLOR,
+            bgcolor: 0xFFFFF5FF,
+        },
+        // Style 1 - STYLE_BOLD
+        StyleTableEntry {
+            color: 0x000000FF,
+            font: 1,
+            size: DEFAULT_FONT_SIZE,
+            attr: style_attr::BGCOLOR,
+            bgcolor: 0xFFFFF5FF,
+        },
+        // Style 2 - STYLE_ITALIC
+        StyleTableEntry {
+            color: 0x000000FF,
+            font: 2,
+            size: DEFAULT_FONT_SIZE,
+            attr: style_attr::BGCOLOR,
+            bgcolor: 0xFFFFF5FF,
+        },
+        // Style 3 - STYLE_BOLD_ITALIC
+        StyleTableEntry {
+            color: 0x000000FF,
+            font: 3,
+            size: DEFAULT_FONT_SIZE,
+            attr: style_attr::BGCOLOR,
+            bgcolor: 0xFFFFF5FF,
+        },
+        // Style 4 - STYLE_CODE
+        StyleTableEntry {
+            color: 0x0064C8FF,
+            font: 4,
+            size: DEFAULT_FONT_SIZE,
+            attr: style_attr::BGCOLOR,
+            bgcolor: 0xFFFFF5FF,
+        },
+        // Style 5 - STYLE_LINK
+        StyleTableEntry {
+            color: 0x0000FFFF,
+            font: 0,
+            size: DEFAULT_FONT_SIZE,
+            attr: style_attr::UNDERLINE | style_attr::BGCOLOR,
+            bgcolor: 0xFFFFF5FF,
+        },
+        // Style 6 - STYLE_HEADER1
+        StyleTableEntry {
+            color: 0x000000FF,
+            font: 1,
+            size: DEFAULT_FONT_SIZE + 6,
+            attr: style_attr::BGCOLOR,
+            bgcolor: 0xFFFFF5FF,
+        },
+        // Style 7 - STYLE_HEADER2
+        StyleTableEntry {
+            color: 0x000000FF,
+            font: 1,
+            size: DEFAULT_FONT_SIZE + 4,
+            attr: style_attr::BGCOLOR,
+            bgcolor: 0xFFFFF5FF,
+        },
+        // Style 8 - STYLE_HEADER3
+        StyleTableEntry {
+            color: 0x000000FF,
+            font: 1,
+            size: DEFAULT_FONT_SIZE + 2,
+            attr: style_attr::BGCOLOR,
+            bgcolor: 0xFFFFF5FF,
+        },
+        // Style 9 - STYLE_QUOTE
+        StyleTableEntry {
+            color: 0x640000FF,
+            font: 10,
+            size: DEFAULT_FONT_SIZE,
+            attr: style_attr::BGCOLOR,
+            bgcolor: 0xFFFFF5FF,
+        },
+        // Style 10 - STYLE_LINK_HOVER (link with gray background when hovered)
+        StyleTableEntry {
+            color: 0x0000FFFF,
+            font: 0,
+            size: DEFAULT_FONT_SIZE,
+            attr: style_attr::UNDERLINE | style_attr::BGCOLOR,
+            bgcolor: 0xD3D3D3FF, // Light gray background (211, 211, 211)
+        },
+    ];
+
+    rich_display.borrow_mut().set_style_table(style_table);
+    rich_display.borrow_mut().set_padding(10, 10, 25, 25);
+
+    // Set widget color
+    rich_widget.set_color(enums::Color::from_rgb(255, 255, 245));
+    rich_widget.set_frame(enums::FrameType::FlatBox);
+
+    // Store current file directory for resolving relative links
+    let current_dir = Rc::new(
+        filename
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from(".")),
+    );
+
+    // Handle mouse events for hover and clicking
+    rich_widget.handle({
+        let rich_display = rich_display.clone();
+        let current_dir = current_dir.clone();
+        let mut wind_clone = wind.clone();
+        let mut widget_clone = rich_widget.clone();
+
+        move |widget, evt| match evt {
+            enums::Event::Move => {
+                let x = event_x() - widget.x();
+                let y = event_y() - widget.y();
+
+                // Check if cursor is over a link (extract result before mutable borrow)
+                let link_info = rich_display.borrow().find_link_at(x, y);
+
+                if let Some((node_id, _destination)) = link_info {
+                    wind_clone.set_cursor(enums::Cursor::Hand);
+                    rich_display.borrow_mut().set_hovered_link(Some(node_id));
+                    widget_clone.redraw();
+                } else {
+                    wind_clone.set_cursor(enums::Cursor::Arrow);
+                    let has_hover = rich_display.borrow().hovered_link().is_some();
+                    if has_hover {
+                        rich_display.borrow_mut().set_hovered_link(None);
+                        widget_clone.redraw();
+                    }
+                }
+                true
+            }
+            enums::Event::Push => {
+                if event_mouse_button() == MouseButton::Left {
+                    let x = event_x() - widget.x();
+                    let y = event_y() - widget.y();
+
+                    // Check if we clicked on a link (extract result before mutable borrow)
+                    let link_info = rich_display.borrow().find_link_at(x, y);
+
+                    if let Some((_node_id, destination)) = link_info {
+                        // Resolve the link path relative to current file
+                        let target_path = resolve_link_path(&current_dir, &destination);
+
+                        // Try to load the linked file
+                        match fs::read_to_string(&target_path) {
+                            Ok(new_contents) => {
+                                // Update display with new content
+                                rich_display.borrow_mut().set_markdown(&new_contents);
+                                rich_display.borrow_mut().set_hovered_link(None);
+
+                                // Update window title
+                                wind_clone.set_label(&format!("ViewMD (AST) - {}", target_path.display()));
+
+                                app::redraw();
+                            }
+                            Err(e) => {
+                                eprintln!("Error loading file '{}': {}", target_path.display(), e);
+                            }
+                        }
+                        return true;
+                    }
+                }
+                false
+            }
+            _ => false,
+        }
+    });
+
+    // Handle window resize
+    wind.handle({
+        let mut widget_handle = rich_widget.clone();
+        move |w, event| match event {
+            enums::Event::Resize => {
+                let new_w = w.w() - 10;
+                let new_h = w.h() - 10;
+                widget_handle.resize(5, 5, new_w, new_h);
+                true
+            }
+            _ => false,
+        }
+    });
+
+    wind.make_resizable(true);
+    wind.end();
+    wind.show();
+
+    rich_widget.take_focus().ok();
 }
 
 /// Resolve a link path relative to the current file's directory
