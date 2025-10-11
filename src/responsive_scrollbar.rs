@@ -57,19 +57,13 @@ impl ResponsiveScrollbar {
                 let w = sb.w();
                 let h = sb.h();
 
+                let rect_col = Color::from_rgb(204, 204, 204); // Light gray for slider rectangle
+
                 match st.state {
-                    ScrollbarState::Asleep => {
-                        println!("Drawing asleep scrollbar: {}x{} at {},{}", w, h, x, y);
-                        // Only draw background
-                        fltk_draw::set_draw_color(st.background_color);
-                        // fltk_draw::set_draw_color(Color::Red);
-                        fltk_draw::draw_rectf(x, y, w, h);
-                    }
-                    ScrollbarState::Awake => {
+                    ScrollbarState::Asleep | ScrollbarState::Awake => {
                         println!("Drawing awake scrollbar: {}x{} at {},{}", w, h, x, y);
                         // Draw background
-                        // fltk_draw::set_draw_color(st.background_color);
-                        fltk_draw::set_draw_color(Color::Yellow);
+                        fltk_draw::set_draw_color(st.background_color);
                         fltk_draw::draw_rectf(x, y, w, h);
 
                         // Draw light gray rectangle where slider would be
@@ -78,6 +72,16 @@ impl ResponsiveScrollbar {
                         let max = sb.maximum();
                         let val = sb.value();
                         let slider_size = sb.slider_size();
+                        let sbw = if st.state == ScrollbarState::Awake {
+                            w - 4
+                        } else {
+                            3
+                        };
+                        let offset = if st.state == ScrollbarState::Awake {
+                            2
+                        } else {
+                            w - sbw - 2
+                        };
 
                         if max > min && slider_size > 0.0 {
                             let range = max - min;
@@ -96,8 +100,8 @@ impl ResponsiveScrollbar {
                             let slider_y = y + (track_height as f64 * pos_frac) as i32;
 
                             // Draw light gray slider rectangle
-                            fltk_draw::set_draw_color(Color::from_rgb(180, 180, 180));
-                            fltk_draw::draw_rectf(x + 2, slider_y, w - 4, slider_height);
+                            fltk_draw::set_draw_color(rect_col);
+                            fltk_draw::draw_rectf(x + offset, slider_y, sbw, slider_height);
                         }
                     }
                     ScrollbarState::Hovered => {
@@ -112,7 +116,7 @@ impl ResponsiveScrollbar {
                         //     h,
                         //     Color::from_rgb(240, 240, 240),
                         // );
-                        fltk_draw::set_draw_color(Color::Green);
+                        fltk_draw::set_draw_color(st.background_color);
                         fltk_draw::draw_rectf(x, y, w, h);
 
                         // Calculate slider position and size
@@ -144,7 +148,7 @@ impl ResponsiveScrollbar {
                                 slider_y,
                                 w - 2,
                                 slider_height,
-                                Color::from_rgb(200, 200, 200),
+                                rect_col,
                             );
                         }
                     }
@@ -197,13 +201,13 @@ impl ResponsiveScrollbar {
         {
             let state_timer = state.clone();
             let mut sb_timer = scrollbar.clone();
-            fltk::app::add_timeout3(0.5, move |handle| {
+            fltk::app::add_timeout3(0.1, move |handle| {
                 // Check if we need to transition to asleep
                 let needs_redraw = {
                     let mut st = state_timer.borrow_mut();
                     if st.state == ScrollbarState::Awake {
                         let elapsed = Instant::now().duration_since(st.last_wake_time);
-                        if elapsed > Duration::from_secs(2) {
+                        if elapsed > Duration::from_secs(1) {
                             st.state = ScrollbarState::Asleep;
                             true
                         } else {
@@ -218,7 +222,7 @@ impl ResponsiveScrollbar {
                     sb_timer.redraw();
                 }
 
-                fltk::app::repeat_timeout3(0.5, handle);
+                fltk::app::repeat_timeout3(0.1, handle);
             });
         }
 
@@ -228,35 +232,44 @@ impl ResponsiveScrollbar {
     /// Wake the scrollbar (transition to awake state)
     pub fn wake(&mut self) {
         let mut st = self.state.borrow_mut();
+        let old_state = st.state;
         if st.state != ScrollbarState::Hovered {
             st.state = ScrollbarState::Awake;
         }
         st.last_wake_time = Instant::now();
-        self.scrollbar.redraw();
+        if old_state != st.state {
+            println!("Scrollbar woke up: {:?} --> {:?}", old_state, st.state);
+            self.scrollbar.redraw();
+        }
     }
 
     /// Set the scrollbar type (vertical or horizontal)
     pub fn set_type(&mut self, typ: fltk::valuator::ScrollbarType) {
+        // self.wake();
         self.scrollbar.set_type(typ);
     }
 
     /// Set the bounds of the scrollbar
     pub fn set_bounds(&mut self, min: f64, max: f64) {
+        // self.wake();
         self.scrollbar.set_bounds(min, max);
     }
 
     /// Set the slider size (as a fraction)
     pub fn set_slider_size(&mut self, size: f32) {
+        // self.wake();
         self.scrollbar.set_slider_size(size);
     }
 
     /// Set the step sizes
     pub fn set_step(&mut self, a: f64, b: i32) {
+        // self.wake();
         self.scrollbar.set_step(a, b);
     }
 
     /// Set the value
     pub fn set_value(&mut self, val: f64) {
+        // self.wake();
         self.scrollbar.set_value(val);
     }
 

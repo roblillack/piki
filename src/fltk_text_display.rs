@@ -149,7 +149,8 @@ pub fn create_text_display_widget(
         .set_scrollbar_width(scrollbar_size);
 
     // Get background color from widget
-    let bg_color = widget.color();
+    // let bg_color = widget.color();
+    let bg_color = Color::White;
 
     // Create responsive vertical scrollbar
     let mut vscroll = ResponsiveScrollbar::new(
@@ -295,6 +296,7 @@ pub fn create_text_display_widget(
         move |w, event| {
             match event {
                 Event::Move => {
+                    println!("Mouse moved over text display");
                     // Check if mouse is over scrollbar
                     let mx = fltk::app::event_x();
                     let my = fltk::app::event_y();
@@ -306,11 +308,11 @@ pub fn create_text_display_widget(
                     let over_scrollbar =
                         mx >= sb_x && mx < sb_x + sb_w && my >= sb_y && my < sb_y + sb_h;
 
-                    if !over_scrollbar {
-                        // Only wake scrollbar if mouse is NOT over it
-                        // (let scrollbar handle hover itself)
-                        vscroll_handle.wake();
-                    }
+                    //if !over_scrollbar {
+                    // Only wake scrollbar if mouse is NOT over it
+                    // (let scrollbar handle hover itself)
+                    vscroll_handle.wake();
+                    //}
                     false
                 }
                 Event::Push => {
