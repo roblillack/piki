@@ -35,23 +35,20 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: {} [--ast] <filename>", args[0]);
+        eprintln!("Usage: {} [--ast] [--edit] <filename>", args[0]);
         eprintln!("Example: {} README.md", args[0]);
         eprintln!("         {} --ast README.md  (use AST-based rendering)", args[0]);
+        eprintln!("         {} --ast --edit README.md  (enable editing)", args[0]);
         process::exit(1);
     }
 
-    // Check for --ast flag
+    // Check for --ast and --edit flags
     let use_ast = args.contains(&"--ast".to_string());
-    let filename_arg = if use_ast {
-        // Find the filename (not --ast)
-        args.iter()
-            .skip(1)
-            .find(|a| *a != "--ast")
-            .expect("Filename required")
-    } else {
-        &args[1]
-    };
+    let edit_mode = args.contains(&"--edit".to_string());
+    let filename_arg = args.iter()
+        .skip(1)
+        .find(|a| *a != "--ast" && *a != "--edit")
+        .expect("Filename required");
 
     let filename = PathBuf::from(filename_arg);
 
@@ -79,7 +76,7 @@ fn main() {
 
     if use_ast {
         // Use AST-based rendering
-        run_ast_viewer(wind, filename, contents);
+        run_ast_viewer(wind, filename, contents, edit_mode);
     } else {
         // Use original buffer-based rendering
         run_buffer_viewer(wind, filename, contents);
@@ -391,7 +388,7 @@ fn run_buffer_viewer(mut wind: window::Window, filename: PathBuf, contents: Stri
 }
 
 /// Run the AST-based viewer
-fn run_ast_viewer(mut wind: window::Window, filename: PathBuf, contents: String) {
+fn run_ast_viewer(mut wind: window::Window, filename: PathBuf, contents: String, edit_mode: bool) {
     // Create rich text display widget
     let (mut rich_widget, rich_display) = create_rich_text_display_widget(
         5,   // x
@@ -498,6 +495,9 @@ fn run_ast_viewer(mut wind: window::Window, filename: PathBuf, contents: String)
     rich_display.borrow_mut().set_style_table(style_table);
     rich_display.borrow_mut().set_padding(10, 10, 25, 25);
 
+    // Configure cursor visibility based on edit mode
+    rich_display.borrow_mut().set_cursor_visible(edit_mode);
+
     // Set widget color
     rich_widget.set_color(enums::Color::from_rgb(255, 255, 245));
     rich_widget.set_frame(enums::FrameType::FlatBox);
@@ -516,8 +516,24 @@ fn run_ast_viewer(mut wind: window::Window, filename: PathBuf, contents: String)
         let current_dir = current_dir.clone();
         let mut wind_clone = wind.clone();
         let mut widget_clone = rich_widget.clone();
+        let edit_mode = edit_mode; // Capture edit_mode in closure
 
-        move |widget, evt| match evt {
+        move |widget, evt| {
+            // First, handle basic widget events (these were in the built-in handler)
+            match evt {
+                enums::Event::Push => {
+                    widget.take_focus().ok();
+                    // Continue to handle other Push logic below
+                }
+                enums::Event::Focus | enums::Event::Unfocus => {
+                    widget.redraw();
+                    return true;
+                }
+                _ => {}
+            }
+
+            // Now handle specific events
+            match evt {
             enums::Event::Move => {
                 let x = event_x() - widget.x();
                 let y = event_y() - widget.y();
@@ -557,6 +573,7 @@ fn run_ast_viewer(mut wind: window::Window, filename: PathBuf, contents: String)
                                 // Update display with new content
                                 rich_display.borrow_mut().set_markdown(&new_contents);
                                 rich_display.borrow_mut().set_hovered_link(None);
+                                rich_display.borrow_mut().set_cursor_pos(0);
 
                                 // Update window title
                                 wind_clone.set_label(&format!("ViewMD (AST) - {}", target_path.display()));
@@ -568,11 +585,116 @@ fn run_ast_viewer(mut wind: window::Window, filename: PathBuf, contents: String)
                             }
                         }
                         return true;
+                    } else if edit_mode {
+                        // No link clicked - position cursor at click location (only in edit mode)
+                        let pos = rich_display.borrow().xy_to_position(x, y);
+                        rich_display.borrow_mut().set_cursor_pos(pos);
+                        widget_clone.redraw();
+                        return true;
                     }
                 }
                 false
             }
+            enums::Event::KeyDown if edit_mode => {
+                // Handle keyboard input for editing (only in edit mode)
+                let key = app::event_key();
+                let text_input = app::event_text();
+
+                match key {
+                    enums::Key::BackSpace => {
+                        // Delete character before cursor
+                        let result = rich_display.borrow().delete_before_cursor();
+                        if let Some((new_text, new_pos)) = result {
+                            let mut display = rich_display.borrow_mut();
+                            display.set_markdown(&new_text);
+                            display.set_cursor_pos(new_pos);
+                            widget_clone.redraw();
+                        }
+                        true
+                    }
+                    enums::Key::Delete => {
+                        // Delete character at cursor
+                        let result = rich_display.borrow().delete_at_cursor();
+                        if let Some((new_text, new_pos)) = result {
+                            let mut display = rich_display.borrow_mut();
+                            display.set_markdown(&new_text);
+                            display.set_cursor_pos(new_pos);
+                            widget_clone.redraw();
+                        }
+                        true
+                    }
+                    enums::Key::Left => {
+                        // Move cursor left
+                        let mut display = rich_display.borrow_mut();
+                        let pos = display.cursor_pos();
+                        if pos > 0 {
+                            display.set_cursor_pos(pos - 1);
+                            widget_clone.redraw();
+                        }
+                        true
+                    }
+                    enums::Key::Right => {
+                        // Move cursor right
+                        let mut display = rich_display.borrow_mut();
+                        let pos = display.cursor_pos();
+                        if let Some(doc) = display.document() {
+                            if pos < doc.source.len() {
+                                display.set_cursor_pos(pos + 1);
+                                widget_clone.redraw();
+                            }
+                        }
+                        true
+                    }
+                    enums::Key::Up => {
+                        // Move cursor up one line
+                        // TODO: Implement line-based cursor movement
+                        false
+                    }
+                    enums::Key::Down => {
+                        // Move cursor down one line
+                        // TODO: Implement line-based cursor movement
+                        false
+                    }
+                    enums::Key::Home => {
+                        // Move cursor to start of line
+                        // TODO: Implement start-of-line positioning
+                        false
+                    }
+                    enums::Key::End => {
+                        // Move cursor to end of line
+                        // TODO: Implement end-of-line positioning
+                        false
+                    }
+                    enums::Key::Enter => {
+                        // Insert newline with smart list handling
+                        let result = rich_display.borrow().insert_text_at_cursor("\n");
+                        if let Some((new_text, new_pos)) = result {
+                            let mut display = rich_display.borrow_mut();
+                            display.set_markdown(&new_text);
+                            display.set_cursor_pos(new_pos);
+                            widget_clone.redraw();
+                        }
+                        true
+                    }
+                    _ => {
+                        // Handle regular text input
+                        if !text_input.is_empty() {
+                            let result = rich_display.borrow().insert_text_at_cursor(&text_input);
+                            if let Some((new_text, new_pos)) = result {
+                                let mut display = rich_display.borrow_mut();
+                                display.set_markdown(&new_text);
+                                display.set_cursor_pos(new_pos);
+                                widget_clone.redraw();
+                            }
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                }
+            }
             _ => false,
+            }
         }
     });
 

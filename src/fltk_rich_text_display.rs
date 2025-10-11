@@ -100,30 +100,34 @@ pub fn create_rich_text_display_widget(
                     true
                 }
                 Event::KeyDown => {
+                    // Only handle scrolling keys here
+                    // Other keys should be handled by application-level handlers
                     let key = fltk::app::event_key();
-                    let mut disp = display.borrow_mut();
-                    let scroll = disp.scroll_offset();
-                    let visible = disp.h();
 
-                    let new_scroll = match key {
-                        Key::Up => (scroll - 20).max(0),
-                        Key::Down => scroll + 20,
-                        Key::PageUp => (scroll - visible).max(0),
-                        Key::PageDown => scroll + visible,
-                        Key::Home => 0,
-                        Key::End => {
-                            let content_height = disp.content_height();
-                            (content_height - visible).max(0)
+                    // Only handle these specific scrolling keys
+                    let is_scroll_key = matches!(key, Key::PageUp | Key::PageDown);
+
+                    if is_scroll_key {
+                        let mut disp = display.borrow_mut();
+                        let scroll = disp.scroll_offset();
+                        let visible = disp.h();
+
+                        let new_scroll = match key {
+                            Key::PageUp => (scroll - visible).max(0),
+                            Key::PageDown => scroll + visible,
+                            _ => scroll,
+                        };
+
+                        if new_scroll != scroll {
+                            disp.set_scroll(new_scroll);
+                            vscroll_handle.set_value(new_scroll as f64);
+                            w.redraw();
+                            true
+                        } else {
+                            false
                         }
-                        _ => scroll,
-                    };
-
-                    if new_scroll != scroll {
-                        disp.set_scroll(new_scroll);
-                        vscroll_handle.set_value(new_scroll as f64);
-                        w.redraw();
-                        true
                     } else {
+                        // Let other handlers process this event
                         false
                     }
                 }

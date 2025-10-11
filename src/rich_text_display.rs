@@ -78,6 +78,11 @@ pub struct RichTextDisplay {
 
     // Link hover state
     hovered_node_id: Option<usize>,
+
+    // Editing state
+    cursor_pos: usize,      // Character position in source text
+    cursor_visible: bool,
+    cursor_color: u32,
 }
 
 impl RichTextDisplay {
@@ -104,6 +109,9 @@ impl RichTextDisplay {
             padding_right: 25,
             line_height: 17, // ~1.2 * 14
             hovered_node_id: None,
+            cursor_pos: 0,
+            cursor_visible: true,
+            cursor_color: 0x000000FF,
         }
     }
 
@@ -1003,7 +1011,77 @@ impl RichTextDisplay {
             }
         }
 
+        // Draw cursor if visible
+        if self.cursor_visible {
+            if let Some((cursor_x, cursor_y, cursor_height)) = self.position_to_xy(self.cursor_pos) {
+                let screen_y = self.y + cursor_y - self.scroll_offset;
+                let screen_x = self.x + cursor_x;
+
+                // Only draw if cursor is in visible area
+                if screen_y >= self.y && screen_y < self.y + self.h {
+                    ctx.set_color(self.cursor_color);
+                    ctx.draw_line(screen_x, screen_y, screen_x, screen_y + cursor_height);
+                }
+            }
+        }
+
         ctx.pop_clip();
+    }
+
+    /// Convert character position to screen coordinates
+    /// Returns (x, y, height) where x and y are relative to widget origin (not screen)
+    pub fn position_to_xy(&self, pos: usize) -> Option<(i32, i32, i32)> {
+        // Find the line and run containing this position
+        for line in &self.layout_lines {
+            if pos >= line.char_start && pos <= line.char_end {
+                // Position is on this line
+                let mut x = line.runs.first().map(|r| r.x).unwrap_or(self.padding_left);
+
+                // Find the specific run containing this position
+                for run in &line.runs {
+                    if pos >= run.char_range.0 && pos <= run.char_range.1 {
+                        // Position is in this run - calculate offset within run
+                        let char_offset = pos.saturating_sub(run.char_range.0);
+
+                        // Get the text up to cursor position
+                        let text_before = run.text.chars().take(char_offset).collect::<String>();
+
+                        // Measure width of text before cursor
+                        let style_idx = run.style_idx;
+                        let (font, size) = if (style_idx as usize) < self.style_table.len() {
+                            let style = &self.style_table[style_idx as usize];
+                            (style.font, style.size)
+                        } else {
+                            (self.text_font, self.text_size)
+                        };
+
+                        // Note: We can't call ctx.text_width here since we don't have DrawContext
+                        // We'll approximate for now
+                        let approx_width = text_before.len() as i32 * 8; // Rough estimate
+
+                        return Some((run.x + approx_width, line.y, line.height));
+                    }
+
+                    // If position is beyond this run, continue
+                    if pos > run.char_range.1 {
+                        x = run.x + (run.text.len() as i32 * 8); // Approximate end of run
+                    }
+                }
+
+                // Position is at end of line
+                return Some((x, line.y, line.height));
+            }
+        }
+
+        // Position not found - return position at end of document
+        if let Some(last_line) = self.layout_lines.last() {
+            let x = last_line.runs.last()
+                .map(|r| r.x + (r.text.len() as i32 * 8))
+                .unwrap_or(self.padding_left);
+            Some((x, last_line.y, last_line.height))
+        } else {
+            Some((self.padding_left, self.padding_top, self.line_height))
+        }
     }
 
     /// Convert x,y coordinates to character position
@@ -1126,6 +1204,137 @@ impl RichTextDisplay {
     /// Get hovered link node ID
     pub fn hovered_link(&self) -> Option<usize> {
         self.hovered_node_id
+    }
+
+    /// Set cursor position
+    pub fn set_cursor_pos(&mut self, pos: usize) {
+        if let Some(doc) = &self.document {
+            self.cursor_pos = pos.min(doc.source.len());
+        } else {
+            self.cursor_pos = 0;
+        }
+    }
+
+    /// Get cursor position
+    pub fn cursor_pos(&self) -> usize {
+        self.cursor_pos
+    }
+
+    /// Set cursor visibility
+    pub fn set_cursor_visible(&mut self, visible: bool) {
+        self.cursor_visible = visible;
+    }
+
+    /// Get cursor visibility
+    pub fn cursor_visible(&self) -> bool {
+        self.cursor_visible
+    }
+
+    /// Find the block node containing the given character position
+    /// Returns the node and whether it's a list item
+    pub fn find_block_at_position(&self, pos: usize) -> Option<(&ASTNode, bool)> {
+        if let Some(ref doc) = self.document {
+            self.find_block_node_at_pos(&doc.root, pos)
+        } else {
+            None
+        }
+    }
+
+    fn find_block_node_at_pos<'a>(&self, node: &'a ASTNode, pos: usize) -> Option<(&'a ASTNode, bool)> {
+        // Check if position is within this node's range
+        if pos < node.char_start || pos > node.char_end {
+            return None;
+        }
+
+        // Check if this is a block-level node
+        match &node.node_type {
+            NodeType::Paragraph => return Some((node, false)),
+            NodeType::ListItem => return Some((node, true)),
+            NodeType::Heading { .. } | NodeType::CodeBlock { .. } | NodeType::BlockQuote => {
+                // These are block nodes but we don't want to edit them directly
+                return Some((node, false));
+            }
+            _ => {}
+        }
+
+        // Recursively search children
+        for child in &node.children {
+            if let Some(result) = self.find_block_node_at_pos(child, pos) {
+                return Some(result);
+            }
+        }
+
+        None
+    }
+
+    /// Insert text at cursor position, handling smart newlines
+    /// Returns (new_text, new_cursor_pos)
+    pub fn insert_text_at_cursor(&self, text: &str) -> Option<(String, usize)> {
+        let Some(ref doc) = self.document else { return None; };
+
+        let pos = self.cursor_pos;
+        let mut new_text = doc.source.clone();
+
+        // Handle newline specially
+        if text == "\n" {
+            // Find what block we're in
+            if let Some((block_node, is_list_item)) = self.find_block_at_position(pos) {
+                if is_list_item {
+                    // Check if we're at the end of an empty list item
+                    let block_text = &doc.source[block_node.char_start..block_node.char_end];
+                    let block_text_trimmed = block_text.trim();
+
+                    // If list item is empty or just has the marker, end the list
+                    if block_text_trimmed.is_empty() || block_text_trimmed == "-" || block_text_trimmed == "*" {
+                        // Insert two newlines to exit the list
+                        new_text.insert_str(pos, "\n\n");
+                        return Some((new_text, pos + 2));
+                    } else {
+                        // Continue the list with a new item
+                        new_text.insert_str(pos, "\n- ");
+                        return Some((new_text, pos + 3));
+                    }
+                }
+            }
+
+            // Default: just insert newline (creates new paragraph)
+            new_text.insert_str(pos, "\n\n");
+            return Some((new_text, pos + 2));
+        }
+
+        // Regular text insertion
+        new_text.insert_str(pos, text);
+        Some((new_text, pos + text.len()))
+    }
+
+    /// Delete text at cursor (backspace)
+    /// Returns (new_text, new_cursor_pos)
+    pub fn delete_before_cursor(&self) -> Option<(String, usize)> {
+        let Some(ref doc) = self.document else { return None; };
+
+        let pos = self.cursor_pos;
+        if pos == 0 {
+            return None;
+        }
+
+        let mut new_text = doc.source.clone();
+        new_text.remove(pos - 1);
+        Some((new_text, pos - 1))
+    }
+
+    /// Delete text at cursor (delete key)
+    /// Returns (new_text, new_cursor_pos)
+    pub fn delete_at_cursor(&self) -> Option<(String, usize)> {
+        let Some(ref doc) = self.document else { return None; };
+
+        let pos = self.cursor_pos;
+        if pos >= doc.source.len() {
+            return None;
+        }
+
+        let mut new_text = doc.source.clone();
+        new_text.remove(pos);
+        Some((new_text, pos))
     }
 
     /// Get position and dimensions

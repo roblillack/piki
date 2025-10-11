@@ -10,3 +10,8 @@ pub mod markdown_ast;
 pub mod markdown_parser;
 pub mod rich_text_display;
 pub mod fltk_rich_text_display;
+pub mod structured_document;
+pub mod structured_editor;
+pub mod markdown_converter;
+pub mod structured_rich_display;
+pub mod fltk_structured_rich_display;
