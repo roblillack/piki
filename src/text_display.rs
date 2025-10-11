@@ -1049,6 +1049,13 @@ impl TextDisplay {
                                 pos = buf.length();
                             }
                         }
+                    } else {
+                        // Empty line (line_text_len == 0), still need to advance to next line
+                        if line_end < buf.length() {
+                            pos = buf.next_char(line_end);
+                        } else {
+                            pos = buf.length();
+                        }
                     }
                 } else {
                     // No wrapping - skip to next physical line
