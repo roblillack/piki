@@ -4,41 +4,50 @@ A Rust reimplementation of fliki - a lightweight Markdown wiki browser with clic
 
 ## Features
 
-✅ **Live Syntax Highlighting**
-   - Headers (H1, H2, H3) in different sizes
-   - **Bold** and *italic* text
-   - `Inline code` styling
-   - Code blocks (indented)
-   - > Blockquotes
-   - Links shown in blue
-   - **Updates instantly as you type!**
+### Live Syntax Highlighting
 
-✅ **Auto-Save**
-   - Saves changes automatically 1 second after you stop typing
-   - Debounced to prevent excessive disk writes
-   - Status bar shows save status ("Saving...", "saved 2 min ago", etc.)
-   - Creates new files and parent directories as needed
+- Headers (H1, H2, H3) in different sizes
+- **Bold** and _italic_ text
+- `Inline code` styling
+- ~~Strikethrough~~ text
+- <u>Underlined</u> text
+- <mark>Highlighted</mark> text
+- Code blocks (indented)
+- > Blockquotes
+- Links shown in blue
+- **Updates instantly as you type!**
 
-✅ **Interactive Navigation**
-   - Click on links to navigate between pages
-   - Cursor changes to hand icon when over links
-   - Keyboard shortcuts for quick access
-   - Support for nested page paths (`[[project-a/standup]]`)
+### Auto-Save
 
-✅ **Link Support**
-   - Standard Markdown: `[text](page.md)`
-   - Wiki-style: `[[PageName]]`
-   - Nested paths: `[[folder/page]]`
+- Saves changes automatically 1 second after you stop typing
+- Debounced to prevent excessive disk writes
+- Status bar shows save status ("Saving...", "saved 2 min ago", etc.)
+- Creates new files and parent directories as needed
 
-✅ **Plugin System**
-   - Dynamic page generation with `!` prefix
-   - Built-in `!index` plugin shows all pages
-   - Plugin pages are read-only
-   - Extensible architecture for custom plugins
+### Interactive Navigation
 
-✅ **Smart Status Bar**
-   - Page status (left): Shows current page and type
-   - Save status (right): Real-time save feedback with time tracking
+- Click on links to navigate between pages
+- Cursor changes to hand icon when over links
+- Keyboard shortcuts for quick access
+- Support for nested page paths (`[[project-a/standup]]`)
+
+### Link Support
+
+- Standard Markdown: `[text](page.md)`
+- Wiki-style: `[[PageName]]`
+- Nested paths: `[[folder/page]]`
+
+### Plugin System
+
+- Dynamic page generation with `!` prefix
+- Built-in `!index` plugin shows all pages
+- Plugin pages are read-only
+- Extensible architecture for custom plugins
+
+### Smart Status Bar
+
+- Page status (left): Shows current page and type
+- Save status (right): Real-time save feedback with time tracking
 
 ## Building
 
@@ -65,6 +74,7 @@ cargo run --release -- example-wiki --page features
 ## Directory Structure
 
 Your markdown directory should contain `.md` files. The application will:
+
 - Load `frontpage.md` by default (or specify with `--page`)
 - Follow links to other markdown files in the same directory
 - Support both `file.md` and `file` link formats
@@ -96,10 +106,12 @@ The editor supports:
 
 ```markdown
 # Header 1
+
 ## Header 2
+
 ### Header 3
 
-**Bold text** and *italic text*
+**Bold text** and _italic text_
 
 `inline code` and:
 
@@ -144,6 +156,7 @@ The editor supports:
 ## Differences from Original fliki
 
 This Rust version:
+
 - ✅ Uses Markdown instead of custom Liki markup
 - ✅ Reads from local filesystem instead of network
 - ✅ Has full syntax highlighting for Markdown
@@ -166,12 +179,14 @@ This Rust version:
 ## Contributing
 
 This is a demonstration project showing how to build a wiki-style editor in Rust with:
+
 - FLTK for GUI
 - Syntax highlighting using style buffers
 - Event-driven navigation
 - Markdown parsing
 
 Feel free to extend it with features like:
+
 - Manual save shortcut (Ctrl+S)
 - Search across pages
 - Link preview on hover
@@ -184,9 +199,9 @@ Feel free to extend it with features like:
 
 ## Documentation
 
-- **[AUTOSAVE.md](AUTOSAVE.md)** - Auto-save implementation details
-- **[PLUGIN_SYSTEM.md](PLUGIN_SYSTEM.md)** - Plugin system guide
-- **[READONLY_IMPLEMENTATION.md](READONLY_IMPLEMENTATION.md)** - Read-only mode for plugins
+- [AUTOSAVE.md](AUTOSAVE.md): Auto-save implementation details
+- [PLUGIN_SYSTEM.md](PLUGIN_SYSTEM.md): Plugin system guide
+- [READONLY_IMPLEMENTATION.md](READONLY_IMPLEMENTATION.md): Read-only mode for plugins
 
 ## License
 
