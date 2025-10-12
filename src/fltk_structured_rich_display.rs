@@ -3,7 +3,7 @@
 use crate::fltk_text_display::FltkDrawContext;
 use crate::structured_document::InlineContent;
 use crate::structured_rich_display::StructuredRichDisplay;
-use fltk::{enums::*, prelude::*, valuator::Scrollbar};
+use fltk::{app::MouseWheel, enums::*, prelude::*, valuator::Scrollbar};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
@@ -280,16 +280,29 @@ pub fn create_structured_rich_display_widget(
                 true
             }
             Event::MouseWheel => {
-                // Handle scroll wheel
+                // Handle vertical scroll wheel only
                 let dy = fltk::app::event_dy();
-                let scroll_amount = dy as i32 * 20;
-                let mut disp = display.borrow_mut();
-                let scroll = disp.scroll_offset();
-                let new_scroll = (scroll - scroll_amount).max(0);
-                disp.set_scroll(new_scroll);
-                vscroll_handle.set_value(new_scroll as f64);
-                w.redraw();
-                true
+                let dx = fltk::app::event_dx();
+
+                // Only handle vertical scrolling, ignore horizontal
+                if dy != MouseWheel::None && dx == MouseWheel::None {
+                    let scroll_amount = match dy {
+                        MouseWheel::Up => -20,
+                        MouseWheel::Down => 20,
+                        _ => 0,
+                    };
+
+                    let mut disp = display.borrow_mut();
+                    let scroll = disp.scroll_offset();
+                    let new_scroll = (scroll + scroll_amount).max(0);
+                    disp.set_scroll(new_scroll);
+                    vscroll_handle.set_value(new_scroll as f64);
+                    w.redraw();
+                    true
+                } else {
+                    // Don't handle horizontal scrolling or mixed scrolling
+                    false
+                }
             }
             Event::KeyDown => {
                 let key = fltk::app::event_key();
