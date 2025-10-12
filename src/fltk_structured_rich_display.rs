@@ -6,6 +6,7 @@ use crate::structured_rich_display::StructuredRichDisplay;
 use fltk::{enums::*, prelude::*, valuator::Scrollbar};
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Instant;
 
 /// Create a Structured Rich Text Display widget with scrollbar
 pub fn create_structured_rich_display_widget(
@@ -26,6 +27,10 @@ pub fn create_structured_rich_display_widget(
         w - scrollbar_size,
         h,
     )));
+
+    // Track click count for triple-click detection
+    let last_click_time = Rc::new(RefCell::new(Instant::now()));
+    let last_click_count = Rc::new(RefCell::new(0));
 
     // Set cursor visibility based on edit mode
     display.borrow_mut().set_cursor_visible(edit_mode);
@@ -92,6 +97,8 @@ pub fn create_structured_rich_display_widget(
     widget.handle({
         let display = display.clone();
         let mut vscroll_handle = vscroll.clone();
+        let click_time = last_click_time.clone();
+        let click_count = last_click_count.clone();
         move |w, event| {
             // Handle hover checking for Push, Drag, Move, and Enter
             let check_hover = matches!(event, Event::Push | Event::Drag | Event::Move | Event::Enter);
@@ -124,6 +131,43 @@ pub fn create_structured_rich_display_widget(
             Event::Push => {
                 let x = fltk::app::event_x();
                 let y = fltk::app::event_y();
+
+                // Detect click count (FLTK event_clicks() returns true for multi-click)
+                let is_multi_click = fltk::app::event_clicks();
+
+                // Track triple-click using time-based detection
+                let current_time = Instant::now();
+                let mut last_time = click_time.borrow_mut();
+                let mut last_count = click_count.borrow_mut();
+
+                let time_diff = current_time.duration_since(*last_time);
+                let effective_clicks = if time_diff.as_millis() < 500 {
+                    // Within multi-click time window (500ms)
+                    if is_multi_click {
+                        // This is a multi-click event - increment from last count
+                        if *last_count == 0 || *last_count == 1 {
+                            // First multi-click in sequence = double-click
+                            *last_count = 2;
+                            2
+                        } else {
+                            // Already had a double-click, increment to triple or more
+                            *last_count += 1;
+                            *last_count
+                        }
+                    } else {
+                        // Single click within time window
+                        *last_count = 1;
+                        1
+                    }
+                } else {
+                    // Too much time passed, reset
+                    *last_count = if is_multi_click { 2 } else { 1 };
+                    *last_count
+                };
+
+                *last_time = current_time;
+                drop(last_time);
+                drop(last_count);
 
                 // Handle link clicks
                 let d = display.borrow();
@@ -195,17 +239,43 @@ pub fn create_structured_rich_display_widget(
                         }
                     }
                 } else if edit_mode {
-                    // Not on a link - position cursor if in edit mode
+                    // Not on a link - handle cursor positioning and selection in edit mode
                     let pos = d.xy_to_position(x - w.x(), y - w.y());
                     drop(d); // Release borrow
-                    display.borrow_mut().editor_mut().set_cursor(pos);
+
+                    match effective_clicks {
+                        1 => {
+                            // Single click: position cursor
+                            display.borrow_mut().editor_mut().set_cursor(pos);
+                        }
+                        2 => {
+                            // Double click: select word
+                            display.borrow_mut().editor_mut().select_word_at(pos);
+                        }
+                        _ => {
+                            // Triple click (or more): select line
+                            display.borrow_mut().editor_mut().select_line_at(pos);
+                        }
+                    }
                     w.redraw();
                 }
 
                 w.take_focus().ok();
                 true
             }
-            Event::Drag | Event::Move | Event::Enter => {
+            Event::Drag => {
+                // In edit mode, handle drag selection
+                if edit_mode {
+                    let x = fltk::app::event_x();
+                    let y = fltk::app::event_y();
+                    let pos = display.borrow().xy_to_position(x - w.x(), y - w.y());
+                    display.borrow_mut().editor_mut().extend_selection_to(pos);
+                    w.redraw();
+                }
+                // Hover handled above
+                true
+            }
+            Event::Move | Event::Enter => {
                 // Hover handled above
                 true
             }
@@ -252,6 +322,9 @@ pub fn create_structured_rich_display_widget(
                         let mut disp = display.borrow_mut();
                         let editor = disp.editor_mut();
 
+                        // Check if Shift is held for selection extension
+                        let shift_held = state.contains(Shortcut::Shift);
+
                         match key {
                             Key::BackSpace => {
                                 editor.delete_backward().ok();
@@ -262,27 +335,51 @@ pub fn create_structured_rich_display_widget(
                                 handled = true;
                             }
                             Key::Left => {
-                                editor.move_cursor_left();
+                                if shift_held {
+                                    editor.move_cursor_left_extend();
+                                } else {
+                                    editor.move_cursor_left();
+                                }
                                 handled = true;
                             }
                             Key::Right => {
-                                editor.move_cursor_right();
+                                if shift_held {
+                                    editor.move_cursor_right_extend();
+                                } else {
+                                    editor.move_cursor_right();
+                                }
                                 handled = true;
                             }
                             Key::Up => {
-                                editor.move_cursor_up();
+                                if shift_held {
+                                    editor.move_cursor_up_extend();
+                                } else {
+                                    editor.move_cursor_up();
+                                }
                                 handled = true;
                             }
                             Key::Down => {
-                                editor.move_cursor_down();
+                                if shift_held {
+                                    editor.move_cursor_down_extend();
+                                } else {
+                                    editor.move_cursor_down();
+                                }
                                 handled = true;
                             }
                             Key::Home => {
-                                editor.move_cursor_to_line_start();
+                                if shift_held {
+                                    editor.move_cursor_to_line_start_extend();
+                                } else {
+                                    editor.move_cursor_to_line_start();
+                                }
                                 handled = true;
                             }
                             Key::End => {
-                                editor.move_cursor_to_line_end();
+                                if shift_held {
+                                    editor.move_cursor_to_line_end_extend();
+                                } else {
+                                    editor.move_cursor_to_line_end();
+                                }
                                 handled = true;
                             }
                             Key::Enter => {

@@ -81,6 +81,9 @@ pub struct StructuredRichDisplay {
     cursor_visible: bool,
     cursor_color: u32,
 
+    // Selection rendering
+    selection_color: u32,
+
     // Link hover state
     hovered_link: Option<(usize, usize)>, // (block_index, inline_index)
 }
@@ -108,6 +111,7 @@ impl StructuredRichDisplay {
             line_height: 17,
             cursor_visible: true,
             cursor_color: 0x000000FF,
+            selection_color: 0xB4D5FEFF, // Light blue selection color
             hovered_link: None,
         }
     }
@@ -567,6 +571,54 @@ impl StructuredRichDisplay {
         }
     }
 
+    /// Check if a visual run intersects with the current selection
+    /// Returns None if no selection, or Some((start_offset, end_offset)) relative to the run
+    fn get_run_selection_range(&self, run: &VisualRun) -> Option<(usize, usize)> {
+        let selection = self.editor.selection()?;
+        let (sel_start, sel_end) = selection;
+
+        // Normalize selection so start <= end
+        let (sel_start, sel_end) = if sel_start.block_index < sel_end.block_index
+            || (sel_start.block_index == sel_end.block_index && sel_start.offset <= sel_end.offset)
+        {
+            (sel_start, sel_end)
+        } else {
+            (sel_end, sel_start)
+        };
+
+        // Check if this run's block is within the selection
+        if run.block_index < sel_start.block_index || run.block_index > sel_end.block_index {
+            return None;
+        }
+
+        // Determine the selection range within this run
+        let run_start = run.char_range.0;
+        let run_end = run.char_range.1;
+
+        let sel_start_offset = if run.block_index == sel_start.block_index {
+            sel_start.offset
+        } else {
+            0
+        };
+
+        let sel_end_offset = if run.block_index == sel_end.block_index {
+            sel_end.offset
+        } else {
+            usize::MAX
+        };
+
+        // Check if run intersects with selection
+        if run_end <= sel_start_offset || run_start >= sel_end_offset {
+            return None;
+        }
+
+        // Calculate the intersection
+        let start_in_run = sel_start_offset.saturating_sub(run_start).min(run_end - run_start);
+        let end_in_run = sel_end_offset.saturating_sub(run_start).min(run_end - run_start);
+
+        Some((start_in_run, end_in_run))
+    }
+
     /// Draw the widget
     pub fn draw(&mut self, ctx: &mut dyn DrawContext) {
         self.layout(ctx);
@@ -613,6 +665,37 @@ impl StructuredRichDisplay {
 
                 let draw_y = self.y + line.y - self.scroll_offset + style.size as i32;
                 let draw_x = self.x + run.x;
+
+                // Draw selection highlight (if run is selected)
+                if let Some((sel_start, sel_end)) = self.get_run_selection_range(run) {
+                    if sel_end > sel_start {
+                        // Measure the text before and within selection
+                        let text_before = if sel_start < run.text.len() {
+                            &run.text[..sel_start]
+                        } else {
+                            &run.text
+                        };
+                        let text_selected = if sel_end <= run.text.len() {
+                            &run.text[sel_start..sel_end]
+                        } else if sel_start < run.text.len() {
+                            &run.text[sel_start..]
+                        } else {
+                            ""
+                        };
+
+                        let before_width = ctx.text_width(text_before, style.font, style.size) as i32;
+                        let sel_width = ctx.text_width(text_selected, style.font, style.size) as i32;
+
+                        ctx.set_color(self.selection_color);
+                        ctx.draw_rect_filled(
+                            draw_x + before_width,
+                            self.y + line.y - self.scroll_offset,
+                            sel_width,
+                            line.height,
+                        );
+                        ctx.set_color(style.color); // Restore text color
+                    }
+                }
 
                 // Draw background for hover (if link is hovered)
                 if is_hovered {

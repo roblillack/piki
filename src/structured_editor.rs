@@ -79,6 +79,91 @@ impl StructuredEditor {
         self.selection = None;
     }
 
+    /// Start or extend selection from current cursor position to a new position
+    /// This is used for shift+movement and mouse drag selection
+    pub fn extend_selection_to(&mut self, end: DocumentPosition) {
+        let end = self.document.clamp_position(end);
+
+        if let Some((start, _)) = self.selection {
+            // Already have a selection - keep the original start, update end
+            self.selection = Some((start, end));
+        } else {
+            // Start new selection from current cursor position
+            self.selection = Some((self.cursor, end));
+        }
+
+        // Update cursor to the end position
+        self.cursor = end;
+    }
+
+    /// Select the word at the given position
+    pub fn select_word_at(&mut self, pos: DocumentPosition) {
+        let pos = self.document.clamp_position(pos);
+        let blocks = self.document.blocks();
+
+        if pos.block_index >= blocks.len() {
+            return;
+        }
+
+        let block = &blocks[pos.block_index];
+        let text = block.to_plain_text();
+
+        if text.is_empty() || pos.offset >= text.len() {
+            // Empty block or cursor at end - select nothing
+            return;
+        }
+
+        // Find word boundaries
+        let mut start = pos.offset;
+        let mut end = pos.offset;
+
+        // Move start backward to beginning of word
+        while start > 0 {
+            let ch = text[..start].chars().next_back().unwrap();
+            if ch.is_whitespace() || ch.is_ascii_punctuation() {
+                break;
+            }
+            start = text[..start].char_indices().next_back().map(|(i, _)| i).unwrap_or(0);
+        }
+
+        // Move end forward to end of word
+        let mut chars = text[end..].char_indices();
+        while let Some((_, ch)) = chars.next() {
+            if ch.is_whitespace() || ch.is_ascii_punctuation() {
+                break;
+            }
+            end = text[..end].chars().next().map(|c| end + c.len_utf8()).unwrap_or(end);
+        }
+
+        // If we're on whitespace, extend to include it
+        if start == end {
+            end = text[end..].chars().next().map(|c| end + c.len_utf8()).unwrap_or(end);
+        }
+
+        let start_pos = DocumentPosition::new(pos.block_index, start);
+        let end_pos = DocumentPosition::new(pos.block_index, end);
+
+        self.set_selection(start_pos, end_pos);
+        self.cursor = end_pos;
+    }
+
+    /// Select the entire line (block) at the given position
+    pub fn select_line_at(&mut self, pos: DocumentPosition) {
+        let pos = self.document.clamp_position(pos);
+        let blocks = self.document.blocks();
+
+        if pos.block_index >= blocks.len() {
+            return;
+        }
+
+        let block = &blocks[pos.block_index];
+        let start_pos = DocumentPosition::new(pos.block_index, 0);
+        let end_pos = DocumentPosition::new(pos.block_index, block.text_len());
+
+        self.set_selection(start_pos, end_pos);
+        self.cursor = end_pos;
+    }
+
     /// Insert text at cursor position
     pub fn insert_text(&mut self, text: &str) -> EditResult {
         if self.document.is_empty() {
@@ -459,6 +544,98 @@ impl StructuredEditor {
             self.cursor.offset = blocks[self.cursor.block_index].text_len();
         }
         self.selection = None;
+    }
+
+    // Selection-extending movement methods (for Shift+arrow keys)
+
+    /// Move cursor left by one character, extending selection
+    pub fn move_cursor_left_extend(&mut self) {
+        let new_pos = if self.cursor.offset > 0 {
+            DocumentPosition::new(self.cursor.block_index, self.cursor.offset - 1)
+        } else if self.cursor.block_index > 0 {
+            // Move to end of previous block
+            let blocks = self.document.blocks();
+            DocumentPosition::new(
+                self.cursor.block_index - 1,
+                blocks[self.cursor.block_index - 1].text_len(),
+            )
+        } else {
+            self.cursor
+        };
+
+        if new_pos != self.cursor {
+            self.extend_selection_to(new_pos);
+        }
+    }
+
+    /// Move cursor right by one character, extending selection
+    pub fn move_cursor_right_extend(&mut self) {
+        let blocks = self.document.blocks();
+        if self.cursor.block_index >= blocks.len() {
+            return;
+        }
+
+        let block_len = blocks[self.cursor.block_index].text_len();
+        let new_pos = if self.cursor.offset < block_len {
+            DocumentPosition::new(self.cursor.block_index, self.cursor.offset + 1)
+        } else if self.cursor.block_index < blocks.len() - 1 {
+            // Move to start of next block
+            DocumentPosition::new(self.cursor.block_index + 1, 0)
+        } else {
+            self.cursor
+        };
+
+        if new_pos != self.cursor {
+            self.extend_selection_to(new_pos);
+        }
+    }
+
+    /// Move cursor up (to previous block), extending selection
+    pub fn move_cursor_up_extend(&mut self) {
+        if self.cursor.block_index > 0 {
+            let blocks = self.document.blocks();
+            let new_block_len = blocks[self.cursor.block_index - 1].text_len();
+            let new_pos = DocumentPosition::new(
+                self.cursor.block_index - 1,
+                self.cursor.offset.min(new_block_len),
+            );
+            self.extend_selection_to(new_pos);
+        }
+    }
+
+    /// Move cursor down (to next block), extending selection
+    pub fn move_cursor_down_extend(&mut self) {
+        let blocks = self.document.blocks();
+        if self.cursor.block_index < blocks.len() - 1 {
+            let new_block_len = blocks[self.cursor.block_index + 1].text_len();
+            let new_pos = DocumentPosition::new(
+                self.cursor.block_index + 1,
+                self.cursor.offset.min(new_block_len),
+            );
+            self.extend_selection_to(new_pos);
+        }
+    }
+
+    /// Move cursor to start of current block, extending selection
+    pub fn move_cursor_to_line_start_extend(&mut self) {
+        let new_pos = DocumentPosition::new(self.cursor.block_index, 0);
+        if new_pos != self.cursor {
+            self.extend_selection_to(new_pos);
+        }
+    }
+
+    /// Move cursor to end of current block, extending selection
+    pub fn move_cursor_to_line_end_extend(&mut self) {
+        let blocks = self.document.blocks();
+        if self.cursor.block_index < blocks.len() {
+            let new_pos = DocumentPosition::new(
+                self.cursor.block_index,
+                blocks[self.cursor.block_index].text_len(),
+            );
+            if new_pos != self.cursor {
+                self.extend_selection_to(new_pos);
+            }
+        }
     }
 
     /// Toggle heading level (cycles through plain → H1 → H2 → H3 → plain)
