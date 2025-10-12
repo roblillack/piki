@@ -421,8 +421,14 @@ pub fn create_structured_rich_display_widget(
                                 }
                             }
                             _ => {
-                                // Handle text input
-                                if !text_input.is_empty() {
+                                // Handle text input only if no Cmd/Ctrl modifier is pressed
+                                // This prevents Cmd-Q, Cmd-W, etc. from inserting characters
+                                #[cfg(target_os = "macos")]
+                                let has_cmd_modifier = state.contains(Shortcut::Command);
+                                #[cfg(not(target_os = "macos"))]
+                                let has_cmd_modifier = state.contains(Shortcut::Ctrl);
+
+                                if !text_input.is_empty() && !has_cmd_modifier {
                                     editor.insert_text(&text_input).ok();
                                     handled = true;
                                 }
