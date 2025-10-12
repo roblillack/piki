@@ -61,7 +61,6 @@ impl ResponsiveScrollbar {
 
                 match st.state {
                     ScrollbarState::Asleep | ScrollbarState::Awake => {
-                        println!("Drawing awake scrollbar: {}x{} at {},{}", w, h, x, y);
                         // Draw background
                         fltk_draw::set_draw_color(st.background_color);
                         fltk_draw::draw_rectf(x, y, w, h);
@@ -105,7 +104,6 @@ impl ResponsiveScrollbar {
                         }
                     }
                     ScrollbarState::Hovered => {
-                        println!("Drawing hovered scrollbar: {}x{} at {},{}", w, h, x, y);
                         // Draw a proper scrollbar
                         // Draw scrollbar background
                         // fltk_draw::draw_box(
@@ -238,7 +236,6 @@ impl ResponsiveScrollbar {
         }
         st.last_wake_time = Instant::now();
         if old_state != st.state {
-            println!("Scrollbar woke up: {:?} --> {:?}", old_state, st.state);
             self.scrollbar.redraw();
         }
     }

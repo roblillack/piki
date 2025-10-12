@@ -1,9 +1,10 @@
 // FLTK integration for StructuredRichDisplay widget
 
 use crate::fltk_text_display::FltkDrawContext;
+use crate::responsive_scrollbar::ResponsiveScrollbar;
 use crate::structured_document::InlineContent;
 use crate::structured_rich_display::StructuredRichDisplay;
-use fltk::{app::MouseWheel, enums::*, prelude::*, valuator::Scrollbar};
+use fltk::{app::MouseWheel, enums::*, prelude::*};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
@@ -35,10 +36,14 @@ pub fn create_structured_rich_display_widget(
     // Set cursor visibility based on edit mode
     display.borrow_mut().set_cursor_visible(edit_mode);
 
-    // Create vertical scrollbar
-    let mut vscroll = Scrollbar::default()
-        .with_pos(x + w - scrollbar_size, y)
-        .with_size(scrollbar_size, h);
+    // Create vertical responsive scrollbar
+    let mut vscroll = ResponsiveScrollbar::new(
+        x + w - scrollbar_size,
+        y,
+        scrollbar_size,
+        h,
+        Color::from_rgb(255, 255, 245), // Match widget background
+    );
     vscroll.set_type(fltk::valuator::ScrollbarType::Vertical);
     vscroll.set_callback({
         let display = display.clone();
@@ -296,7 +301,9 @@ pub fn create_structured_rich_display_widget(
                     let scroll = disp.scroll_offset();
                     let new_scroll = (scroll + scroll_amount).max(0);
                     disp.set_scroll(new_scroll);
+                    drop(disp); // Release borrow before calling wake
                     vscroll_handle.set_value(new_scroll as f64);
+                    vscroll_handle.wake(); // Wake the scrollbar
                     w.redraw();
                     true
                 } else {
@@ -429,7 +436,9 @@ pub fn create_structured_rich_display_widget(
                                 };
                                 if new_scroll != scroll {
                                     disp.set_scroll(new_scroll);
+                                    drop(disp); // Release borrow before calling wake
                                     vscroll_handle.set_value(new_scroll as f64);
+                                    vscroll_handle.wake(); // Wake the scrollbar
                                     handled = true;
                                 }
                             }
@@ -470,7 +479,9 @@ pub fn create_structured_rich_display_widget(
 
                         if new_scroll != scroll {
                             disp.set_scroll(new_scroll);
+                            drop(disp); // Release borrow before calling wake
                             vscroll_handle.set_value(new_scroll as f64);
+                            vscroll_handle.wake(); // Wake the scrollbar
                             w.redraw();
                             true
                         } else {
