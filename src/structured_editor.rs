@@ -461,6 +461,63 @@ impl StructuredEditor {
         self.selection = None;
     }
 
+    /// Toggle heading level (cycles through plain → H1 → H2 → H3 → plain)
+    /// Also removes list status if present
+    pub fn toggle_heading(&mut self) -> EditResult {
+        let block_index = self.cursor.block_index;
+        if block_index >= self.document.block_count() {
+            return Err(EditError::InvalidBlockIndex);
+        }
+
+        let blocks = self.document.blocks_mut();
+        let block = &mut blocks[block_index];
+
+        // Cycle through heading levels
+        block.block_type = match &block.block_type {
+            BlockType::Paragraph => BlockType::Heading { level: 1 },
+            BlockType::Heading { level: 1 } => BlockType::Heading { level: 2 },
+            BlockType::Heading { level: 2 } => BlockType::Heading { level: 3 },
+            BlockType::Heading { level: 3 } => BlockType::Paragraph,
+            BlockType::Heading { level } => BlockType::Heading { level: (*level % 3) + 1 },
+            BlockType::ListItem { .. } => BlockType::Heading { level: 1 },
+            BlockType::CodeBlock { .. } => BlockType::Heading { level: 1 },
+            BlockType::BlockQuote => BlockType::Heading { level: 1 },
+        };
+
+        Ok(())
+    }
+
+    /// Toggle list status (on/off)
+    /// When turning list on, removes heading if present
+    pub fn toggle_list(&mut self) -> EditResult {
+        let block_index = self.cursor.block_index;
+        if block_index >= self.document.block_count() {
+            return Err(EditError::InvalidBlockIndex);
+        }
+
+        let blocks = self.document.blocks_mut();
+        let block = &mut blocks[block_index];
+
+        // Toggle list status
+        block.block_type = match &block.block_type {
+            BlockType::ListItem { .. } => BlockType::Paragraph,
+            BlockType::Paragraph | BlockType::Heading { .. } => BlockType::ListItem {
+                ordered: false,
+                number: None,
+            },
+            BlockType::CodeBlock { .. } => BlockType::ListItem {
+                ordered: false,
+                number: None,
+            },
+            BlockType::BlockQuote => BlockType::ListItem {
+                ordered: false,
+                number: None,
+            },
+        };
+
+        Ok(())
+    }
+
     /// Find the content element and offset within it for a given block offset (static version)
     fn find_content_at_offset_static(content: &[InlineContent], offset: usize) -> (usize, usize) {
         let mut current_offset = 0;

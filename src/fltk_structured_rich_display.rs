@@ -224,11 +224,31 @@ pub fn create_structured_rich_display_widget(
             Event::KeyDown => {
                 let key = fltk::app::event_key();
                 let text_input = fltk::app::event_text();
+                let state = fltk::app::event_state();
 
                 // Handle editing keys if in edit mode
                 if edit_mode {
                     let mut handled = false;
-                    {
+
+                    // Check for Cmd/Ctrl-Shift-H (toggle heading)
+                    #[cfg(target_os = "macos")]
+                    let cmd_shift_modifier = state.contains(Shortcut::Command | Shortcut::Shift);
+                    #[cfg(not(target_os = "macos"))]
+                    let cmd_shift_modifier = state.contains(Shortcut::Ctrl | Shortcut::Shift);
+
+                    if cmd_shift_modifier && key == Key::from_char('h') {
+                        let mut disp = display.borrow_mut();
+                        disp.editor_mut().toggle_heading().ok();
+                        handled = true;
+                    }
+                    // Check for Cmd/Ctrl-Shift-8 (toggle list)
+                    // On US keyboards, Shift-8 produces '*'
+                    else if cmd_shift_modifier && (key == Key::from_char('8') || key == Key::from_char('*')) {
+                        let mut disp = display.borrow_mut();
+                        disp.editor_mut().toggle_list().ok();
+                        handled = true;
+                    }
+                    else {
                         let mut disp = display.borrow_mut();
                         let editor = disp.editor_mut();
 
