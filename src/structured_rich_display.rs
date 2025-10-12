@@ -424,9 +424,41 @@ impl StructuredRichDisplay {
                     let text = &run.text;
                     let mut word_start = 0;
                     let mut in_word = false;
+                    let mut leading_space_handled = false;
 
                     for (i, ch) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {
                         let is_whitespace = ch.is_whitespace();
+
+                        // Handle leading whitespace at the start of the run
+                        if !leading_space_handled && is_whitespace && i == 0 {
+                            // Find all leading whitespace
+                            let mut space_end = 0;
+                            for (idx, c) in text.char_indices() {
+                                if c.is_whitespace() {
+                                    space_end = idx + c.len_utf8();
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            if space_end > 0 {
+                                let space_text = &text[..space_end];
+                                let space_width = ctx.text_width(space_text, font, size) as i32;
+
+                                current_line.push(VisualRun {
+                                    text: space_text.to_string(),
+                                    x: current_x,
+                                    width: space_width,
+                                    style_idx,
+                                    block_index: block_idx,
+                                    char_range: (char_offset, char_offset + space_end),
+                                    inline_index: Some(inline_idx),
+                                });
+
+                                current_x += space_width;
+                            }
+                            leading_space_handled = true;
+                        }
 
                         if in_word && (is_whitespace || i == text.len()) {
                             // End of word - extract word with trailing whitespace
