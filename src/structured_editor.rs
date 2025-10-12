@@ -664,6 +664,153 @@ impl StructuredEditor {
         Ok(())
     }
 
+    /// Toggle bold style on the current selection
+    pub fn toggle_bold(&mut self) -> EditResult {
+        self.toggle_style_attribute(|style| {
+            style.bold = !style.bold;
+        })
+    }
+
+    /// Toggle italic style on the current selection
+    pub fn toggle_italic(&mut self) -> EditResult {
+        self.toggle_style_attribute(|style| {
+            style.italic = !style.italic;
+        })
+    }
+
+    /// Toggle a style attribute on the current selection
+    fn toggle_style_attribute<F>(&mut self, mut apply_style: F) -> EditResult
+    where
+        F: FnMut(&mut TextStyle),
+    {
+        let Some((start, end)) = self.selection else {
+            return Ok(());
+        };
+
+        // Ensure start <= end
+        let (start, end) = if start.block_index < end.block_index
+            || (start.block_index == end.block_index && start.offset <= end.offset)
+        {
+            (start, end)
+        } else {
+            (end, start)
+        };
+
+        // For now, only support styling within a single block
+        if start.block_index != end.block_index {
+            return Ok(());
+        }
+
+        let block_index = start.block_index;
+        if block_index >= self.document.block_count() {
+            return Err(EditError::InvalidBlockIndex);
+        }
+
+        // Get the content and split it into three parts: before, selected, after
+        let (content_before, selected_content, content_after) = {
+            let blocks = self.document.blocks();
+            let block = &blocks[block_index];
+            Self::split_content_for_style(&block.content, start.offset, end.offset)
+        };
+
+        // Apply style to the selected content
+        let styled_content: Vec<InlineContent> = selected_content
+            .into_iter()
+            .map(|item| match item {
+                InlineContent::Text(mut run) => {
+                    apply_style(&mut run.style);
+                    InlineContent::Text(run)
+                }
+                other => other,
+            })
+            .collect();
+
+        // Reconstruct the block content
+        let blocks = self.document.blocks_mut();
+        let block = &mut blocks[block_index];
+        block.content = content_before;
+        block.content.extend(styled_content);
+        block.content.extend(content_after);
+
+        Ok(())
+    }
+
+    /// Split content into three parts: before selection, within selection, after selection
+    fn split_content_for_style(
+        content: &[InlineContent],
+        start_offset: usize,
+        end_offset: usize,
+    ) -> (Vec<InlineContent>, Vec<InlineContent>, Vec<InlineContent>) {
+        let mut before = Vec::new();
+        let mut selected = Vec::new();
+        let mut after = Vec::new();
+
+        let mut current_offset = 0;
+
+        for item in content {
+            let item_len = item.text_len();
+            let item_start = current_offset;
+            let item_end = current_offset + item_len;
+
+            if item_end <= start_offset {
+                // Entirely before selection
+                before.push(item.clone());
+            } else if item_start >= end_offset {
+                // Entirely after selection
+                after.push(item.clone());
+            } else if item_start >= start_offset && item_end <= end_offset {
+                // Entirely within selection
+                selected.push(item.clone());
+            } else {
+                // Partially overlaps - need to split
+                match item {
+                    InlineContent::Text(run) => {
+                        let text = &run.text;
+
+                        // Calculate offsets within this run
+                        let sel_start_in_run = start_offset.saturating_sub(item_start);
+                        let sel_end_in_run = end_offset.saturating_sub(item_start).min(item_len);
+
+                        if sel_start_in_run > 0 {
+                            // Part before selection
+                            let mut before_run = run.clone();
+                            before_run.text = text[..sel_start_in_run].to_string();
+                            before.push(InlineContent::Text(before_run));
+                        }
+
+                        if sel_end_in_run > sel_start_in_run {
+                            // Part in selection
+                            let mut selected_run = run.clone();
+                            selected_run.text = text[sel_start_in_run..sel_end_in_run].to_string();
+                            selected.push(InlineContent::Text(selected_run));
+                        }
+
+                        if sel_end_in_run < item_len {
+                            // Part after selection
+                            let mut after_run = run.clone();
+                            after_run.text = text[sel_end_in_run..].to_string();
+                            after.push(InlineContent::Text(after_run));
+                        }
+                    }
+                    _ => {
+                        // For non-text items, include them in the appropriate section
+                        if item_start < start_offset {
+                            before.push(item.clone());
+                        } else if item_start < end_offset {
+                            selected.push(item.clone());
+                        } else {
+                            after.push(item.clone());
+                        }
+                    }
+                }
+            }
+
+            current_offset += item_len;
+        }
+
+        (before, selected, after)
+    }
+
     /// Toggle list status (on/off)
     /// When turning list on, removes heading if present
     pub fn toggle_list(&mut self) -> EditResult {

@@ -300,13 +300,32 @@ pub fn create_structured_rich_display_widget(
                 if edit_mode {
                     let mut handled = false;
 
-                    // Check for Cmd/Ctrl-Shift-H (toggle heading)
+                    // Check for Cmd/Ctrl modifier (without Shift)
+                    #[cfg(target_os = "macos")]
+                    let cmd_modifier = state.contains(Shortcut::Command) && !state.contains(Shortcut::Shift);
+                    #[cfg(not(target_os = "macos"))]
+                    let cmd_modifier = state.contains(Shortcut::Ctrl) && !state.contains(Shortcut::Shift);
+
+                    // Check for Cmd/Ctrl-Shift modifier
                     #[cfg(target_os = "macos")]
                     let cmd_shift_modifier = state.contains(Shortcut::Command | Shortcut::Shift);
                     #[cfg(not(target_os = "macos"))]
                     let cmd_shift_modifier = state.contains(Shortcut::Ctrl | Shortcut::Shift);
 
-                    if cmd_shift_modifier && key == Key::from_char('h') {
+                    // Cmd/Ctrl-B (toggle bold)
+                    if cmd_modifier && key == Key::from_char('b') {
+                        let mut disp = display.borrow_mut();
+                        disp.editor_mut().toggle_bold().ok();
+                        handled = true;
+                    }
+                    // Cmd/Ctrl-I (toggle italic)
+                    else if cmd_modifier && key == Key::from_char('i') {
+                        let mut disp = display.borrow_mut();
+                        disp.editor_mut().toggle_italic().ok();
+                        handled = true;
+                    }
+                    // Check for Cmd/Ctrl-Shift-H (toggle heading)
+                    else if cmd_shift_modifier && key == Key::from_char('h') {
                         let mut disp = display.borrow_mut();
                         disp.editor_mut().toggle_heading().ok();
                         handled = true;
