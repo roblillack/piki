@@ -5,7 +5,6 @@ use fliki_rs::fltk_structured_rich_display::create_structured_rich_display_widge
 use fliki_rs::markdown_converter::{document_to_markdown, markdown_to_document};
 use fliki_rs::structured_document::DocumentPosition;
 use fliki_rs::text_display::{style_attr, StyleTableEntry};
-use fltk::app::{event_mouse_button, event_x, event_y, MouseButton};
 use fltk::{prelude::*, *};
 use std::env;
 use std::fs;
@@ -62,6 +61,7 @@ fn main() {
         5,   // y
         790, // width
         590, // height
+        edit_mode, // edit mode
     );
 
     // Convert markdown to structured document
@@ -166,94 +166,10 @@ fn main() {
 
     display.borrow_mut().set_style_table(style_table);
     display.borrow_mut().set_padding(10, 10, 25, 25);
-    display.borrow_mut().set_cursor_visible(edit_mode);
 
     // Set widget color
     display_widget.set_color(enums::Color::from_rgb(255, 255, 245));
     display_widget.set_frame(enums::FrameType::FlatBox);
-
-    // In edit mode, add handler for editing operations
-    if edit_mode {
-        display_widget.handle({
-            let display = display.clone();
-            let mut widget_clone = display_widget.clone();
-
-            move |widget, evt| match evt {
-                enums::Event::Push if event_mouse_button() == MouseButton::Left => {
-                    let x = event_x() - widget.x();
-                    let y = event_y() - widget.y();
-
-                    let pos = display.borrow().xy_to_position(x, y);
-                    display.borrow_mut().editor_mut().set_cursor(pos);
-                    widget_clone.redraw();
-                    true
-                }
-                enums::Event::KeyDown => {
-                // Handle keyboard input for editing
-                let key = app::event_key();
-                let text_input = app::event_text();
-
-                let mut handled = false;
-                {
-                    let mut disp = display.borrow_mut();
-                    let editor = disp.editor_mut();
-
-                    match key {
-                        enums::Key::BackSpace => {
-                            editor.delete_backward().ok();
-                            handled = true;
-                        }
-                        enums::Key::Delete => {
-                            editor.delete_forward().ok();
-                            handled = true;
-                        }
-                        enums::Key::Left => {
-                            editor.move_cursor_left();
-                            handled = true;
-                        }
-                        enums::Key::Right => {
-                            editor.move_cursor_right();
-                            handled = true;
-                        }
-                        enums::Key::Up => {
-                            editor.move_cursor_up();
-                            handled = true;
-                        }
-                        enums::Key::Down => {
-                            editor.move_cursor_down();
-                            handled = true;
-                        }
-                        enums::Key::Home => {
-                            editor.move_cursor_to_line_start();
-                            handled = true;
-                        }
-                        enums::Key::End => {
-                            editor.move_cursor_to_line_end();
-                            handled = true;
-                        }
-                        enums::Key::Enter => {
-                            editor.insert_newline().ok();
-                            handled = true;
-                        }
-                        _ => {
-                            if !text_input.is_empty() {
-                                editor.insert_text(&text_input).ok();
-                                handled = true;
-                            }
-                        }
-                    }
-                }
-
-                if handled {
-                    widget_clone.redraw();
-                }
-
-                handled
-            }
-                _ => false,
-            }
-        });
-    }
 
     // Handle window resize
     wind.handle({

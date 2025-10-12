@@ -467,7 +467,8 @@ impl StructuredEditor {
 
         for (idx, item) in content.iter().enumerate() {
             let item_len = item.text_len();
-            if current_offset + item_len > offset {
+            // Use >= so that cursor at end of a run can still delete backward
+            if current_offset + item_len >= offset {
                 return (idx, offset - current_offset);
             }
             current_offset += item_len;

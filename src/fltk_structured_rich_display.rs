@@ -13,6 +13,7 @@ pub fn create_structured_rich_display_widget(
     y: i32,
     w: i32,
     h: i32,
+    edit_mode: bool,
 ) -> (fltk::group::Group, Rc<RefCell<StructuredRichDisplay>>) {
     let mut widget = fltk::group::Group::new(x, y, w, h, None);
 
@@ -25,6 +26,9 @@ pub fn create_structured_rich_display_widget(
         w - scrollbar_size,
         h,
     )));
+
+    // Set cursor visibility based on edit mode
+    display.borrow_mut().set_cursor_visible(edit_mode);
 
     // Create vertical scrollbar
     let mut vscroll = Scrollbar::default()
@@ -118,6 +122,9 @@ pub fn create_structured_rich_display_widget(
 
             match event {
             Event::Push => {
+                let x = fltk::app::event_x();
+                let y = fltk::app::event_y();
+
                 // Handle link clicks
                 let d = display.borrow();
 
@@ -187,6 +194,12 @@ pub fn create_structured_rich_display_widget(
                             }
                         }
                     }
+                } else if edit_mode {
+                    // Not on a link - position cursor if in edit mode
+                    let pos = d.xy_to_position(x - w.x(), y - w.y());
+                    drop(d); // Release borrow
+                    display.borrow_mut().editor_mut().set_cursor(pos);
+                    w.redraw();
                 }
 
                 w.take_focus().ok();
@@ -209,32 +222,108 @@ pub fn create_structured_rich_display_widget(
                 true
             }
             Event::KeyDown => {
-                // Only handle scrolling keys here
                 let key = fltk::app::event_key();
+                let text_input = fltk::app::event_text();
 
-                let is_scroll_key = matches!(key, Key::PageUp | Key::PageDown);
+                // Handle editing keys if in edit mode
+                if edit_mode {
+                    let mut handled = false;
+                    {
+                        let mut disp = display.borrow_mut();
+                        let editor = disp.editor_mut();
 
-                if is_scroll_key {
-                    let mut disp = display.borrow_mut();
-                    let scroll = disp.scroll_offset();
-                    let visible = disp.h();
+                        match key {
+                            Key::BackSpace => {
+                                editor.delete_backward().ok();
+                                handled = true;
+                            }
+                            Key::Delete => {
+                                editor.delete_forward().ok();
+                                handled = true;
+                            }
+                            Key::Left => {
+                                editor.move_cursor_left();
+                                handled = true;
+                            }
+                            Key::Right => {
+                                editor.move_cursor_right();
+                                handled = true;
+                            }
+                            Key::Up => {
+                                editor.move_cursor_up();
+                                handled = true;
+                            }
+                            Key::Down => {
+                                editor.move_cursor_down();
+                                handled = true;
+                            }
+                            Key::Home => {
+                                editor.move_cursor_to_line_start();
+                                handled = true;
+                            }
+                            Key::End => {
+                                editor.move_cursor_to_line_end();
+                                handled = true;
+                            }
+                            Key::Enter => {
+                                editor.insert_newline().ok();
+                                handled = true;
+                            }
+                            Key::PageUp | Key::PageDown => {
+                                // Handle scrolling
+                                let scroll = disp.scroll_offset();
+                                let visible = disp.h();
+                                let new_scroll = match key {
+                                    Key::PageUp => (scroll - visible).max(0),
+                                    Key::PageDown => scroll + visible,
+                                    _ => scroll,
+                                };
+                                if new_scroll != scroll {
+                                    disp.set_scroll(new_scroll);
+                                    vscroll_handle.set_value(new_scroll as f64);
+                                    handled = true;
+                                }
+                            }
+                            _ => {
+                                // Handle text input
+                                if !text_input.is_empty() {
+                                    editor.insert_text(&text_input).ok();
+                                    handled = true;
+                                }
+                            }
+                        }
+                    }
 
-                    let new_scroll = match key {
-                        Key::PageUp => (scroll - visible).max(0),
-                        Key::PageDown => scroll + visible,
-                        _ => scroll,
-                    };
-
-                    if new_scroll != scroll {
-                        disp.set_scroll(new_scroll);
-                        vscroll_handle.set_value(new_scroll as f64);
+                    if handled {
                         w.redraw();
-                        true
+                    }
+                    handled
+                } else {
+                    // Non-edit mode: only handle scrolling keys
+                    let is_scroll_key = matches!(key, Key::PageUp | Key::PageDown);
+
+                    if is_scroll_key {
+                        let mut disp = display.borrow_mut();
+                        let scroll = disp.scroll_offset();
+                        let visible = disp.h();
+
+                        let new_scroll = match key {
+                            Key::PageUp => (scroll - visible).max(0),
+                            Key::PageDown => scroll + visible,
+                            _ => scroll,
+                        };
+
+                        if new_scroll != scroll {
+                            disp.set_scroll(new_scroll);
+                            vscroll_handle.set_value(new_scroll as f64);
+                            w.redraw();
+                            true
+                        } else {
+                            false
+                        }
                     } else {
                         false
                     }
-                } else {
-                    false
                 }
             }
             Event::Focus | Event::Unfocus => {

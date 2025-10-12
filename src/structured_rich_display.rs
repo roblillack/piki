@@ -29,6 +29,8 @@ struct VisualRun {
     text: String,
     /// X position
     x: i32,
+    /// Width of the text
+    width: i32,
     /// Style index
     style_idx: u8,
     /// Block index this belongs to
@@ -219,9 +221,11 @@ impl StructuredRichDisplay {
                 let text = block.to_plain_text();
                 let lines: Vec<&str> = text.lines().collect();
                 let style_idx = self.get_style_for_block_type(&block.block_type);
+                let (font, size) = self.get_font_for_style(style_idx);
                 let mut current_y = y + 5;
 
                 for line in lines {
+                    let line_width = ctx.text_width(line, font, size) as i32;
                     self.layout_lines.push(LayoutLine {
                         y: current_y,
                         height: self.line_height,
@@ -231,6 +235,7 @@ impl StructuredRichDisplay {
                         runs: vec![VisualRun {
                             text: line.to_string(),
                             x: start_x + 10,
+                            width: line_width,
                             style_idx,
                             block_index: block_idx,
                             char_range: (0, line.len()),
@@ -250,9 +255,13 @@ impl StructuredRichDisplay {
                 let bullet_indent = self.text_size as i32;
                 let text_indent = bullet_indent * 2;
 
+                let bullet_text = "• ";
+                let bullet_width = ctx.text_width(bullet_text, self.text_font, self.text_size) as i32;
+
                 let mut runs = vec![VisualRun {
-                    text: "• ".to_string(),
+                    text: bullet_text.to_string(),
                     x: start_x + bullet_indent,
+                    width: bullet_width,
                     style_idx: 0,
                     block_index: block_idx,
                     char_range: (0, 0),
@@ -276,24 +285,32 @@ impl StructuredRichDisplay {
                 // Merge bullet with first line
                 if !content_runs.is_empty() && !content_runs[0].is_empty() {
                     runs.extend(content_runs[0].drain(..));
+
+                    // Calculate char range from content runs (skip bullet)
+                    let char_start = runs.iter().skip(1).map(|r| r.char_range.0).min().unwrap_or(0);
+                    let char_end = runs.iter().skip(1).map(|r| r.char_range.1).max().unwrap_or(0);
+
                     self.layout_lines.push(LayoutLine {
                         y: current_y,
                         height: self.line_height,
                         block_index: block_idx,
-                        char_start: 0,
-                        char_end: 0,
+                        char_start,
+                        char_end,
                         runs,
                     });
                     current_y += self.line_height;
 
                     // Add remaining lines
                     for line_runs in content_runs.iter().skip(1) {
+                        let char_start = line_runs.first().map(|r| r.char_range.0).unwrap_or(0);
+                        let char_end = line_runs.last().map(|r| r.char_range.1).unwrap_or(0);
+
                         self.layout_lines.push(LayoutLine {
                             y: current_y,
                             height: self.line_height,
                             block_index: block_idx,
-                            char_start: 0,
-                            char_end: 0,
+                            char_start,
+                            char_end,
                             runs: line_runs.clone(),
                         });
                         current_y += self.line_height;
@@ -340,12 +357,16 @@ impl StructuredRichDisplay {
 
         let mut current_y = y;
         for line_runs in lines {
+            // Calculate char_start and char_end from the runs
+            let char_start = line_runs.first().map(|r| r.char_range.0).unwrap_or(0);
+            let char_end = line_runs.last().map(|r| r.char_range.1).unwrap_or(0);
+
             self.layout_lines.push(LayoutLine {
                 y: current_y,
                 height: line_height,
                 block_index: block_idx,
-                char_start: 0,
-                char_end: 0,
+                char_start,
+                char_end,
                 runs: line_runs,
             });
             current_y += line_height;
@@ -395,32 +416,53 @@ impl StructuredRichDisplay {
                     };
                     let (font, size) = self.get_font_for_style(style_idx);
 
-                    // Word wrap
-                    for word in run.text.split_whitespace() {
-                        let word_with_space = format!("{} ", word);
-                        let word_len = word_with_space.len();
-                        let word_width = ctx.text_width(&word_with_space, font, size) as i32;
+                    // Word wrap - track actual positions in original text
+                    let text = &run.text;
+                    let mut word_start = 0;
+                    let mut in_word = false;
 
-                        if current_x + word_width > start_x + width && current_x > start_x {
-                            // Wrap to next line
-                            lines.push(current_line);
-                            current_line = Vec::new();
-                            current_x = start_x;
-                            current_y += line_height;
+                    for (i, ch) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {
+                        let is_whitespace = ch.is_whitespace();
+
+                        if in_word && (is_whitespace || i == text.len()) {
+                            // End of word - extract word with trailing whitespace
+                            let mut word_end = i;
+                            // Include trailing whitespace in the word
+                            while word_end < text.len() && text[word_end..].chars().next().map_or(false, |c| c.is_whitespace() && c != '\n') {
+                                word_end += text[word_end..].chars().next().unwrap().len_utf8();
+                            }
+
+                            let word_text = &text[word_start..word_end];
+                            let word_width = ctx.text_width(word_text, font, size) as i32;
+
+                            if current_x + word_width > start_x + width && current_x > start_x {
+                                // Wrap to next line
+                                lines.push(current_line);
+                                current_line = Vec::new();
+                                current_x = start_x;
+                                current_y += line_height;
+                            }
+
+                            current_line.push(VisualRun {
+                                text: word_text.to_string(),
+                                x: current_x,
+                                width: word_width,
+                                style_idx,
+                                block_index: block_idx,
+                                char_range: (char_offset + word_start, char_offset + word_end),
+                                inline_index: Some(inline_idx),
+                            });
+
+                            current_x += word_width;
+                            in_word = false;
+                        } else if !in_word && !is_whitespace {
+                            // Start of new word
+                            word_start = i;
+                            in_word = true;
                         }
-
-                        current_line.push(VisualRun {
-                            text: word_with_space,
-                            x: current_x,
-                            style_idx,
-                            block_index: block_idx,
-                            char_range: (char_offset, char_offset + word_len),
-                            inline_index: Some(inline_idx),
-                        });
-
-                        current_x += word_width;
-                        char_offset += word_len;
                     }
+
+                    char_offset += text.len();
                 }
                 InlineContent::Link { link: _, content: link_content } => {
                     // Render link content
@@ -443,6 +485,7 @@ impl StructuredRichDisplay {
                     current_line.push(VisualRun {
                         text: text.clone(),
                         x: current_x,
+                        width: text_width,
                         style_idx,
                         block_index: block_idx,
                         char_range: (char_offset, char_offset + text.len()),
@@ -453,15 +496,17 @@ impl StructuredRichDisplay {
                     char_offset += text.len();
                 }
                 InlineContent::LineBreak => {
+                    let space_width = ctx.text_width(" ", self.text_font, self.text_size) as i32;
                     current_line.push(VisualRun {
                         text: " ".to_string(),
                         x: current_x,
+                        width: space_width,
                         style_idx: 0,
                         block_index: block_idx,
                         char_range: (char_offset, char_offset + 1),
                         inline_index: Some(inline_idx),
                     });
-                    current_x += ctx.text_width(" ", self.text_font, self.text_size) as i32;
+                    current_x += space_width;
                     char_offset += 1;
                 }
                 InlineContent::HardBreak => {
@@ -589,7 +634,7 @@ impl StructuredRichDisplay {
 
         // Draw cursor
         if self.cursor_visible {
-            if let Some((cx, cy, ch)) = self.get_cursor_visual_position() {
+            if let Some((cx, cy, ch)) = self.get_cursor_visual_position(ctx) {
                 let screen_y = self.y + cy - self.scroll_offset;
                 let screen_x = self.x + cx;
 
@@ -604,7 +649,7 @@ impl StructuredRichDisplay {
     }
 
     /// Get visual position of cursor (x, y, height) relative to widget
-    fn get_cursor_visual_position(&self) -> Option<(i32, i32, i32)> {
+    fn get_cursor_visual_position(&self, ctx: &mut dyn DrawContext) -> Option<(i32, i32, i32)> {
         let cursor = self.editor.cursor();
         let doc = self.editor.document();
 
@@ -615,20 +660,37 @@ impl StructuredRichDisplay {
         // Find the layout line containing the cursor
         for line in &self.layout_lines {
             if line.block_index == cursor.block_index {
-                // Find position within line
-                if cursor.offset <= line.char_end {
+                // Check if cursor falls within this line's character range
+                if cursor.offset >= line.char_start && cursor.offset <= line.char_end {
                     let mut x = self.padding_left;
 
                     for run in &line.runs {
+                        // Skip non-content runs (like list bullets with char_range (0,0))
+                        if run.char_range.0 == run.char_range.1 && run.inline_index.is_none() {
+                            continue;
+                        }
+
                         if cursor.offset >= run.char_range.0 && cursor.offset <= run.char_range.1 {
-                            // Cursor is in this run
+                            // Cursor is in this run - measure actual text width
                             let offset_in_run = cursor.offset - run.char_range.0;
-                            x = run.x + (offset_in_run as i32 * 8); // Approximate
+                            let (font, size) = self.get_font_for_style(run.style_idx);
+
+                            // Measure the text up to the cursor position
+                            let text_before_cursor = if offset_in_run < run.text.len() {
+                                &run.text[..offset_in_run]
+                            } else {
+                                &run.text
+                            };
+
+                            let width_before = ctx.text_width(text_before_cursor, font, size) as i32;
+                            x = run.x + width_before;
                             return Some((x, line.y, line.height));
                         }
 
                         if cursor.offset > run.char_range.1 {
-                            x = run.x + (run.text.len() as i32 * 8);
+                            // Cursor is after this run - measure full run width
+                            let (font, size) = self.get_font_for_style(run.style_idx);
+                            x = run.x + ctx.text_width(&run.text, font, size) as i32;
                         }
                     }
 
@@ -651,9 +713,20 @@ impl StructuredRichDisplay {
                 let mut offset = 0;
 
                 for run in &line.runs {
-                    let run_end_x = run.x + (run.text.len() as i32 * 8);
+                    let run_end_x = run.x + run.width;
                     if x >= run.x && x < run_end_x {
-                        offset = run.char_range.0;
+                        // Click is within this run - find the exact character position
+                        // For now, use a simple approximation within the run
+                        let click_offset_in_run = x - run.x;
+                        let chars_in_run = run.char_range.1 - run.char_range.0;
+
+                        if run.width > 0 && chars_in_run > 0 {
+                            // Estimate character position
+                            let char_pos = ((click_offset_in_run * chars_in_run as i32) / run.width).min(chars_in_run as i32 - 1).max(0);
+                            offset = run.char_range.0 + char_pos as usize;
+                        } else {
+                            offset = run.char_range.0;
+                        }
                         break;
                     }
                     if x >= run_end_x {
@@ -695,10 +768,7 @@ impl StructuredRichDisplay {
             if adjusted_y >= line.y && adjusted_y < line.y + line.height {
                 // Find the run at this x position
                 for run in &line.runs {
-                    // Estimate run width
-                    let estimated_width = (run.text.len() as i32) * 8; // rough estimate
-
-                    if adjusted_x >= run.x && adjusted_x < run.x + estimated_width {
+                    if adjusted_x >= run.x && adjusted_x < run.x + run.width {
                         // Check if this run has an inline_index pointing to a link
                         if let Some(inline_idx) = run.inline_index {
                             let doc = self.editor.document();
