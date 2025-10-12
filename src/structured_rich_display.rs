@@ -218,7 +218,9 @@ impl StructuredRichDisplay {
                     _ => self.text_size,
                 };
                 let height = ((size as f32) * 1.3) as i32;
-                let y_after = self.layout_inline_block(block, block_idx, y, start_x, width, height, ctx);
+                // Add top margin for headings (unless it's the first block)
+                let top_margin = if block_idx > 0 { 15 } else { 0 };
+                let y_after = self.layout_inline_block(block, block_idx, y + top_margin, start_x, width, height, ctx);
                 y_after + 10 // Extra spacing after headings
             }
             BlockType::CodeBlock { .. } => {
