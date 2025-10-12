@@ -842,6 +842,120 @@ impl StructuredEditor {
         Ok(())
     }
 
+    /// Set the block type for the current block
+    pub fn set_block_type(&mut self, block_type: BlockType) -> EditResult {
+        let block_index = self.cursor.block_index;
+        if block_index >= self.document.block_count() {
+            return Err(EditError::InvalidBlockIndex);
+        }
+
+        let blocks = self.document.blocks_mut();
+        blocks[block_index].block_type = block_type;
+
+        Ok(())
+    }
+
+    /// Toggle code style on the current selection
+    pub fn toggle_code(&mut self) -> EditResult {
+        self.toggle_style_attribute(|style| {
+            style.code = !style.code;
+        })
+    }
+
+    /// Toggle strikethrough style on the current selection
+    pub fn toggle_strikethrough(&mut self) -> EditResult {
+        self.toggle_style_attribute(|style| {
+            style.strikethrough = !style.strikethrough;
+        })
+    }
+
+    /// Get the selected text as plain text
+    pub fn get_selection_text(&self) -> String {
+        let Some((start, end)) = self.selection else {
+            return String::new();
+        };
+
+        // Ensure start <= end
+        let (start, end) = if start.block_index < end.block_index
+            || (start.block_index == end.block_index && start.offset <= end.offset)
+        {
+            (start, end)
+        } else {
+            (end, start)
+        };
+
+        if start.block_index == end.block_index {
+            // Selection within single block
+            let blocks = self.document.blocks();
+            if start.block_index >= blocks.len() {
+                return String::new();
+            }
+            let block = &blocks[start.block_index];
+            let text = block.to_plain_text();
+            if start.offset < text.len() {
+                let end_offset = end.offset.min(text.len());
+                return text[start.offset..end_offset].to_string();
+            }
+        } else {
+            // Selection across multiple blocks
+            let blocks = self.document.blocks();
+            let mut result = String::new();
+
+            for block_idx in start.block_index..=end.block_index.min(blocks.len() - 1) {
+                let block = &blocks[block_idx];
+                let text = block.to_plain_text();
+
+                if block_idx == start.block_index {
+                    // First block - from start.offset to end
+                    result.push_str(&text[start.offset..]);
+                } else if block_idx == end.block_index {
+                    // Last block - from beginning to end.offset
+                    let end_offset = end.offset.min(text.len());
+                    result.push_str(&text[..end_offset]);
+                } else {
+                    // Middle block - entire text
+                    result.push_str(&text);
+                }
+
+                // Add newline between blocks (except after the last one)
+                if block_idx < end.block_index {
+                    result.push('\n');
+                }
+            }
+
+            return result;
+        }
+
+        String::new()
+    }
+
+    /// Cut the selected text (copy and delete)
+    pub fn cut(&mut self) -> Result<String, EditError> {
+        let text = self.get_selection_text();
+        if !text.is_empty() {
+            self.delete_selection()?;
+        }
+        Ok(text)
+    }
+
+    /// Copy the selected text
+    pub fn copy(&self) -> String {
+        self.get_selection_text()
+    }
+
+    /// Paste text at cursor position (or replace selection)
+    pub fn paste(&mut self, text: &str) -> EditResult {
+        // If there's a selection, delete it first
+        if self.selection.is_some() {
+            self.delete_selection()?;
+        }
+
+        // Insert the pasted text
+        // For now, we'll insert it as plain text at the cursor position
+        // TODO: Handle multi-line pastes more intelligently
+        self.insert_text(text)
+    }
+
     /// Find the content element and offset within it for a given block offset (static version)
     fn find_content_at_offset_static(content: &[InlineContent], offset: usize) -> (usize, usize) {
         let mut current_offset = 0;

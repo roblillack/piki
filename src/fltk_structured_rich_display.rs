@@ -134,6 +134,244 @@ pub fn create_structured_rich_display_widget(
 
             match event {
             Event::Push => {
+                // Check for right-click context menu in edit mode (button 3 is right-click)
+                if edit_mode && fltk::app::event_button() == 3 {
+                    let x = fltk::app::event_x();
+                    let y = fltk::app::event_y();
+
+                    // Create context menu
+                    let mut menu = fltk::menu::MenuButton::default();
+                    menu.set_pos(x, y);
+
+                    // Paragraph Style submenu
+                    menu.add(
+                        "Paragraph Style/Paragraph",
+                        fltk::enums::Shortcut::None,
+                        fltk::menu::MenuFlag::Normal,
+                        {
+                            let display = display.clone();
+                            let mut w_clone = w.clone();
+                            move |_| {
+                                display.borrow_mut().editor_mut().set_block_type(crate::structured_document::BlockType::Paragraph).ok();
+                                w_clone.redraw();
+                            }
+                        },
+                    );
+
+                    menu.add(
+                        "Paragraph Style/Heading 1",
+                        fltk::enums::Shortcut::None,
+                        fltk::menu::MenuFlag::Normal,
+                        {
+                            let display = display.clone();
+                            let mut w_clone = w.clone();
+                            move |_| {
+                                display.borrow_mut().editor_mut().set_block_type(crate::structured_document::BlockType::Heading { level: 1 }).ok();
+                                w_clone.redraw();
+                            }
+                        },
+                    );
+
+                    menu.add(
+                        "Paragraph Style/Heading 2",
+                        fltk::enums::Shortcut::None,
+                        fltk::menu::MenuFlag::Normal,
+                        {
+                            let display = display.clone();
+                            let mut w_clone = w.clone();
+                            move |_| {
+                                display.borrow_mut().editor_mut().set_block_type(crate::structured_document::BlockType::Heading { level: 2 }).ok();
+                                w_clone.redraw();
+                            }
+                        },
+                    );
+
+                    menu.add(
+                        "Paragraph Style/Heading 3",
+                        fltk::enums::Shortcut::None,
+                        fltk::menu::MenuFlag::Normal,
+                        {
+                            let display = display.clone();
+                            let mut w_clone = w.clone();
+                            move |_| {
+                                display.borrow_mut().editor_mut().set_block_type(crate::structured_document::BlockType::Heading { level: 3 }).ok();
+                                w_clone.redraw();
+                            }
+                        },
+                    );
+
+                    menu.add(
+                        "Paragraph Style/List Item",
+                        fltk::enums::Shortcut::None,
+                        fltk::menu::MenuFlag::Normal,
+                        {
+                            let display = display.clone();
+                            let mut w_clone = w.clone();
+                            move |_| {
+                                display.borrow_mut().editor_mut().set_block_type(crate::structured_document::BlockType::ListItem { ordered: false, number: None }).ok();
+                                w_clone.redraw();
+                            }
+                        },
+                    );
+
+                    // Inline styles
+                    #[cfg(target_os = "macos")]
+                    let bold_shortcut = fltk::enums::Shortcut::Command | 'b';
+                    #[cfg(not(target_os = "macos"))]
+                    let bold_shortcut = fltk::enums::Shortcut::Ctrl | 'b';
+
+                    menu.add(
+                        "Toggle Bold\t",
+                        bold_shortcut,
+                        fltk::menu::MenuFlag::Normal,
+                        {
+                            let display = display.clone();
+                            let mut w_clone = w.clone();
+                            move |_| {
+                                display.borrow_mut().editor_mut().toggle_bold().ok();
+                                w_clone.redraw();
+                            }
+                        },
+                    );
+
+                    #[cfg(target_os = "macos")]
+                    let italic_shortcut = fltk::enums::Shortcut::Command | 'i';
+                    #[cfg(not(target_os = "macos"))]
+                    let italic_shortcut = fltk::enums::Shortcut::Ctrl | 'i';
+
+                    menu.add(
+                        "Toggle Italic\t",
+                        italic_shortcut,
+                        fltk::menu::MenuFlag::Normal,
+                        {
+                            let display = display.clone();
+                            let mut w_clone = w.clone();
+                            move |_| {
+                                display.borrow_mut().editor_mut().toggle_italic().ok();
+                                w_clone.redraw();
+                            }
+                        },
+                    );
+
+                    menu.add(
+                        "Toggle Code",
+                        fltk::enums::Shortcut::None,
+                        fltk::menu::MenuFlag::Normal,
+                        {
+                            let display = display.clone();
+                            let mut w_clone = w.clone();
+                            move |_| {
+                                display.borrow_mut().editor_mut().toggle_code().ok();
+                                w_clone.redraw();
+                            }
+                        },
+                    );
+
+                    menu.add(
+                        "Toggle Strikethrough",
+                        fltk::enums::Shortcut::None,
+                        fltk::menu::MenuFlag::Normal,
+                        {
+                            let display = display.clone();
+                            let mut w_clone = w.clone();
+                            move |_| {
+                                display.borrow_mut().editor_mut().toggle_strikethrough().ok();
+                                w_clone.redraw();
+                            }
+                        },
+                    );
+
+                    // Separator
+                    menu.add(
+                        "_",
+                        fltk::enums::Shortcut::None,
+                        fltk::menu::MenuFlag::MenuDivider,
+                        |_| {},
+                    );
+
+                    // Edit operations
+                    let has_selection = display.borrow().editor().selection().is_some();
+
+                    #[cfg(target_os = "macos")]
+                    let cut_shortcut = fltk::enums::Shortcut::Command | 'x';
+                    #[cfg(not(target_os = "macos"))]
+                    let cut_shortcut = fltk::enums::Shortcut::Ctrl | 'x';
+
+                    menu.add(
+                        "Cut\t",
+                        cut_shortcut,
+                        fltk::menu::MenuFlag::Normal,
+                        {
+                            let display = display.clone();
+                            let mut w_clone = w.clone();
+                            move |_| {
+                                if let Ok(text) = display.borrow_mut().editor_mut().cut() {
+                                    fltk::app::copy(&text);
+                                }
+                                w_clone.redraw();
+                            }
+                        },
+                    );
+
+                    if !has_selection {
+                        let idx = menu.find_index("Cut\t");
+                        if idx >= 0 {
+                            menu.set_mode(idx, fltk::menu::MenuFlag::Inactive);
+                        }
+                    }
+
+                    #[cfg(target_os = "macos")]
+                    let copy_shortcut = fltk::enums::Shortcut::Command | 'c';
+                    #[cfg(not(target_os = "macos"))]
+                    let copy_shortcut = fltk::enums::Shortcut::Ctrl | 'c';
+
+                    menu.add(
+                        "Copy\t",
+                        copy_shortcut,
+                        fltk::menu::MenuFlag::Normal,
+                        {
+                            let display = display.clone();
+                            move |_| {
+                                let text = display.borrow().editor().copy();
+                                if !text.is_empty() {
+                                    fltk::app::copy(&text);
+                                }
+                            }
+                        },
+                    );
+
+                    if !has_selection {
+                        let idx = menu.find_index("Copy\t");
+                        if idx >= 0 {
+                            menu.set_mode(idx, fltk::menu::MenuFlag::Inactive);
+                        }
+                    }
+
+                    #[cfg(target_os = "macos")]
+                    let paste_shortcut = fltk::enums::Shortcut::Command | 'v';
+                    #[cfg(not(target_os = "macos"))]
+                    let paste_shortcut = fltk::enums::Shortcut::Ctrl | 'v';
+
+                    // Note: Paste is triggered via keyboard shortcut only
+                    // FLTK doesn't provide direct clipboard text retrieval via menu callbacks
+                    menu.add(
+                        "Paste\t",
+                        paste_shortcut,
+                        fltk::menu::MenuFlag::Normal,
+                        {
+                            let _display = display.clone();
+                            let _w_clone = w.clone();
+                            move |_m: &mut fltk::menu::MenuButton| {
+                                // Paste handled by keyboard shortcut
+                            }
+                        },
+                    );
+
+                    // Show the menu
+                    menu.popup();
+                    return true;
+                }
+
                 let x = fltk::app::event_x();
                 let y = fltk::app::event_y();
 
@@ -342,6 +580,28 @@ pub fn create_structured_rich_display_widget(
                     else if cmd_modifier && key == Key::from_char('i') {
                         let mut disp = display.borrow_mut();
                         disp.editor_mut().toggle_italic().ok();
+                        handled = true;
+                    }
+                    // Cmd/Ctrl-C (copy)
+                    else if cmd_modifier && key == Key::from_char('c') {
+                        let text = display.borrow().editor().copy();
+                        if !text.is_empty() {
+                            fltk::app::copy(&text);
+                        }
+                        handled = true;
+                    }
+                    // Cmd/Ctrl-X (cut)
+                    else if cmd_modifier && key == Key::from_char('x') {
+                        if let Ok(text) = display.borrow_mut().editor_mut().cut() {
+                            fltk::app::copy(&text);
+                        }
+                        handled = true;
+                    }
+                    // Cmd/Ctrl-V (paste)
+                    else if cmd_modifier && key == Key::from_char('v') {
+                        // TODO: Implement paste from clipboard
+                        // FLTK's paste() function doesn't directly return clipboard text
+                        // Would need platform-specific clipboard access or different FLTK API
                         handled = true;
                     }
                     // Check for Cmd/Ctrl-Shift-H (toggle heading)
