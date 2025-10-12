@@ -362,28 +362,37 @@ impl StructuredRichDisplay {
         );
 
         let mut current_y = y;
-        for line_runs in lines {
-            // Calculate char_start and char_end from the runs
-            let char_start = line_runs.first().map(|r| r.char_range.0).unwrap_or(0);
-            let char_end = line_runs.last().map(|r| r.char_range.1).unwrap_or(0);
 
+        if lines.is_empty() {
+            // Empty block - create an empty layout line for cursor positioning
             self.layout_lines.push(LayoutLine {
                 y: current_y,
                 height: line_height,
                 block_index: block_idx,
-                char_start,
-                char_end,
-                runs: line_runs,
+                char_start: 0,
+                char_end: 0,
+                runs: Vec::new(),
             });
             current_y += line_height;
+        } else {
+            for line_runs in lines {
+                // Calculate char_start and char_end from the runs
+                let char_start = line_runs.first().map(|r| r.char_range.0).unwrap_or(0);
+                let char_end = line_runs.last().map(|r| r.char_range.1).unwrap_or(0);
+
+                self.layout_lines.push(LayoutLine {
+                    y: current_y,
+                    height: line_height,
+                    block_index: block_idx,
+                    char_start,
+                    char_end,
+                    runs: line_runs,
+                });
+                current_y += line_height;
+            }
         }
 
-        if current_y == y {
-            // Empty block
-            current_y + line_height
-        } else {
-            current_y + 5
-        }
+        current_y + 5
     }
 
     /// Layout inline content with word wrapping

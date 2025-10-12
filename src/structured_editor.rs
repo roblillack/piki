@@ -874,11 +874,18 @@ impl StructuredEditor {
         // Handle split within a text run
         if idx < content.len() {
             if let Some(InlineContent::Text(run)) = content.get(idx) {
-                if content_offset > 0 && content_offset < run.len() {
-                    let (left_run, right_run) = run.split_at(content_offset);
-                    left.push(InlineContent::Text(left_run));
-                    right.remove(0);
-                    right.insert(0, InlineContent::Text(right_run));
+                if content_offset > 0 {
+                    if content_offset == run.len() {
+                        // Cursor at end of run - entire run goes to left
+                        left.push(InlineContent::Text(run.clone()));
+                        right.remove(0);
+                    } else if content_offset < run.len() {
+                        // Cursor in middle of run - split it
+                        let (left_run, right_run) = run.split_at(content_offset);
+                        left.push(InlineContent::Text(left_run));
+                        right.remove(0);
+                        right.insert(0, InlineContent::Text(right_run));
+                    }
                 }
             }
         }
