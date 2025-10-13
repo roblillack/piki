@@ -3,6 +3,7 @@
 // Completely independent of markdown syntax
 
 use crate::structured_document::*;
+use std::cmp::min;
 
 /// Result of an editing operation
 pub type EditResult = Result<(), EditError>;
@@ -428,8 +429,7 @@ impl StructuredEditor {
         let Some((start, end)) = self.selection else {
             return Ok(());
         };
-
-        // Ensure start <= end
+        // Ensure start <= end in document order
         let (start, end) = if start.block_index < end.block_index
             || (start.block_index == end.block_index && start.offset <= end.offset)
         {
@@ -438,36 +438,8 @@ impl StructuredEditor {
             (end, start)
         };
 
-        if start.block_index == end.block_index {
-            // Selection within single block
-            let (start_idx, start_off, end_idx, end_off) = {
-                let blocks = self.document.blocks();
-                let block = &blocks[start.block_index];
-                let start_info = Self::find_content_at_offset_static(&block.content, start.offset);
-                let end_info = Self::find_content_at_offset_static(&block.content, end.offset);
-                (start_info.0, start_info.1, end_info.0, end_info.1)
-            };
-
-            let blocks = self.document.blocks_mut();
-            let block = &mut blocks[start.block_index];
-
-            if start_idx == end_idx {
-                // Within single content element
-                if let Some(InlineContent::Text(run)) = block.content.get_mut(start_idx) {
-                    run.delete_range(start_off, end_off);
-                    if run.is_empty() {
-                        block.content.remove(start_idx);
-                    }
-                }
-            } else {
-                // Across multiple content elements
-                block.content.drain(start_idx + 1..=end_idx);
-                // TODO: Handle partial deletions in first and last elements
-            }
-        } else {
-            // Selection across multiple blocks
-            // TODO: Implement multi-block selection deletion
-        }
+        // Delegate range deletion to document, which handles intra- and inter-block cases
+        self.document.delete_range(start, end);
 
         self.cursor = start;
         self.selection = None;
@@ -1014,15 +986,19 @@ impl StructuredEditor {
 
     /// Paste text at cursor position (or replace selection)
     pub fn paste(&mut self, text: &str) -> EditResult {
-        // If there's a selection, delete it first
-        if self.selection.is_some() {
-            self.delete_selection()?;
+        if let Some((start, end)) = self.selection {
+            // Replace selection using document-level range replace to support multi-paragraph pastes
+            self.document.replace_range(start, end, text);
+            // Position cursor at end of first inserted paragraph
+            let first_len = text.split("\n\n").next().map(|s| s.len()).unwrap_or(0);
+            self.cursor = DocumentPosition::new(start.block_index.min(self.document.block_count().saturating_sub(1)),
+                                                min(first_len, self.document.blocks()[start.block_index.min(self.document.block_count().saturating_sub(1))].text_len()));
+            self.selection = None;
+            Ok(())
+        } else {
+            // Insert at cursor position
+            self.insert_text(text)
         }
-
-        // Insert the pasted text
-        // For now, we'll insert it as plain text at the cursor position
-        // TODO: Handle multi-line pastes more intelligently
-        self.insert_text(text)
     }
 
     /// Find the content element and offset within it for a given block offset (static version)
@@ -1141,5 +1117,27 @@ mod tests {
 
         editor.move_cursor_to_line_end();
         assert_eq!(editor.cursor().offset, 5);
+    }
+
+    #[test]
+    fn test_delete_selection_across_blocks() {
+        let mut editor = StructuredEditor::new();
+        // Build three paragraphs
+        editor.insert_text("First para").unwrap();
+        editor.insert_newline().unwrap();
+        editor.insert_text("Second").unwrap();
+        editor.insert_newline().unwrap();
+        editor.insert_text("Third para").unwrap();
+
+        // Select from inside first to inside third
+        let start = DocumentPosition::new(0, 3);
+        let end = DocumentPosition::new(2, 2);
+        editor.set_selection(start, end);
+        editor.delete_selection().unwrap();
+
+        // Expect merged result
+        assert_eq!(editor.document().block_count(), 2);
+        assert_eq!(editor.document().blocks()[0].to_plain_text(), "Fird para");
+        assert_eq!(editor.cursor(), DocumentPosition::new(0, 3));
     }
 }

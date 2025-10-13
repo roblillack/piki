@@ -3,6 +3,7 @@
 // Markdown is only used as a storage/serialization format
 
 use std::fmt;
+use std::cmp::{min, max};
 
 /// Unique identifier for document elements
 pub type ElementId = usize;
@@ -201,6 +202,165 @@ impl Block {
             _ => false,
         })
     }
+
+    /// Delete text in [start..end) within this block's flattened content
+    pub fn delete_text_range(&mut self, start: usize, end: usize) {
+        if start >= end { return; }
+
+        fn delete_in_vec(content: &mut Vec<InlineContent>, start: usize, end: usize) {
+            let mut new_content: Vec<InlineContent> = Vec::new();
+            let mut pos = 0usize;
+
+            for mut item in content.drain(..) {
+                let len = item.text_len();
+
+                // Completely before deletion range
+                if pos + len <= start {
+                    new_content.push(item);
+                    pos += len;
+                    continue;
+                }
+
+                // Completely after deletion range
+                if pos >= end {
+                    new_content.push(item);
+                    pos += len;
+                    continue;
+                }
+
+                // Overlap exists
+                match &mut item {
+                    InlineContent::Text(run) => {
+                        let local_start = start.saturating_sub(pos);
+                        let local_end = min(len, end.saturating_sub(pos));
+
+                        // left part
+                        if local_start > 0 {
+                            let (left, right) = run.split_at(local_start);
+                            // right may still contain part to delete; adjust it
+                            let mut right_run = right;
+                            let del_len = local_end.saturating_sub(local_start);
+                            if del_len >= right_run.len() {
+                                // delete entire right
+                                new_content.push(InlineContent::Text(left));
+                            } else {
+                                // delete middle from right_run
+                                let (mid_left, mid_right) = right_run.split_at(del_len);
+                                let _ = mid_left; // dropped (deleted)
+                                if !left.is_empty() { new_content.push(InlineContent::Text(left)); }
+                                if !mid_right.is_empty() { new_content.push(InlineContent::Text(mid_right)); }
+                            }
+                        } else {
+                            // deletion starts at or before this item
+                            let del_in_this = min(len, end.saturating_sub(pos));
+                            if del_in_this >= len {
+                                // remove whole run
+                            } else {
+                                // remove prefix
+                                let (leftover, _deleted) = run.split_at(del_in_this);
+                                if !leftover.is_empty() {
+                                    new_content.push(InlineContent::Text(leftover));
+                                }
+                            }
+                        }
+                    }
+                    InlineContent::Link { link, content: inner } => {
+                        let local_start = start.saturating_sub(pos);
+                        let local_end = min(len, end.saturating_sub(pos));
+                        // Recurse inside link content for the overlapping region
+                        delete_in_vec(inner, local_start, local_end);
+                        if !inner.is_empty() && inner.iter().map(|c| c.text_len()).sum::<usize>() > 0 {
+                            new_content.push(InlineContent::Link { link: link.clone(), content: inner.clone() });
+                        }
+                    }
+                    InlineContent::LineBreak | InlineContent::HardBreak => {
+                        // If this break is within the deletion range, drop it
+                        let local_start = start.saturating_sub(pos);
+                        if local_start >= 1 { // deletion starts after this single-char item
+                            new_content.push(item);
+                        } // else: it's deleted
+                    }
+                }
+
+                pos += len;
+            }
+
+            *content = new_content;
+        }
+
+        let len = self.text_len();
+        let start = min(start, len);
+        let end = min(end, len);
+        let mut content = std::mem::take(&mut self.content);
+        delete_in_vec(&mut content, start, end);
+        self.content = content;
+    }
+
+    /// Split this block's content at a flattened text offset, returning the right part.
+    /// The left part remains in self.
+    pub fn split_content_at(&mut self, offset: usize) -> Vec<InlineContent> {
+        fn split_vec(content: &Vec<InlineContent>, offset: usize) -> (Vec<InlineContent>, Vec<InlineContent>) {
+            let mut left: Vec<InlineContent> = Vec::new();
+            let mut right: Vec<InlineContent> = Vec::new();
+            let mut pos = 0usize;
+            let mut done = false;
+
+            for item in content.iter() {
+                if done {
+                    right.push(item.clone());
+                    continue;
+                }
+                let len = item.text_len();
+                if pos + len < offset {
+                    left.push(item.clone());
+                    pos += len;
+                    continue;
+                }
+                if pos + len == offset {
+                    left.push(item.clone());
+                    pos += len;
+                    done = true;
+                    continue;
+                }
+                // offset falls within this item
+                match item {
+                    InlineContent::Text(run) => {
+                        let local = offset - pos;
+                        let (l, r) = run.split_at(local);
+                        if !l.is_empty() { left.push(InlineContent::Text(l)); }
+                        if !r.is_empty() { right.push(InlineContent::Text(r)); }
+                    }
+                    InlineContent::Link { link, content: inner } => {
+                        let local = offset - pos;
+                        let (l_inner, r_inner) = split_vec(inner, local);
+                        if !l_inner.is_empty() { left.push(InlineContent::Link { link: link.clone(), content: l_inner }); }
+                        if !r_inner.is_empty() { right.push(InlineContent::Link { link: link.clone(), content: r_inner }); }
+                    }
+                    InlineContent::LineBreak | InlineContent::HardBreak => {
+                        let local = offset - pos; // 0..1
+                        if local == 0 { right.push(item.clone()); } else { left.push(item.clone()); }
+                    }
+                }
+                done = true;
+            }
+
+            (left, right)
+        }
+
+        let offset = min(offset, self.text_len());
+        let (left, right) = split_vec(&self.content, offset);
+        self.content = left;
+        right
+    }
+
+    /// Insert plain text at a flattened text offset
+    pub fn insert_plain_text(&mut self, offset: usize, text: &str) {
+        let right = self.split_content_at(offset);
+        if !text.is_empty() {
+            self.content.push(InlineContent::Text(TextRun::plain(text)));
+        }
+        self.content.extend(right);
+    }
 }
 
 /// Position within a document
@@ -327,6 +487,95 @@ impl StructuredDocument {
         doc.add_block(block);
         doc
     }
+
+    /// Delete content in [start..end) across blocks.
+    /// If the range spans multiple blocks, merges the tail of the end block into the start block
+    /// and removes all fully-covered blocks in between.
+    pub fn delete_range(&mut self, start: DocumentPosition, end: DocumentPosition) {
+        if self.blocks.is_empty() { return; }
+        let mut a = self.clamp_position(start);
+        let mut b = self.clamp_position(end);
+        // Ensure a <= b
+        if (b.block_index < a.block_index) || (b.block_index == a.block_index && b.offset < a.offset) {
+            std::mem::swap(&mut a, &mut b);
+        }
+
+        if a.block_index == b.block_index {
+            let block = &mut self.blocks[a.block_index];
+            block.delete_text_range(a.offset, b.offset);
+            return;
+        }
+
+        // Delete tail of start block
+        {
+            let block = &mut self.blocks[a.block_index];
+            let len = block.text_len();
+            block.delete_text_range(a.offset, len);
+        }
+
+        // Delete head of end block and capture its remaining content
+        let mut tail_content: Vec<InlineContent> = {
+            let block = &mut self.blocks[b.block_index];
+            let right = block.split_content_at(b.offset);
+            // At this point, block contains left/head, right is tail we want to keep
+            right
+        };
+
+        // Remove blocks between start+1 and end inclusive of the original end head block
+        // After split, the end block now contains only head we deleted; we can remove it.
+        let remove_start = a.block_index + 1;
+        let remove_count = b.block_index - a.block_index; // number of blocks to remove starting at remove_start
+        for _ in 0..remove_count {
+            if remove_start < self.blocks.len() {
+                self.blocks.remove(remove_start);
+            }
+        }
+
+        // Append tail_content to the (now) start block
+        if !tail_content.is_empty() {
+            self.blocks[a.block_index].content.extend(tail_content.drain(..));
+        }
+    }
+
+    /// Replace content in [start..end) with plain text. Supports multi-paragraph text using \n\n separators.
+    pub fn replace_range(&mut self, start: DocumentPosition, end: DocumentPosition, text: &str) {
+        if self.blocks.is_empty() {
+            // If empty, create a paragraph and insert
+            let id = self.next_id();
+            self.blocks.push(Block::paragraph(id));
+        }
+
+        // First, delete the target range
+        let a = self.clamp_position(start);
+        let b = self.clamp_position(end);
+        let (start_pos, end_pos) = if (b.block_index < a.block_index) || (b.block_index == a.block_index && b.offset < a.offset) {
+            (b, a)
+        } else { (a, b) };
+
+        // Perform deletion to normalize insertion point
+        self.delete_range(start_pos, end_pos);
+
+        // Insert text paragraphs
+        let insert_block_index = start_pos.block_index.min(self.blocks.len().saturating_sub(1));
+        let insert_offset = start_pos.offset.min(self.blocks[insert_block_index].text_len());
+
+        if text.is_empty() { return; }
+
+        let paragraphs: Vec<&str> = text.split("\n\n").collect();
+        // Insert first paragraph into the current block
+        self.blocks[insert_block_index].insert_plain_text(insert_offset, paragraphs[0]);
+
+        // Insert subsequent paragraphs as new blocks after the current block
+        if paragraphs.len() > 1 {
+            let mut insert_at = insert_block_index + 1;
+            for p in paragraphs.iter().skip(1) {
+                let mut block = Block::paragraph(0).with_plain_text(*p);
+                // Assign id on insert
+                self.insert_block(insert_at, block);
+                insert_at += 1;
+            }
+        }
+    }
 }
 
 impl Default for StructuredDocument {
@@ -401,5 +650,49 @@ mod tests {
         let pos = DocumentPosition::new(0, 100);
         let clamped = doc.clamp_position(pos);
         assert_eq!(clamped.offset, 5); // Length of "hello"
+    }
+
+    #[test]
+    fn test_delete_range_within_block() {
+        let mut doc = StructuredDocument::new();
+        doc.add_block(Block::paragraph(0).with_plain_text("Hello world"));
+        let start = DocumentPosition::new(0, 5);
+        let end = DocumentPosition::new(0, 11);
+        doc.delete_range(start, end);
+        assert_eq!(doc.blocks()[0].to_plain_text(), "Hello");
+    }
+
+    #[test]
+    fn test_delete_range_across_blocks_merges() {
+        let mut doc = StructuredDocument::new();
+        doc.add_block(Block::paragraph(0).with_plain_text("First para"));
+        doc.add_block(Block::paragraph(0).with_plain_text("Second"));
+        doc.add_block(Block::paragraph(0).with_plain_text("Third para"));
+
+        // Delete from after "Fir" in block 0 to after "Th" in block 2
+        let start = DocumentPosition::new(0, 3); // "Fir|st para"
+        let end = DocumentPosition::new(2, 2);   // "Th|ird para"
+        doc.delete_range(start, end);
+
+        // Blocks between should be removed, and result should be "Fir" + "ird para"
+        assert_eq!(doc.block_count(), 2); // start block + remaining end block tail merged yields only first + maybe others
+        assert_eq!(doc.blocks()[0].to_plain_text(), "Fird para");
+    }
+
+    #[test]
+    fn test_replace_range_across_blocks_with_paragraphs() {
+        let mut doc = StructuredDocument::new();
+        doc.add_block(Block::paragraph(0).with_plain_text("Hello one"));
+        doc.add_block(Block::paragraph(0).with_plain_text("Hello two"));
+        doc.add_block(Block::paragraph(0).with_plain_text("Hello three"));
+
+        let start = DocumentPosition::new(0, 6); // after "Hello "
+        let end = DocumentPosition::new(2, 5);   // inside third
+        doc.replace_range(start, end, "X\n\nY");
+
+        // Expect first block: "Hello " + "X" + tail of last after offset 5 was removed by replace
+        assert_eq!(doc.blocks()[0].to_plain_text(), "Hello X");
+        // New paragraph inserted after with "Y"
+        assert_eq!(doc.blocks()[1].to_plain_text(), "Y");
     }
 }
