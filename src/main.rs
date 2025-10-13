@@ -9,14 +9,12 @@ pub mod responsive_scrollbar;
 pub mod sourceedit;
 
 use autosave::AutoSaveState;
-use fliki_rs::page_ui::PageUI;
 use clap::Parser;
 use document::DocumentStore;
 use editor::MarkdownEditor;
-use fltk::app::{event_mouse_button, event_x, event_y, MouseButton};
+use fliki_rs::page_ui::PageUI;
+use fliki_rs::ui_adapters::StructuredRichUI;
 #[cfg(target_os = "macos")]
-use fltk::enums::Color;
-use fltk::text::PositionType;
 use fltk::{prelude::*, *};
 use history::History;
 use plugin::{IndexPlugin, PluginRegistry};
@@ -77,9 +75,15 @@ impl AppState {
 fn create_menu(
     app_state: Rc<RefCell<AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
-    editor: Rc<RefCell<dyn PageUI>>,
+    active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    is_structured: Rc<RefCell<bool>>,
     page_status: Rc<RefCell<frame::Frame>>,
     save_status: Rc<RefCell<frame::Frame>>,
+    wind_ref: Rc<RefCell<window::Window>>,
+    editor_x: i32,
+    editor_y: i32,
+    editor_w: i32,
+    editor_h: i32,
 ) {
     // Use system menu bar on macOS
     let mut menu_bar = menu::SysMenuBar::default();
@@ -92,7 +96,8 @@ fn create_menu(
         {
             let app_state = app_state.clone();
             let autosave_state = autosave_state.clone();
-            let editor = editor.clone();
+            let active_editor = active_editor.clone();
+            let is_structured = is_structured.clone();
             let page_status = page_status.clone();
             let save_status = save_status.clone();
             move |_| {
@@ -100,7 +105,7 @@ fn create_menu(
                     "!index",
                     &app_state,
                     &autosave_state,
-                    &editor,
+                    &active_editor,
                     &page_status,
                     &save_status,
                     None,
@@ -116,7 +121,7 @@ fn create_menu(
         {
             let app_state = app_state.clone();
             let autosave_state = autosave_state.clone();
-            let editor = editor.clone();
+            let active_editor = active_editor.clone();
             let page_status = page_status.clone();
             let save_status = save_status.clone();
             move |_| {
@@ -124,7 +129,7 @@ fn create_menu(
                     "frontpage",
                     &app_state,
                     &autosave_state,
-                    &editor,
+                    &active_editor,
                     &page_status,
                     &save_status,
                     None,
@@ -140,14 +145,14 @@ fn create_menu(
         {
             let app_state = app_state.clone();
             let autosave_state = autosave_state.clone();
-            let editor = editor.clone();
+            let active_editor = active_editor.clone();
             let page_status = page_status.clone();
             let save_status = save_status.clone();
             move |_| {
                 navigate_back(
                     &app_state,
                     &autosave_state,
-                    &editor,
+                    &active_editor,
                     &page_status,
                     &save_status,
                 );
@@ -162,17 +167,102 @@ fn create_menu(
         {
             let app_state = app_state.clone();
             let autosave_state = autosave_state.clone();
-            let editor = editor.clone();
+            let active_editor = active_editor.clone();
             let page_status = page_status.clone();
             let save_status = save_status.clone();
             move |_| {
                 navigate_forward(
                     &app_state,
                     &autosave_state,
-                    &editor,
+                    &active_editor,
                     &page_status,
                     &save_status,
                 );
+            }
+        },
+    );
+
+    // Toggle editor implementation
+    menu_bar.add(
+        "View/Toggle Editor",
+        enums::Shortcut::None,
+        menu::MenuFlag::Normal,
+        {
+            let app_state = app_state.clone();
+            let autosave_state = autosave_state.clone();
+            let active_editor = active_editor.clone();
+            let is_structured = is_structured.clone();
+            let page_status = page_status.clone();
+            let save_status = save_status.clone();
+            let wind_ref = wind_ref.clone();
+            let (editor_x, editor_y, editor_w, editor_h) = (editor_x, editor_y, editor_w, editor_h);
+            move |_| {
+                // Capture current state
+                let (scroll, readonly) = {
+                    let ed = active_editor.borrow();
+                    let ed_ref = ed.borrow();
+                    (ed_ref.scroll_pos(), ed_ref.is_readonly())
+                };
+
+                // Create the other editor fresh as child of window
+                let new_editor: Rc<RefCell<dyn PageUI>> = {
+                    if let Ok(mut win) = wind_ref.try_borrow_mut() {
+                        // Compute size based on current window size
+                        let cur_w = win.w();
+                        let cur_h = win.h();
+                        let nx = editor_x;
+                        let nw = (cur_w - (editor_x * 2)).max(1);
+                        let bottom_status_h = 25;
+                        let nh = (cur_h - (editor_y + bottom_status_h)).max(1);
+
+                        win.begin();
+                        let ed: Rc<RefCell<dyn PageUI>> = if *is_structured.borrow() {
+                            Rc::new(RefCell::new(MarkdownEditor::new(nx, editor_y, nw, nh)))
+                        } else {
+                            Rc::new(RefCell::new(StructuredRichUI::new(
+                                nx, editor_y, nw, nh, true,
+                            )))
+                        };
+                        ed.borrow_mut()
+                            .set_bg_color(enums::Color::from_rgb(255, 255, 245));
+                        ed.borrow().set_resizable(&mut *win);
+
+                        win.end();
+                        ed
+                    } else {
+                        // Fallback without explicit parent begin/end
+                        if *is_structured.borrow() {
+                            Rc::new(RefCell::new(MarkdownEditor::new(
+                                editor_x, editor_y, editor_w, editor_h,
+                            )))
+                        } else {
+                            Rc::new(RefCell::new(StructuredRichUI::new(
+                                editor_x, editor_y, editor_w, editor_h, true,
+                            )))
+                        }
+                    }
+                };
+
+                // Update active pointer and flag
+                *active_editor.borrow_mut() = new_editor.clone();
+                let cur = *is_structured.borrow();
+                *is_structured.borrow_mut() = !cur;
+                // Rewire change + link callbacks
+                wire_editor_callbacks(&active_editor, &autosave_state, &app_state, &save_status);
+                // Reload current page to refresh status and content
+                if let Ok(st) = app_state.try_borrow() {
+                    let current = st.current_page.clone();
+                    drop(st);
+                    load_page_helper(
+                        &current,
+                        &app_state,
+                        &autosave_state,
+                        &active_editor,
+                        &page_status,
+                        &save_status,
+                        Some(scroll),
+                    );
+                }
             }
         },
     );
@@ -182,9 +272,15 @@ fn create_menu(
 fn create_menu(
     app_state: Rc<RefCell<AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
-    editor: Rc<RefCell<dyn PageUI>>,
+    active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    is_structured: Rc<RefCell<bool>>,
     page_status: Rc<RefCell<frame::Frame>>,
     save_status: Rc<RefCell<frame::Frame>>,
+    wind_ref: Rc<RefCell<window::Window>>,
+    editor_x: i32,
+    editor_y: i32,
+    editor_w: i32,
+    editor_h: i32,
 ) -> menu::MenuBar {
     // Use regular menu bar on other platforms
     let mut menu_bar = menu::MenuBar::new(0, 0, 660, 25, None);
@@ -193,7 +289,7 @@ fn create_menu(
     {
         let app_state = app_state.clone();
         let autosave_state = autosave_state.clone();
-        let editor = editor.clone();
+        let active_editor = active_editor.clone();
         let page_status = page_status.clone();
         let save_status = save_status.clone();
         menu_bar.add(
@@ -205,7 +301,7 @@ fn create_menu(
                     "!index",
                     &app_state,
                     &autosave_state,
-                    &editor,
+                    &active_editor,
                     &page_status,
                     &save_status,
                     None,
@@ -218,7 +314,7 @@ fn create_menu(
     {
         let app_state = app_state.clone();
         let autosave_state = autosave_state.clone();
-        let editor = editor.clone();
+        let active_editor = active_editor.clone();
         let page_status = page_status.clone();
         let save_status = save_status.clone();
         menu_bar.add(
@@ -230,7 +326,7 @@ fn create_menu(
                     "frontpage",
                     &app_state,
                     &autosave_state,
-                    &editor,
+                    &active_editor,
                     &page_status,
                     &save_status,
                     None,
@@ -243,7 +339,7 @@ fn create_menu(
     {
         let app_state = app_state.clone();
         let autosave_state = autosave_state.clone();
-        let editor = editor.clone();
+        let active_editor = active_editor.clone();
         let page_status = page_status.clone();
         let save_status = save_status.clone();
         menu_bar.add(
@@ -254,7 +350,7 @@ fn create_menu(
                 navigate_back(
                     &app_state,
                     &autosave_state,
-                    &editor,
+                    &active_editor,
                     &page_status,
                     &save_status,
                 );
@@ -266,7 +362,7 @@ fn create_menu(
     {
         let app_state = app_state.clone();
         let autosave_state = autosave_state.clone();
-        let editor = editor.clone();
+        let active_editor = active_editor.clone();
         let page_status = page_status.clone();
         let save_status = save_status.clone();
         menu_bar.add(
@@ -277,10 +373,93 @@ fn create_menu(
                 navigate_forward(
                     &app_state,
                     &autosave_state,
-                    &editor,
+                    &active_editor,
                     &page_status,
                     &save_status,
                 );
+            },
+        );
+    }
+
+    // Toggle editor implementation
+    {
+        let app_state = app_state.clone();
+        let autosave_state = autosave_state.clone();
+        let active_editor = active_editor.clone();
+        let is_structured = is_structured.clone();
+        let page_status = page_status.clone();
+        let save_status = save_status.clone();
+        let wind_ref = wind_ref.clone();
+        let (editor_x, editor_y, editor_w, editor_h) = (editor_x, editor_y, editor_w, editor_h);
+        menu_bar.add(
+            "&Toggle Editor",
+            enums::Shortcut::None,
+            menu::MenuFlag::Normal,
+            move |_| {
+                // Capture current state
+                let (scroll, _readonly) = {
+                    let ed = active_editor.borrow();
+                    let ed_ref = ed.borrow();
+                    (ed_ref.scroll_pos(), ed_ref.is_readonly())
+                };
+                // Hide current editor
+                active_editor.borrow_mut().borrow_mut().hide();
+
+                // Create the other editor fresh sized to the current window
+                let new_editor: Rc<RefCell<dyn PageUI>> = {
+                    if let Ok(mut win) = wind_ref.try_borrow_mut() {
+                        let cur_w = win.w();
+                        let cur_h = win.h();
+                        let nx = editor_x;
+                        let nw = (cur_w - (editor_x * 2)).max(1);
+                        let bottom_status_h = 25;
+                        let nh = (cur_h - (editor_y + bottom_status_h)).max(1);
+
+                        win.begin();
+                        let ed: Rc<RefCell<dyn PageUI>> = if *is_structured.borrow() {
+                            Rc::new(RefCell::new(MarkdownEditor::new(nx, editor_y, nw, nh)))
+                        } else {
+                            Rc::new(RefCell::new(StructuredRichUI::new(
+                                nx, editor_y, nw, nh, true,
+                            )))
+                        };
+                        ed.borrow_mut()
+                            .set_bg_color(enums::Color::from_rgb(255, 255, 245));
+                        ed.borrow().set_resizable(&mut *win);
+                        ed.borrow_mut().show();
+                        win.end();
+                        ed
+                    } else {
+                        if *is_structured.borrow() {
+                            Rc::new(RefCell::new(MarkdownEditor::new(
+                                editor_x, editor_y, editor_w, editor_h,
+                            )))
+                        } else {
+                            Rc::new(RefCell::new(StructuredRichUI::new(
+                                editor_x, editor_y, editor_w, editor_h, true,
+                            )))
+                        }
+                    }
+                };
+
+                // Swap active pointer and flag
+                *active_editor.borrow_mut() = new_editor.clone();
+                let cur = *is_structured.borrow();
+                *is_structured.borrow_mut() = !cur;
+                wire_editor_callbacks(&active_editor, &autosave_state, &app_state, &save_status);
+                if let Ok(st) = app_state.try_borrow() {
+                    let current = st.current_page.clone();
+                    drop(st);
+                    load_page_helper(
+                        &current,
+                        &app_state,
+                        &autosave_state,
+                        &active_editor,
+                        &page_status,
+                        &save_status,
+                        Some(scroll),
+                    );
+                }
             },
         );
     }
@@ -292,14 +471,14 @@ fn load_page_helper(
     page_name: &str,
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
-    editor: &Rc<RefCell<dyn PageUI>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
     page_status: &Rc<RefCell<frame::Frame>>,
     save_status: &Rc<RefCell<frame::Frame>>,
     restore_scroll: Option<i32>,
 ) {
     // If we're not restoring from history, update the scroll position of the current history entry
     if restore_scroll.is_none() {
-        let scroll_pos = editor.borrow().scroll_pos();
+        let scroll_pos = active_editor.borrow().borrow().scroll_pos();
         app_state
             .borrow_mut()
             .history
@@ -326,24 +505,30 @@ fn load_page_helper(
                 None
             };
 
-            let mut editor_mut = editor.borrow_mut();
-            editor_mut.set_content_from_markdown(&content);
+            {
+                let active = active_editor.borrow();
+                let mut editor_mut = active.borrow_mut();
+                editor_mut.set_content_from_markdown(&content);
 
-            // Set read-only mode for plugin pages, editable for regular pages
-            editor_mut.set_readonly(is_plugin);
+                // Set read-only mode for plugin pages, editable for regular pages
+                editor_mut.set_readonly(is_plugin);
+            }
 
             // Restore scroll position if provided (from history navigation)
             // Otherwise, scroll to top for normal navigation
             let final_scroll_pos = if let Some(scroll_pos) = restore_scroll {
-                editor_mut.set_scroll_pos(scroll_pos);
+                let active = active_editor.borrow();
+                let mut ed = (&*active).borrow_mut();
+                ed.set_scroll_pos(scroll_pos);
                 scroll_pos
             } else {
-                editor_mut.set_scroll_pos(0);
+                let active = active_editor.borrow();
+                let mut ed = (&*active).borrow_mut();
+                ed.set_scroll_pos(0);
                 0
             };
 
             // Drop the editor borrow before manipulating history
-            drop(editor_mut);
 
             // If normal navigation (not history), add new page to history
             if restore_scroll.is_none() {
@@ -396,12 +581,12 @@ fn load_page_helper(
 fn navigate_back(
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
-    editor: &Rc<RefCell<dyn PageUI>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
     page_status: &Rc<RefCell<frame::Frame>>,
     save_status: &Rc<RefCell<frame::Frame>>,
 ) {
     // Update current entry's scroll position before navigating
-    let scroll_pos = editor.borrow().scroll_pos();
+    let scroll_pos = active_editor.borrow().borrow().scroll_pos();
     app_state
         .borrow_mut()
         .history
@@ -421,7 +606,7 @@ fn navigate_back(
             &page_name,
             app_state,
             autosave_state,
-            editor,
+            active_editor,
             page_status,
             save_status,
             Some(scroll_position),
@@ -432,12 +617,12 @@ fn navigate_back(
 fn navigate_forward(
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
-    editor: &Rc<RefCell<dyn PageUI>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
     page_status: &Rc<RefCell<frame::Frame>>,
     save_status: &Rc<RefCell<frame::Frame>>,
 ) {
     // Update current entry's scroll position before navigating
-    let scroll_pos = editor.borrow().scroll_pos();
+    let scroll_pos = active_editor.borrow().borrow().scroll_pos();
     app_state
         .borrow_mut()
         .history
@@ -457,7 +642,7 @@ fn navigate_forward(
             &page_name,
             app_state,
             autosave_state,
-            editor,
+            active_editor,
             page_status,
             save_status,
             Some(scroll_position),
@@ -511,12 +696,15 @@ fn main() {
     #[cfg(not(target_os = "macos"))]
     let (editor_y, editor_height) = (30, 345);
 
-    let editor: Rc<RefCell<dyn PageUI>> = Rc::new(RefCell::new(MarkdownEditor::new(
-        5,
-        editor_y,
-        650,
-        editor_height,
+    // Create only the initially active editor (structured rich editor)
+    let editor_x = 5;
+    let editor_w = 650;
+    let editor_h = editor_height;
+    let rich_editor: Rc<RefCell<dyn PageUI>> = Rc::new(RefCell::new(StructuredRichUI::new(
+        editor_x, editor_y, editor_w, editor_h, true,
     )));
+    let active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>> = Rc::new(RefCell::new(rich_editor));
+    let is_structured: Rc<RefCell<bool>> = Rc::new(RefCell::new(true));
 
     // Create two status frames at the bottom: page status and save status
     let page_status = Rc::new(RefCell::new({
@@ -535,32 +723,48 @@ fn main() {
         f
     }));
 
+    // Create a clone handle to the window for callbacks
+    let wind_ref = Rc::new(RefCell::new(wind.clone()));
+
     // Create menu (system menu bar on macOS, window menu bar on other platforms)
     #[cfg(target_os = "macos")]
     create_menu(
         app_state.clone(),
         autosave_state.clone(),
-        editor.clone(),
+        active_editor.clone(),
+        is_structured.clone(),
         page_status.clone(),
         save_status.clone(),
+        wind_ref.clone(),
+        editor_x,
+        editor_y,
+        editor_w,
+        editor_h,
     );
 
     #[cfg(not(target_os = "macos"))]
     let _menu_bar = create_menu(
         app_state.clone(),
         autosave_state.clone(),
-        editor.clone(),
+        active_editor.clone(),
+        is_structured.clone(),
         page_status.clone(),
         save_status.clone(),
+        wind_ref.clone(),
+        editor_x,
+        editor_y,
+        editor_w,
+        editor_h,
     );
 
     // Configure editor UI
-    editor
+    active_editor
+        .borrow()
         .borrow_mut()
         .set_bg_color(enums::Color::from_rgb(255, 255, 245));
 
     wind.end();
-    editor.borrow().set_resizable(&mut wind);
+    active_editor.borrow().borrow().set_resizable(&mut wind);
     wind.show();
 
     // Load initial page
@@ -568,107 +772,14 @@ fn main() {
         &args.page,
         &app_state,
         &autosave_state,
-        &editor,
+        &active_editor,
         &page_status,
         &save_status,
         None,
     );
 
-    // Set up immediate restyling on text changes and auto-save
-    {
-        let editor_for_callback = editor.clone();
-        let autosave_for_callback = autosave_state.clone();
-        let app_state_for_callback = app_state.clone();
-        let save_status_for_callback = save_status.clone();
-        let mut editor_widget = editor.borrow_mut();
-        editor_widget.on_change(Box::new(move || {
-            // Use awake to defer restyling to next event loop iteration
-            let editor_clone = editor_for_callback.clone();
-            app::awake_callback(move || {
-                if let Ok(mut ed) = editor_clone.try_borrow_mut() {
-                    ed.restyle();
-                }
-            });
-
-            // Mark content as changed in autosave state
-            if let Ok(mut as_state) = autosave_for_callback.try_borrow_mut() {
-                as_state.mark_changed();
-            }
-
-            // Schedule debounced save (1 second delay)
-            let editor_clone = editor_for_callback.clone();
-            let autosave_clone = autosave_for_callback.clone();
-            let app_state_clone = app_state_for_callback.clone();
-            let save_status_clone = save_status_for_callback.clone();
-
-            app::add_timeout3(1.0, move |_| {
-                // Check if save is still pending
-                let should_save = autosave_clone
-                    .try_borrow()
-                    .map(|s| s.pending_save)
-                    .unwrap_or(false);
-
-                if should_save {
-                    // Update status to "Saving..."
-                    if let Ok(mut status) = save_status_clone.try_borrow_mut() {
-                        status.set_label("Saving...");
-                        app::redraw();
-                    }
-
-                    // Perform the save
-                    if let (Ok(ed), Ok(mut as_state), Ok(app_st)) = (
-                        editor_clone.try_borrow(),
-                        autosave_clone.try_borrow_mut(),
-                        app_state_clone.try_borrow(),
-                    ) {
-                        match as_state.trigger_save(&*ed, &app_st.store) {
-                            Ok(()) => {
-                                // Update status with new save time
-                                if let Ok(mut status) = save_status_clone.try_borrow_mut() {
-                                    status.set_label(&as_state.get_status_text());
-                                    app::redraw();
-                                }
-                            }
-                            Err(e) => {
-                                // Show error
-                                if let Ok(mut status) = save_status_clone.try_borrow_mut() {
-                                    status.set_label(&format!("Error: {}", e));
-                                    app::redraw();
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        }));
-    }
-
-    // Set up link click handler via PageUI
-    {
-        let app_state = app_state.clone();
-        let autosave_state_for_links = autosave_state.clone();
-        let editor_ref = editor.clone();
-        let page_status_ref = page_status.clone();
-        let save_status_ref = save_status.clone();
-        editor.borrow_mut().on_link_click(Box::new(move |link_dest: String| {
-            let app_state = app_state.clone();
-            let autosave_state = autosave_state_for_links.clone();
-            let editor_ref = editor_ref.clone();
-            let page_status = page_status_ref.clone();
-            let save_status = save_status_ref.clone();
-            app::awake_callback(move || {
-                load_page_helper(
-                    &link_dest,
-                    &app_state,
-                    &autosave_state,
-                    &editor_ref,
-                    &page_status,
-                    &save_status,
-                    None,
-                );
-            });
-        }));
-    }
+    // Wire callbacks for active editor
+    wire_editor_callbacks(&active_editor, &autosave_state, &app_state, &save_status);
 
     // Set up periodic timer to update "X ago" display
     {
@@ -692,4 +803,101 @@ fn main() {
     }
 
     app.run().unwrap();
+}
+
+fn wire_editor_callbacks(
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    autosave_state: &Rc<RefCell<AutoSaveState>>,
+    app_state: &Rc<RefCell<AppState>>,
+    save_status: &Rc<RefCell<frame::Frame>>,
+) {
+    let editor_for_callback = active_editor.clone();
+    let autosave_for_callback = autosave_state.clone();
+    let app_state_for_callback = app_state.clone();
+    let save_status_for_callback = save_status.clone();
+    let current_for_change = active_editor.borrow().clone();
+    current_for_change.borrow_mut().on_change(Box::new(move || {
+        // Restyle if supported
+        let editor_clone = editor_for_callback.clone();
+        app::awake_callback(move || {
+            if let Ok(ed_ptr) = editor_clone.try_borrow() {
+                let mut ed_ref = (&*ed_ptr).borrow_mut();
+                ed_ref.restyle();
+            }
+        });
+
+        if let Ok(mut as_state) = autosave_for_callback.try_borrow_mut() {
+            as_state.mark_changed();
+        }
+
+        let editor_clone = editor_for_callback.clone();
+        let autosave_clone = autosave_for_callback.clone();
+        let app_state_clone = app_state_for_callback.clone();
+        let save_status_clone = save_status_for_callback.clone();
+
+        app::add_timeout3(1.0, move |_| {
+            let should_save = autosave_clone
+                .try_borrow()
+                .map(|s| s.pending_save)
+                .unwrap_or(false);
+
+            if should_save {
+                if let Ok(mut status) = save_status_clone.try_borrow_mut() {
+                    status.set_label("Saving...");
+                    app::redraw();
+                }
+
+                if let (Ok(ed_ptr), Ok(mut as_state), Ok(app_st)) = (
+                    editor_clone.try_borrow(),
+                    autosave_clone.try_borrow_mut(),
+                    app_state_clone.try_borrow(),
+                ) {
+                    let ed_ref = (&*ed_ptr).borrow();
+                    match as_state.trigger_save(&*ed_ref, &app_st.store) {
+                        Ok(()) => {
+                            if let Ok(mut status) = save_status_clone.try_borrow_mut() {
+                                status.set_label(&as_state.get_status_text());
+                                app::redraw();
+                            }
+                        }
+                        Err(e) => {
+                            if let Ok(mut status) = save_status_clone.try_borrow_mut() {
+                                status.set_label(&format!("Error: {}", e));
+                                app::redraw();
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }));
+
+    // Link click handler via PageUI uses active editor
+    let app_state_links = app_state.clone();
+    let autosave_links = autosave_state.clone();
+    let page_status_links = save_status.clone(); // not used here
+    let current_for_links = active_editor.borrow().clone();
+    {
+        let mut cur = current_for_links.borrow_mut();
+        let active_clone = active_editor.clone();
+        cur.on_link_click(Box::new(move |link_dest: String| {
+            let app_state = app_state_links.clone();
+            let autosave_state = autosave_links.clone();
+            let editor_ref = active_clone.clone();
+            let save_status = page_status_links.clone();
+            app::awake_callback(move || {
+                // We cannot refresh page_status from here easily; keep it unchanged
+                let dummy = Rc::new(RefCell::new(frame::Frame::new(0, 0, 0, 0, None)));
+                load_page_helper(
+                    &link_dest,
+                    &app_state,
+                    &autosave_state,
+                    &editor_ref,
+                    &dummy,
+                    &save_status,
+                    None,
+                );
+            });
+        }));
+    }
 }

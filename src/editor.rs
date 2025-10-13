@@ -1,6 +1,6 @@
 use crate::link_handler::{extract_links, find_link_at_position, Link};
-use fltk::{prelude::*, *};
 use fltk::text::PositionType;
+use fltk::{prelude::*, *};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -371,61 +371,73 @@ impl fliki_rs::page_ui::PageUI for MarkdownEditor {
         use crate::link_handler::{extract_links, find_link_at_position};
         let cb = std::rc::Rc::new(f);
         let mut w = self.editor.clone();
-        w.handle(move |widget, evt| {
-            match evt {
-                enums::Event::Move => {
+        w.handle(move |widget, evt| match evt {
+            enums::Event::Move => {
+                let pos = widget.xy_to_position(
+                    app::event_x() - widget.x(),
+                    app::event_y() - widget.y(),
+                    PositionType::Cursor,
+                );
+                let mut win = match widget.window() {
+                    Some(win) => win,
+                    None => return false,
+                };
+                let over_link = widget
+                    .buffer()
+                    .and_then(|b| {
+                        let text = b.text();
+                        let links = extract_links(&text);
+                        find_link_at_position(&links, pos as usize).map(|_| ())
+                    })
+                    .is_some();
+                if over_link {
+                    win.set_cursor(enums::Cursor::Hand);
+                    app::awake_callback(move || {
+                        win.set_cursor(enums::Cursor::Hand);
+                    });
+                    true
+                } else {
+                    win.set_cursor(enums::Cursor::Arrow);
+                    app::awake_callback(move || {
+                        win.set_cursor(enums::Cursor::Arrow);
+                    });
+                    true
+                }
+            }
+            enums::Event::Push => {
+                if app::event_mouse_button() == app::MouseButton::Left {
                     let pos = widget.xy_to_position(
                         app::event_x() - widget.x(),
                         app::event_y() - widget.y(),
                         PositionType::Cursor,
                     );
-                    let mut win = match widget.window() { Some(win) => win, None => return false };
-                    let over_link = widget.buffer().and_then(|b| {
-                        let text = b.text();
+                    if let Some(buf) = widget.buffer() {
+                        let text = buf.text();
                         let links = extract_links(&text);
-                        find_link_at_position(&links, pos as usize).map(|_| ())
-                    }).is_some();
-                    if over_link {
-                        win.set_cursor(enums::Cursor::Hand);
-                        app::awake_callback(move || {
-                            win.set_cursor(enums::Cursor::Hand);
-                        });
-                        true
-                    } else {
-                        win.set_cursor(enums::Cursor::Arrow);
-                        app::awake_callback(move || {
-                            win.set_cursor(enums::Cursor::Arrow);
-                        });
-                        true
-                    }
-                }
-                enums::Event::Push => {
-                    if app::event_mouse_button() == app::MouseButton::Left {
-                        let pos = widget.xy_to_position(
-                            app::event_x() - widget.x(),
-                            app::event_y() - widget.y(),
-                            PositionType::Cursor,
-                        );
-                        if let Some(buf) = widget.buffer() {
-                            let text = buf.text();
-                            let links = extract_links(&text);
-                            if let Some(link) = find_link_at_position(&links, pos as usize) {
-                                let cb2 = cb.clone();
-                                let dest = link.destination.clone();
-                                (cb2)(dest);
-                                return true;
-                            }
+                        if let Some(link) = find_link_at_position(&links, pos as usize) {
+                            let cb2 = cb.clone();
+                            let dest = link.destination.clone();
+                            (cb2)(dest);
+                            return true;
                         }
                     }
-                    false
                 }
-                _ => false,
+                false
             }
+            _ => false,
         });
     }
 
     fn restyle(&mut self) {
         self.restyle();
+    }
+
+    fn show(&mut self) {
+        self.editor.show();
+    }
+
+    fn hide(&mut self) {
+        self.editor.hide();
     }
 }
 
