@@ -54,7 +54,7 @@ impl ContentLoader for TextDisplayUI {
 }
 
 impl PageUI for TextDisplayUI {
-    fn on_change(&mut self, mut f: Box<dyn FnMut()>) {
+    fn on_change(&mut self, mut f: Box<dyn FnMut() + 'static>) {
         if let Some(buf_rc) = self.display.borrow().buffer() {
             buf_rc.borrow_mut().add_modify_callback(move |_, _, _, _, _| {
                 f();
@@ -114,8 +114,8 @@ impl ContentLoader for StructuredRichUI {
 }
 
 impl PageUI for StructuredRichUI {
-    fn on_change(&mut self, _f: Box<dyn FnMut()>) {
-        // TODO: Wire to editing operations if needed.
+    fn on_change(&mut self, f: Box<dyn FnMut() + 'static>) {
+        self.0.set_change_callback(Some(f));
     }
 
     fn set_readonly(&mut self, readonly: bool) {

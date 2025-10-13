@@ -335,7 +335,7 @@ impl fliki_rs::content::ContentLoader for MarkdownEditor {
 }
 
 impl fliki_rs::page_ui::PageUI for MarkdownEditor {
-    fn on_change(&mut self, mut f: Box<dyn FnMut()>) {
+    fn on_change(&mut self, mut f: Box<dyn FnMut() + 'static>) {
         let mut w = self.editor.clone();
         w.set_trigger(enums::CallbackTrigger::Changed);
         w.set_callback(move |_| {

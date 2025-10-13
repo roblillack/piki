@@ -8,7 +8,7 @@ use fltk::{enums::Color, prelude::*, window};
 /// can be swapped without changing app logic.
 pub trait PageUI: ContentProvider + ContentLoader {
     // Subscribe to content change notifications (debounced by the app).
-    fn on_change(&mut self, f: Box<dyn FnMut()>);
+    fn on_change(&mut self, f: Box<dyn FnMut() + 'static>);
 
     // Toggle/query read-only mode.
     fn set_readonly(&mut self, readonly: bool);

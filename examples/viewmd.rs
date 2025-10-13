@@ -358,6 +358,7 @@ fn main() {
     wind.show();
 
     display_widget.take_focus().ok();
+    structured.set_change_callback(Some(Box::new(|| println!("change!"))));
 
     // Register link click callback to load markdown files
     {
@@ -391,9 +392,13 @@ fn main() {
                 #[cfg(target_os = "macos")]
                 let _ = std::process::Command::new("open").arg(&destination).spawn();
                 #[cfg(target_os = "linux")]
-                let _ = std::process::Command::new("xdg-open").arg(&destination).spawn();
+                let _ = std::process::Command::new("xdg-open")
+                    .arg(&destination)
+                    .spawn();
                 #[cfg(target_os = "windows")]
-                let _ = std::process::Command::new("cmd").args(&["/C", "start", &destination]).spawn();
+                let _ = std::process::Command::new("cmd")
+                    .args(&["/C", "start", &destination])
+                    .spawn();
             }
         })));
     }

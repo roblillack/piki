@@ -15,6 +15,7 @@ pub struct FltkStructuredRichDisplay {
     pub group: fltk::group::Group,
     pub display: Rc<RefCell<StructuredRichDisplay>>,
     link_cb: Rc<RefCell<Option<Box<dyn Fn(String) + 'static>>>>,
+    change_cb: Rc<RefCell<Option<Box<dyn FnMut() + 'static>>>>,
 }
 
 impl FltkStructuredRichDisplay {
@@ -38,8 +39,10 @@ impl FltkStructuredRichDisplay {
     // Set cursor visibility based on edit mode
     display.borrow_mut().set_cursor_visible(edit_mode);
 
-    // Link callback holder
+    // Callbacks holders
     let link_callback: Rc<RefCell<Option<Box<dyn Fn(String) + 'static>>>> =
+        Rc::new(RefCell::new(None));
+    let change_callback: Rc<RefCell<Option<Box<dyn FnMut() + 'static>>>> =
         Rc::new(RefCell::new(None));
 
     // Create vertical responsive scrollbar
@@ -109,6 +112,7 @@ impl FltkStructuredRichDisplay {
         let click_time = last_click_time.clone();
         let click_count = last_click_count.clone();
         let link_cb = link_callback.clone();
+        let change_cb = change_callback.clone();
         move |w, event| {
             // Handle hover checking for Push, Drag, Move, and Enter
             let check_hover = matches!(
@@ -159,12 +163,14 @@ impl FltkStructuredRichDisplay {
                             {
                                 let display = display.clone();
                                 let mut w_clone = w.clone();
+                                let change_cb = change_cb.clone();
                                 move |_| {
                                     display
                                         .borrow_mut()
                                         .editor_mut()
                                         .set_block_type(BlockType::Paragraph)
                                         .ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                                     w_clone.redraw();
                                 }
                             },
@@ -177,12 +183,14 @@ impl FltkStructuredRichDisplay {
                             {
                                 let display = display.clone();
                                 let mut w_clone = w.clone();
+                                let change_cb = change_cb.clone();
                                 move |_| {
                                     display
                                         .borrow_mut()
                                         .editor_mut()
                                         .set_block_type(BlockType::Heading { level: 1 })
                                         .ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                                     w_clone.redraw();
                                 }
                             },
@@ -195,12 +203,14 @@ impl FltkStructuredRichDisplay {
                             {
                                 let display = display.clone();
                                 let mut w_clone = w.clone();
+                                let change_cb = change_cb.clone();
                                 move |_| {
                                     display
                                         .borrow_mut()
                                         .editor_mut()
                                         .set_block_type(BlockType::Heading { level: 2 })
                                         .ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                                     w_clone.redraw();
                                 }
                             },
@@ -213,12 +223,14 @@ impl FltkStructuredRichDisplay {
                             {
                                 let display = display.clone();
                                 let mut w_clone = w.clone();
+                                let change_cb = change_cb.clone();
                                 move |_| {
                                     display
                                         .borrow_mut()
                                         .editor_mut()
                                         .set_block_type(BlockType::Heading { level: 3 })
                                         .ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                                     w_clone.redraw();
                                 }
                             },
@@ -231,6 +243,7 @@ impl FltkStructuredRichDisplay {
                             {
                                 let display = display.clone();
                                 let mut w_clone = w.clone();
+                                let change_cb = change_cb.clone();
                                 move |_| {
                                     display
                                         .borrow_mut()
@@ -240,6 +253,7 @@ impl FltkStructuredRichDisplay {
                                             number: None,
                                         })
                                         .ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                                     w_clone.redraw();
                                 }
                             },
@@ -258,8 +272,10 @@ impl FltkStructuredRichDisplay {
                             {
                                 let display = display.clone();
                                 let mut w_clone = w.clone();
+                                let change_cb = change_cb.clone();
                                 move |_| {
                                     display.borrow_mut().editor_mut().toggle_bold().ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                                     w_clone.redraw();
                                 }
                             },
@@ -277,8 +293,10 @@ impl FltkStructuredRichDisplay {
                             {
                                 let display = display.clone();
                                 let mut w_clone = w.clone();
+                                let change_cb = change_cb.clone();
                                 move |_| {
                                     display.borrow_mut().editor_mut().toggle_italic().ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                                     w_clone.redraw();
                                 }
                             },
@@ -291,8 +309,10 @@ impl FltkStructuredRichDisplay {
                             {
                                 let display = display.clone();
                                 let mut w_clone = w.clone();
+                                let change_cb = change_cb.clone();
                                 move |_| {
                                     display.borrow_mut().editor_mut().toggle_code().ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                                     w_clone.redraw();
                                 }
                             },
@@ -305,12 +325,14 @@ impl FltkStructuredRichDisplay {
                             {
                                 let display = display.clone();
                                 let mut w_clone = w.clone();
+                                let change_cb = change_cb.clone();
                                 move |_| {
                                     display
                                         .borrow_mut()
                                         .editor_mut()
                                         .toggle_strikethrough()
                                         .ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                                     w_clone.redraw();
                                 }
                             },
@@ -328,8 +350,10 @@ impl FltkStructuredRichDisplay {
                             {
                                 let display = display.clone();
                                 let mut w_clone = w.clone();
+                                let change_cb = change_cb.clone();
                                 move |_| {
                                     display.borrow_mut().editor_mut().toggle_underline().ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                                     w_clone.redraw();
                                 }
                             },
@@ -342,8 +366,10 @@ impl FltkStructuredRichDisplay {
                             {
                                 let display = display.clone();
                                 let mut w_clone = w.clone();
+                                let change_cb = change_cb.clone();
                                 move |_| {
                                     display.borrow_mut().editor_mut().toggle_highlight().ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                                     w_clone.redraw();
                                 }
                             },
@@ -366,8 +392,10 @@ impl FltkStructuredRichDisplay {
                             {
                                 let display = display.clone();
                                 let mut w_clone = w.clone();
+                                let change_cb = change_cb.clone();
                                 move |_| {
                                     display.borrow_mut().editor_mut().clear_formatting().ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                                     w_clone.redraw();
                                 }
                             },
@@ -391,10 +419,12 @@ impl FltkStructuredRichDisplay {
                         menu.add("Cut\t", cut_shortcut, fltk::menu::MenuFlag::Normal, {
                             let display = display.clone();
                             let mut w_clone = w.clone();
+                            let change_cb = change_cb.clone();
                             move |_| {
                                 if let Ok(text) = display.borrow_mut().editor_mut().cut() {
                                     fltk::app::copy(&text);
                                 }
+                                if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                                 w_clone.redraw();
                             }
                         });
@@ -947,7 +977,7 @@ impl FltkStructuredRichDisplay {
                         #[cfg(not(target_os = "macos"))]
                         let cmd_shift_modifier = state.contains(Shortcut::Ctrl | Shortcut::Shift);
 
-                        // Cmd/Ctrl-A (Select All)
+                        // Cmd/Ctrl-A (Select All) - no content change
                         if cmd_modifier && key == Key::from_char('a') {
                             let mut disp = display.borrow_mut();
                             disp.editor_mut().select_all();
@@ -957,24 +987,28 @@ impl FltkStructuredRichDisplay {
                         else if cmd_modifier && key == Key::from_char('b') {
                             let mut disp = display.borrow_mut();
                             disp.editor_mut().toggle_bold().ok();
+                            if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                             handled = true;
                         }
                         // Cmd/Ctrl-I (toggle italic)
                         else if cmd_modifier && key == Key::from_char('i') {
                             let mut disp = display.borrow_mut();
                             disp.editor_mut().toggle_italic().ok();
+                            if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                             handled = true;
                         }
                         // Cmd/Ctrl-U (toggle underline)
                         else if cmd_modifier && key == Key::from_char('u') {
                             let mut disp = display.borrow_mut();
                             disp.editor_mut().toggle_underline().ok();
+                            if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                             handled = true;
                         }
                         // Cmd/Ctrl-\ (clear formatting)
                         else if cmd_modifier && key == Key::from_char('\\') {
                             let mut disp = display.borrow_mut();
                             disp.editor_mut().clear_formatting().ok();
+                            if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                             handled = true;
                         }
                         // Cmd/Ctrl-C (copy)
@@ -990,6 +1024,7 @@ impl FltkStructuredRichDisplay {
                             if let Ok(text) = display.borrow_mut().editor_mut().cut() {
                                 fltk::app::copy(&text);
                             }
+                            if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                             handled = true;
                         }
                         // Cmd/Ctrl-V (paste)
@@ -1003,6 +1038,7 @@ impl FltkStructuredRichDisplay {
                         else if cmd_shift_modifier && key == Key::from_char('h') {
                             let mut disp = display.borrow_mut();
                             disp.editor_mut().toggle_heading().ok();
+                            if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                             handled = true;
                         }
                         // Check for Cmd/Ctrl-Shift-8 (toggle list)
@@ -1012,6 +1048,7 @@ impl FltkStructuredRichDisplay {
                         {
                             let mut disp = display.borrow_mut();
                             disp.editor_mut().toggle_list().ok();
+                            if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                             handled = true;
                         } else {
                             let mut disp = display.borrow_mut();
@@ -1030,10 +1067,12 @@ impl FltkStructuredRichDisplay {
                             match key {
                                 Key::BackSpace => {
                                     editor.delete_backward().ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                                     handled = true;
                                 }
                                 Key::Delete => {
                                     editor.delete_forward().ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                                     handled = true;
                                 }
                                 Key::Left => {
@@ -1102,6 +1141,7 @@ impl FltkStructuredRichDisplay {
                                 }
                                 Key::Enter => {
                                     editor.insert_newline().ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                                     handled = true;
                                 }
                                 Key::PageUp | Key::PageDown => {
@@ -1131,6 +1171,7 @@ impl FltkStructuredRichDisplay {
 
                                     if !text_input.is_empty() && !has_cmd_modifier {
                                         editor.insert_text(&text_input).ok();
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
                                         handled = true;
                                     }
                                 }
@@ -1221,11 +1262,15 @@ impl FltkStructuredRichDisplay {
         }
     });
 
-    FltkStructuredRichDisplay { group: widget, display, link_cb: link_callback }
+    FltkStructuredRichDisplay { group: widget, display, link_cb: link_callback, change_cb: change_callback }
     }
 
     pub fn set_link_callback(&self, cb: Option<Box<dyn Fn(String) + 'static>>) {
         *self.link_cb.borrow_mut() = cb;
+    }
+
+    pub fn set_change_callback(&self, cb: Option<Box<dyn FnMut() + 'static>>) {
+        *self.change_cb.borrow_mut() = cb;
     }
 }
 
