@@ -1,24 +1,24 @@
 mod autosave;
 mod document;
 mod editor;
+pub mod fltk_text_display;
 mod history;
 mod link_handler;
 mod plugin;
+pub mod responsive_scrollbar;
 pub mod text_buffer;
 pub mod text_display;
-pub mod fltk_text_display;
-pub mod responsive_scrollbar;
 
 use autosave::AutoSaveState;
 use clap::Parser;
 use document::DocumentStore;
 use editor::MarkdownEditor;
-use history::History;
 use fltk::app::{event_mouse_button, event_x, event_y, MouseButton};
 #[cfg(target_os = "macos")]
 use fltk::enums::Color;
 use fltk::text::PositionType;
 use fltk::{prelude::*, *};
+use history::History;
 use plugin::{IndexPlugin, PluginRegistry};
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -87,7 +87,7 @@ fn create_menu(
     // Navigate menu
     menu_bar.add(
         "Navigate/Index\t",
-        enums::Shortcut::Ctrl | 'i',
+        enums::Shortcut::Command | 'i',
         menu::MenuFlag::Normal,
         {
             let app_state = app_state.clone();
@@ -111,7 +111,7 @@ fn create_menu(
 
     menu_bar.add(
         "Navigate/Frontpage\t",
-        enums::Shortcut::Ctrl | 'f',
+        enums::Shortcut::Command | 'f',
         menu::MenuFlag::Normal,
         {
             let app_state = app_state.clone();
@@ -135,7 +135,7 @@ fn create_menu(
 
     menu_bar.add(
         "Navigate/Back\t",
-        enums::Shortcut::Ctrl | '[',
+        enums::Shortcut::Command | '[',
         menu::MenuFlag::Normal,
         {
             let app_state = app_state.clone();
@@ -144,14 +144,20 @@ fn create_menu(
             let page_status = page_status.clone();
             let save_status = save_status.clone();
             move |_| {
-                navigate_back(&app_state, &autosave_state, &editor, &page_status, &save_status);
+                navigate_back(
+                    &app_state,
+                    &autosave_state,
+                    &editor,
+                    &page_status,
+                    &save_status,
+                );
             }
         },
     );
 
     menu_bar.add(
         "Navigate/Forward\t",
-        enums::Shortcut::Ctrl | ']',
+        enums::Shortcut::Command | ']',
         menu::MenuFlag::Normal,
         {
             let app_state = app_state.clone();
@@ -160,7 +166,13 @@ fn create_menu(
             let page_status = page_status.clone();
             let save_status = save_status.clone();
             move |_| {
-                navigate_forward(&app_state, &autosave_state, &editor, &page_status, &save_status);
+                navigate_forward(
+                    &app_state,
+                    &autosave_state,
+                    &editor,
+                    &page_status,
+                    &save_status,
+                );
             }
         },
     );
@@ -239,7 +251,13 @@ fn create_menu(
             enums::Shortcut::Alt | enums::Key::Left,
             menu::MenuFlag::Normal,
             move |_| {
-                navigate_back(&app_state, &autosave_state, &editor, &page_status, &save_status);
+                navigate_back(
+                    &app_state,
+                    &autosave_state,
+                    &editor,
+                    &page_status,
+                    &save_status,
+                );
             },
         );
     }
@@ -256,7 +274,13 @@ fn create_menu(
             enums::Shortcut::Alt | enums::Key::Right,
             menu::MenuFlag::Normal,
             move |_| {
-                navigate_forward(&app_state, &autosave_state, &editor, &page_status, &save_status);
+                navigate_forward(
+                    &app_state,
+                    &autosave_state,
+                    &editor,
+                    &page_status,
+                    &save_status,
+                );
             },
         );
     }
@@ -276,7 +300,10 @@ fn load_page_helper(
     // If we're not restoring from history, update the scroll position of the current history entry
     if restore_scroll.is_none() {
         let scroll_pos = editor.borrow().widget().scroll_row();
-        app_state.borrow_mut().history.update_scroll_position(scroll_pos);
+        app_state
+            .borrow_mut()
+            .history
+            .update_scroll_position(scroll_pos);
     }
 
     // Check if this is a plugin page
@@ -320,7 +347,10 @@ fn load_page_helper(
 
             // If normal navigation (not history), add new page to history
             if restore_scroll.is_none() {
-                app_state.borrow_mut().history.push(page_name.to_string(), final_scroll_pos);
+                app_state
+                    .borrow_mut()
+                    .history
+                    .push(page_name.to_string(), final_scroll_pos);
             }
 
             // Reset autosave state for the new page
@@ -372,12 +402,18 @@ fn navigate_back(
 ) {
     // Update current entry's scroll position before navigating
     let scroll_pos = editor.borrow().widget().scroll_row();
-    app_state.borrow_mut().history.update_scroll_position(scroll_pos);
+    app_state
+        .borrow_mut()
+        .history
+        .update_scroll_position(scroll_pos);
 
     // Try to navigate back and extract values before calling load_page_helper
     let target = {
         let mut state = app_state.borrow_mut();
-        state.history.go_back().map(|entry| (entry.page_name.clone(), entry.scroll_position))
+        state
+            .history
+            .go_back()
+            .map(|entry| (entry.page_name.clone(), entry.scroll_position))
     }; // Borrow is dropped here
 
     if let Some((page_name, scroll_position)) = target {
@@ -402,12 +438,18 @@ fn navigate_forward(
 ) {
     // Update current entry's scroll position before navigating
     let scroll_pos = editor.borrow().widget().scroll_row();
-    app_state.borrow_mut().history.update_scroll_position(scroll_pos);
+    app_state
+        .borrow_mut()
+        .history
+        .update_scroll_position(scroll_pos);
 
     // Try to navigate forward and extract values before calling load_page_helper
     let target = {
         let mut state = app_state.borrow_mut();
-        state.history.go_forward().map(|entry| (entry.page_name.clone(), entry.scroll_position))
+        state
+            .history
+            .go_forward()
+            .map(|entry| (entry.page_name.clone(), entry.scroll_position))
     }; // Borrow is dropped here
 
     if let Some((page_name, scroll_position)) = target {
