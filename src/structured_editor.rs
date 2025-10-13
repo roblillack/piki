@@ -668,41 +668,73 @@ impl StructuredEditor {
             (end, start)
         };
 
-        // For now, only support styling within a single block
-        if start.block_index != end.block_index {
+        // Single-block selection
+        if start.block_index == end.block_index {
+            let block_index = start.block_index;
+            if block_index >= self.document.block_count() {
+                return Err(EditError::InvalidBlockIndex);
+            }
+
+            // Get the content and split it into three parts: before, selected, after
+            let (content_before, selected_content, content_after) = {
+                let blocks = self.document.blocks();
+                let block = &blocks[block_index];
+                Self::split_content_for_style(&block.content, start.offset, end.offset)
+            };
+
+            // Apply style to the selected content (recursively for nested structures)
+            let styled_content = Self::map_style_on_runs(selected_content, &mut apply_style);
+
+            // Reconstruct the block content
+            let blocks = self.document.blocks_mut();
+            let block = &mut blocks[block_index];
+            block.content = content_before;
+            block.content.extend(styled_content);
+            block.content.extend(content_after);
             return Ok(());
         }
 
-        let block_index = start.block_index;
-        if block_index >= self.document.block_count() {
-            return Err(EditError::InvalidBlockIndex);
+        // Multi-block selection: style tail of start, all middle, head of end
+        let blocks_len = self.document.block_count();
+        if start.block_index >= blocks_len || end.block_index >= blocks_len { return Err(EditError::InvalidBlockIndex); }
+
+        // Start block: from start.offset to end of block
+        {
+            let blocks = self.document.blocks();
+            let block = &blocks[start.block_index];
+            let block_len = block.text_len();
+            let (before, selected, after) = Self::split_content_for_style(&block.content, start.offset, block_len);
+            let styled = Self::map_style_on_runs(selected, &mut apply_style);
+            let blocks = self.document.blocks_mut();
+            let block_mut = &mut blocks[start.block_index];
+            block_mut.content = before.into_iter().chain(styled.into_iter()).chain(after.into_iter()).collect();
         }
 
-        // Get the content and split it into three parts: before, selected, after
-        let (content_before, selected_content, content_after) = {
-            let blocks = self.document.blocks();
-            let block = &blocks[block_index];
-            Self::split_content_for_style(&block.content, start.offset, end.offset)
-        };
+        // Middle blocks
+        if end.block_index > start.block_index + 1 {
+            for i in (start.block_index + 1)..end.block_index {
+                let styled = {
+                    let blocks = self.document.blocks();
+                    let b = &blocks[i];
+                    Self::map_style_on_runs(b.content.clone(), &mut apply_style)
+                };
+                let blocks = self.document.blocks_mut();
+                blocks[i].content = styled;
+            }
+        }
 
-        // Apply style to the selected content
-        let styled_content: Vec<InlineContent> = selected_content
-            .into_iter()
-            .map(|item| match item {
-                InlineContent::Text(mut run) => {
-                    apply_style(&mut run.style);
-                    InlineContent::Text(run)
-                }
-                other => other,
-            })
-            .collect();
-
-        // Reconstruct the block content
-        let blocks = self.document.blocks_mut();
-        let block = &mut blocks[block_index];
-        block.content = content_before;
-        block.content.extend(styled_content);
-        block.content.extend(content_after);
+        // End block: from 0 to end.offset
+        {
+            let (before, selected, after) = {
+                let blocks = self.document.blocks();
+                let block = &blocks[end.block_index];
+                Self::split_content_for_style(&block.content, 0, end.offset)
+            };
+            let styled = Self::map_style_on_runs(selected, &mut apply_style);
+            let blocks = self.document.blocks_mut();
+            let block_mut = &mut blocks[end.block_index];
+            block_mut.content = before.into_iter().chain(styled.into_iter()).chain(after.into_iter()).collect();
+        }
 
         Ok(())
     }
@@ -871,41 +903,68 @@ impl StructuredEditor {
             (end, start)
         };
 
-        // For now, only support styling within a single block
-        if start.block_index != end.block_index {
+        // Single-block selection case
+        if start.block_index == end.block_index {
+            let block_index = start.block_index;
+            if block_index >= self.document.block_count() { return Err(EditError::InvalidBlockIndex); }
+            let (before, selected, after) = {
+                let blocks = self.document.blocks();
+                let block = &blocks[block_index];
+                Self::split_content_for_style(&block.content, start.offset, end.offset)
+            };
+            let mut clear = |style: &mut TextStyle| { *style = TextStyle::default(); };
+            let cleared = Self::map_style_on_runs(selected, &mut clear);
+            let blocks = self.document.blocks_mut();
+            let block_mut = &mut blocks[block_index];
+            block_mut.content = before.into_iter().chain(cleared.into_iter()).chain(after.into_iter()).collect();
             return Ok(());
         }
 
-        let block_index = start.block_index;
-        if block_index >= self.document.block_count() {
-            return Err(EditError::InvalidBlockIndex);
+        // Multi-block selection: clear tail of start, all middle, head of end
+        let blocks_len = self.document.block_count();
+        if start.block_index >= blocks_len || end.block_index >= blocks_len { return Err(EditError::InvalidBlockIndex); }
+
+        let mut clear = |style: &mut TextStyle| { *style = TextStyle::default(); };
+
+        // Start block
+        {
+            let (before, selected, after) = {
+                let blocks = self.document.blocks();
+                let block = &blocks[start.block_index];
+                let len = block.text_len();
+                Self::split_content_for_style(&block.content, start.offset, len)
+            };
+            let cleared = Self::map_style_on_runs(selected, &mut clear);
+            let blocks = self.document.blocks_mut();
+            let block_mut = &mut blocks[start.block_index];
+            block_mut.content = before.into_iter().chain(cleared.into_iter()).chain(after.into_iter()).collect();
         }
 
-        // Get the content and split it into three parts: before, selected, after
-        let (content_before, selected_content, content_after) = {
-            let blocks = self.document.blocks();
-            let block = &blocks[block_index];
-            Self::split_content_for_style(&block.content, start.offset, end.offset)
-        };
+        // Middle blocks
+        if end.block_index > start.block_index + 1 {
+            for i in (start.block_index + 1)..end.block_index {
+                let cleared_vec = {
+                    let blocks = self.document.blocks();
+                    let b = &blocks[i];
+                    Self::map_style_on_runs(b.content.clone(), &mut clear)
+                };
+                let blocks = self.document.blocks_mut();
+                blocks[i].content = cleared_vec;
+            }
+        }
 
-        // Apply clear formatting to the selected content
-        let cleared_content: Vec<InlineContent> = selected_content
-            .into_iter()
-            .map(|item| match item {
-                InlineContent::Text(mut run) => {
-                    run.style = TextStyle::default();
-                    InlineContent::Text(run)
-                }
-                other => other,
-            })
-            .collect();
-
-        // Reconstruct the block content
-        let blocks = self.document.blocks_mut();
-        let block = &mut blocks[block_index];
-        block.content = content_before;
-        block.content.extend(cleared_content);
-        block.content.extend(content_after);
+        // End block
+        {
+            let (before, selected, after) = {
+                let blocks = self.document.blocks();
+                let block = &blocks[end.block_index];
+                Self::split_content_for_style(&block.content, 0, end.offset)
+            };
+            let cleared = Self::map_style_on_runs(selected, &mut clear);
+            let blocks = self.document.blocks_mut();
+            let block_mut = &mut blocks[end.block_index];
+            block_mut.content = before.into_iter().chain(cleared.into_iter()).chain(after.into_iter()).collect();
+        }
 
         Ok(())
     }
@@ -1056,6 +1115,27 @@ impl StructuredEditor {
     fn split_content_at(&self, content: &[InlineContent], offset: usize) -> (Vec<InlineContent>, Vec<InlineContent>) {
         Self::split_content_at_static(content, offset)
     }
+
+    /// Recursively apply a style-mapping function to all text runs in a vector of inline content
+    fn map_style_on_runs<F>(items: Vec<InlineContent>, apply: &mut F) -> Vec<InlineContent>
+    where
+        F: FnMut(&mut TextStyle),
+    {
+        items
+            .into_iter()
+            .map(|item| match item {
+                InlineContent::Text(mut run) => {
+                    apply(&mut run.style);
+                    InlineContent::Text(run)
+                }
+                InlineContent::Link { link, content } => {
+                    let mapped = Self::map_style_on_runs(content, apply);
+                    InlineContent::Link { link, content: mapped }
+                }
+                other => other,
+            })
+            .collect()
+    }
 }
 
 impl Default for StructuredEditor {
@@ -1139,5 +1219,54 @@ mod tests {
         assert_eq!(editor.document().block_count(), 2);
         assert_eq!(editor.document().blocks()[0].to_plain_text(), "Fird para");
         assert_eq!(editor.cursor(), DocumentPosition::new(0, 3));
+    }
+
+    #[test]
+    fn test_toggle_bold_across_blocks() {
+        let mut editor = StructuredEditor::new();
+        // Build three paragraphs
+        editor.insert_text("First para").unwrap();
+        editor.insert_newline().unwrap();
+        editor.insert_text("Second").unwrap();
+        editor.insert_newline().unwrap();
+        editor.insert_text("Third para").unwrap();
+
+        // Select from inside first to inside third
+        let start = DocumentPosition::new(0, 3); // "Fir|st para"
+        let end = DocumentPosition::new(2, 2);   // "Th|ird para"
+        editor.set_selection(start, end);
+
+        // Toggle bold
+        editor.toggle_bold().unwrap();
+
+        // Inspect styles
+        let doc = editor.document();
+        // First block should be split: "Fir" (plain) + "st para" (bold)
+        let b0 = &doc.blocks()[0];
+        let parts0: Vec<(String, bool)> = b0.content.iter().filter_map(|c| {
+            if let InlineContent::Text(run) = c { Some((run.text.clone(), run.style.bold)) } else { None }
+        }).collect();
+        assert!(parts0.len() >= 2);
+        assert_eq!(parts0[0].0, "Fir");
+        assert_eq!(parts0[0].1, false);
+        assert!(parts0[1].1); // bold
+
+        // Middle block entire should be bold
+        let b1 = &doc.blocks()[1];
+        let parts1: Vec<bool> = b1.content.iter().filter_map(|c| {
+            if let InlineContent::Text(run) = c { Some(run.style.bold) } else { None }
+        }).collect();
+        assert!(!parts1.is_empty());
+        assert!(parts1.into_iter().all(|b| b));
+
+        // Last block should have first part bold, remainder plain
+        let b2 = &doc.blocks()[2];
+        let parts2: Vec<(String, bool)> = b2.content.iter().filter_map(|c| {
+            if let InlineContent::Text(run) = c { Some((run.text.clone(), run.style.bold)) } else { None }
+        }).collect();
+        assert!(parts2.len() >= 2);
+        assert_eq!(parts2[0].0, "Th");
+        assert!(parts2[0].1);
+        assert!(!parts2.last().unwrap().1);
     }
 }
