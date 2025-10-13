@@ -1,5 +1,6 @@
 use crate::link_handler::{extract_links, find_link_at_position, Link};
 use fltk::{prelude::*, *};
+use fltk::text::PositionType;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -330,6 +331,101 @@ impl fliki_rs::content::ContentProvider for MarkdownEditor {
 impl fliki_rs::content::ContentLoader for MarkdownEditor {
     fn set_content_from_markdown(&mut self, markdown: &str) {
         self.set_content(markdown);
+    }
+}
+
+impl fliki_rs::page_ui::PageUI for MarkdownEditor {
+    fn on_change(&mut self, mut f: Box<dyn FnMut()>) {
+        let mut w = self.editor.clone();
+        w.set_trigger(enums::CallbackTrigger::Changed);
+        w.set_callback(move |_| {
+            f();
+        });
+    }
+
+    fn set_readonly(&mut self, readonly: bool) {
+        self.set_readonly(readonly);
+    }
+
+    fn is_readonly(&self) -> bool {
+        self.is_readonly()
+    }
+
+    fn scroll_pos(&self) -> i32 {
+        self.editor.scroll_row()
+    }
+
+    fn set_scroll_pos(&mut self, pos: i32) {
+        self.editor.scroll(pos, 0);
+    }
+
+    fn set_bg_color(&mut self, color: enums::Color) {
+        self.editor.set_color(color);
+    }
+
+    fn set_resizable(&self, wind: &mut window::Window) {
+        wind.resizable(&self.editor);
+    }
+
+    fn on_link_click(&mut self, f: Box<dyn Fn(String) + 'static>) {
+        use crate::link_handler::{extract_links, find_link_at_position};
+        let cb = std::rc::Rc::new(f);
+        let mut w = self.editor.clone();
+        w.handle(move |widget, evt| {
+            match evt {
+                enums::Event::Move => {
+                    let pos = widget.xy_to_position(
+                        app::event_x() - widget.x(),
+                        app::event_y() - widget.y(),
+                        PositionType::Cursor,
+                    );
+                    let mut win = match widget.window() { Some(win) => win, None => return false };
+                    let over_link = widget.buffer().and_then(|b| {
+                        let text = b.text();
+                        let links = extract_links(&text);
+                        find_link_at_position(&links, pos as usize).map(|_| ())
+                    }).is_some();
+                    if over_link {
+                        win.set_cursor(enums::Cursor::Hand);
+                        app::awake_callback(move || {
+                            win.set_cursor(enums::Cursor::Hand);
+                        });
+                        true
+                    } else {
+                        win.set_cursor(enums::Cursor::Arrow);
+                        app::awake_callback(move || {
+                            win.set_cursor(enums::Cursor::Arrow);
+                        });
+                        true
+                    }
+                }
+                enums::Event::Push => {
+                    if app::event_mouse_button() == app::MouseButton::Left {
+                        let pos = widget.xy_to_position(
+                            app::event_x() - widget.x(),
+                            app::event_y() - widget.y(),
+                            PositionType::Cursor,
+                        );
+                        if let Some(buf) = widget.buffer() {
+                            let text = buf.text();
+                            let links = extract_links(&text);
+                            if let Some(link) = find_link_at_position(&links, pos as usize) {
+                                let cb2 = cb.clone();
+                                let dest = link.destination.clone();
+                                (cb2)(dest);
+                                return true;
+                            }
+                        }
+                    }
+                    false
+                }
+                _ => false,
+            }
+        });
+    }
+
+    fn restyle(&mut self) {
+        self.restyle();
     }
 }
 

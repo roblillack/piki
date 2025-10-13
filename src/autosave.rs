@@ -67,7 +67,7 @@ impl AutoSaveState {
     }
 
     /// Trigger a save operation
-    pub fn trigger_save<T: ContentProvider>(
+    pub fn trigger_save<T: ContentProvider + ?Sized>(
         &mut self,
         editor: &T,
         store: &DocumentStore,

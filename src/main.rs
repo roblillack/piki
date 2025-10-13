@@ -9,6 +9,7 @@ pub mod responsive_scrollbar;
 pub mod sourceedit;
 
 use autosave::AutoSaveState;
+use fliki_rs::page_ui::PageUI;
 use clap::Parser;
 use document::DocumentStore;
 use editor::MarkdownEditor;
@@ -76,7 +77,7 @@ impl AppState {
 fn create_menu(
     app_state: Rc<RefCell<AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
-    editor: Rc<RefCell<MarkdownEditor>>,
+    editor: Rc<RefCell<dyn PageUI>>,
     page_status: Rc<RefCell<frame::Frame>>,
     save_status: Rc<RefCell<frame::Frame>>,
 ) {
@@ -181,7 +182,7 @@ fn create_menu(
 fn create_menu(
     app_state: Rc<RefCell<AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
-    editor: Rc<RefCell<MarkdownEditor>>,
+    editor: Rc<RefCell<dyn PageUI>>,
     page_status: Rc<RefCell<frame::Frame>>,
     save_status: Rc<RefCell<frame::Frame>>,
 ) -> menu::MenuBar {
@@ -291,14 +292,14 @@ fn load_page_helper(
     page_name: &str,
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
-    editor: &Rc<RefCell<MarkdownEditor>>,
+    editor: &Rc<RefCell<dyn PageUI>>,
     page_status: &Rc<RefCell<frame::Frame>>,
     save_status: &Rc<RefCell<frame::Frame>>,
     restore_scroll: Option<i32>,
 ) {
     // If we're not restoring from history, update the scroll position of the current history entry
     if restore_scroll.is_none() {
-        let scroll_pos = editor.borrow().widget().scroll_row();
+        let scroll_pos = editor.borrow().scroll_pos();
         app_state
             .borrow_mut()
             .history
@@ -325,7 +326,6 @@ fn load_page_helper(
                 None
             };
 
-            use fliki_rs::content::ContentLoader;
             let mut editor_mut = editor.borrow_mut();
             editor_mut.set_content_from_markdown(&content);
 
@@ -335,10 +335,10 @@ fn load_page_helper(
             // Restore scroll position if provided (from history navigation)
             // Otherwise, scroll to top for normal navigation
             let final_scroll_pos = if let Some(scroll_pos) = restore_scroll {
-                editor_mut.widget_mut().scroll(scroll_pos, 0);
+                editor_mut.set_scroll_pos(scroll_pos);
                 scroll_pos
             } else {
-                editor_mut.widget_mut().scroll(0, 0);
+                editor_mut.set_scroll_pos(0);
                 0
             };
 
@@ -396,12 +396,12 @@ fn load_page_helper(
 fn navigate_back(
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
-    editor: &Rc<RefCell<MarkdownEditor>>,
+    editor: &Rc<RefCell<dyn PageUI>>,
     page_status: &Rc<RefCell<frame::Frame>>,
     save_status: &Rc<RefCell<frame::Frame>>,
 ) {
     // Update current entry's scroll position before navigating
-    let scroll_pos = editor.borrow().widget().scroll_row();
+    let scroll_pos = editor.borrow().scroll_pos();
     app_state
         .borrow_mut()
         .history
@@ -432,12 +432,12 @@ fn navigate_back(
 fn navigate_forward(
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
-    editor: &Rc<RefCell<MarkdownEditor>>,
+    editor: &Rc<RefCell<dyn PageUI>>,
     page_status: &Rc<RefCell<frame::Frame>>,
     save_status: &Rc<RefCell<frame::Frame>>,
 ) {
     // Update current entry's scroll position before navigating
-    let scroll_pos = editor.borrow().widget().scroll_row();
+    let scroll_pos = editor.borrow().scroll_pos();
     app_state
         .borrow_mut()
         .history
@@ -511,7 +511,7 @@ fn main() {
     #[cfg(not(target_os = "macos"))]
     let (editor_y, editor_height) = (30, 345);
 
-    let editor = Rc::new(RefCell::new(MarkdownEditor::new(
+    let editor: Rc<RefCell<dyn PageUI>> = Rc::new(RefCell::new(MarkdownEditor::new(
         5,
         editor_y,
         650,
@@ -554,12 +554,13 @@ fn main() {
         save_status.clone(),
     );
 
-    // Get the editor widget and set it up
-    let mut ed_widget = editor.borrow().widget();
-    ed_widget.set_color(enums::Color::from_rgb(255, 255, 245));
+    // Configure editor UI
+    editor
+        .borrow_mut()
+        .set_bg_color(enums::Color::from_rgb(255, 255, 245));
 
     wind.end();
-    wind.resizable(&ed_widget);
+    editor.borrow().set_resizable(&mut wind);
     wind.show();
 
     // Load initial page
@@ -580,11 +581,7 @@ fn main() {
         let app_state_for_callback = app_state.clone();
         let save_status_for_callback = save_status.clone();
         let mut editor_widget = editor.borrow_mut();
-
-        // Set up a callback that triggers on text modifications
-        let widget = editor_widget.widget_mut();
-        widget.set_trigger(enums::CallbackTrigger::Changed);
-        widget.set_callback(move |_| {
+        editor_widget.on_change(Box::new(move || {
             // Use awake to defer restyling to next event loop iteration
             let editor_clone = editor_for_callback.clone();
             app::awake_callback(move || {
@@ -643,115 +640,34 @@ fn main() {
                     }
                 }
             });
-        });
+        }));
     }
 
-    // Set up click handler for links
+    // Set up link click handler via PageUI
     {
         let app_state = app_state.clone();
         let autosave_state_for_links = autosave_state.clone();
         let editor_ref = editor.clone();
         let page_status_ref = page_status.clone();
         let save_status_ref = save_status.clone();
-
-        ed_widget.handle(move |widget, evt| {
-            // Block keyboard input if in read-only mode
-            if let Ok(ed) = editor_ref.try_borrow() {
-                if ed.is_readonly() {
-                    match evt {
-                        enums::Event::KeyDown | enums::Event::KeyUp => {
-                            // Allow arrow keys, page up/down, home/end for navigation
-                            let key = app::event_key();
-                            match key {
-                                enums::Key::Left
-                                | enums::Key::Right
-                                | enums::Key::Up
-                                | enums::Key::Down
-                                | enums::Key::Home
-                                | enums::Key::End
-                                | enums::Key::PageUp
-                                | enums::Key::PageDown => {
-                                    // Allow navigation keys
-                                    return false;
-                                }
-                                _ => {
-                                    // Block all other keys (typing, backspace, delete, etc.)
-                                    return true;
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-
-            match evt {
-                enums::Event::Move => {
-                    let mut win = widget.window().unwrap();
-                    let pos = widget.xy_to_position(
-                        event_x() - widget.x(),
-                        event_y() - widget.y(),
-                        PositionType::Cursor,
-                    );
-                    if editor_ref
-                        .borrow()
-                        .find_link_at_position(pos as usize)
-                        .is_some()
-                    {
-                        win.set_cursor(enums::Cursor::Hand);
-
-                        app::awake_callback(move || {
-                            win.set_cursor(enums::Cursor::Hand);
-                        });
-                        return true;
-                    }
-
-                    win.set_cursor(enums::Cursor::Arrow);
-                    app::awake_callback(move || {
-                        win.set_cursor(enums::Cursor::Arrow);
-                    });
-
-                    true
-                }
-                enums::Event::Push => {
-                    if event_mouse_button() == MouseButton::Left {
-                        let click_pos = widget.xy_to_position(
-                            event_x() - widget.x(),
-                            event_y() - widget.y(),
-                            PositionType::Cursor,
-                        );
-                        // Check if we clicked on a link
-                        if let Some(link_dest) = editor_ref
-                            .borrow()
-                            .find_link_at_position(click_pos as usize)
-                        {
-                            // Navigate to the linked page - defer to avoid borrow conflict
-                            let app_state = app_state.clone();
-                            let autosave_state = autosave_state_for_links.clone();
-                            let editor_ref = editor_ref.clone();
-                            let page_status = page_status_ref.clone();
-                            let save_status = save_status_ref.clone();
-
-                            // Use awake callback to defer the page load until after event handler returns
-                            app::awake_callback(move || {
-                                load_page_helper(
-                                    &link_dest,
-                                    &app_state,
-                                    &autosave_state,
-                                    &editor_ref,
-                                    &page_status,
-                                    &save_status,
-                                    None,
-                                );
-                            });
-                            return true;
-                        }
-                    }
-                    false
-                }
-                _ => false,
-            }
-        });
+        editor.borrow_mut().on_link_click(Box::new(move |link_dest: String| {
+            let app_state = app_state.clone();
+            let autosave_state = autosave_state_for_links.clone();
+            let editor_ref = editor_ref.clone();
+            let page_status = page_status_ref.clone();
+            let save_status = save_status_ref.clone();
+            app::awake_callback(move || {
+                load_page_helper(
+                    &link_dest,
+                    &app_state,
+                    &autosave_state,
+                    &editor_ref,
+                    &page_status,
+                    &save_status,
+                    None,
+                );
+            });
+        }));
     }
 
     // Set up periodic timer to update "X ago" display
