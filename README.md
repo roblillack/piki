@@ -14,7 +14,7 @@ A Rust reimplementation of fliki - a lightweight Markdown wiki browser with clic
 - <mark>Highlighted</mark> text
 - Code blocks (indented)
 - > Blockquotes
-- Links shown in blue
+- [Links](README.md) shown in blue
 - **Updates instantly as you type!**
 
 ### Auto-Save

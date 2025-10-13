@@ -14,7 +14,6 @@ use document::DocumentStore;
 use editor::MarkdownEditor;
 use fliki_rs::page_ui::PageUI;
 use fliki_rs::ui_adapters::StructuredRichUI;
-#[cfg(target_os = "macos")]
 use fltk::{prelude::*, *};
 use history::History;
 use plugin::{IndexPlugin, PluginRegistry};
@@ -402,8 +401,6 @@ fn create_menu(
                     let ed_ref = ed.borrow();
                     (ed_ref.scroll_pos(), ed_ref.is_readonly())
                 };
-                // Hide current editor
-                active_editor.borrow_mut().borrow_mut().hide();
 
                 // Create the other editor fresh sized to the current window
                 let new_editor: Rc<RefCell<dyn PageUI>> = {
@@ -426,7 +423,6 @@ fn create_menu(
                         ed.borrow_mut()
                             .set_bg_color(enums::Color::from_rgb(255, 255, 245));
                         ed.borrow().set_resizable(&mut *win);
-                        ed.borrow_mut().show();
                         win.end();
                         ed
                     } else {
