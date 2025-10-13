@@ -1,11 +1,13 @@
 // Snapshot tests for text_display styling functionality
 // Uses SVG rendering for visual verification
 
-use fliki_rs::svg_draw_context::SvgDrawContext;
-use fliki_rs::text_buffer::TextBuffer;
-use fliki_rs::text_display::{style_attr, StyleTableEntry, TextDisplay};
+pub mod svg_draw_context;
+use fliki_rs::sourceedit::text_buffer::TextBuffer;
+use fliki_rs::sourceedit::text_display::{style_attr, StyleTableEntry, TextDisplay};
 use std::cell::RefCell;
 use std::rc::Rc;
+
+use crate::svg_draw_context::SvgDrawContext;
 
 /// Helper function to render text display to SVG
 fn render_to_svg(
@@ -239,7 +241,8 @@ fn test_empty_lines() {
 
 #[test]
 fn test_long_lines() {
-    let text = "This is a very long line that might extend beyond the visible area of the display widget";
+    let text =
+        "This is a very long line that might extend beyond the visible area of the display widget";
     let style = "A".repeat(text.len());
     let style_table = create_test_style_table();
 

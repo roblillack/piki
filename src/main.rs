@@ -6,8 +6,7 @@ mod history;
 mod link_handler;
 mod plugin;
 pub mod responsive_scrollbar;
-pub mod text_buffer;
-pub mod text_display;
+pub mod sourceedit;
 
 use autosave::AutoSaveState;
 use clap::Parser;

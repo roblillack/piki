@@ -2,7 +2,7 @@
 // Simple wrapper implementation
 
 use crate::responsive_scrollbar::ResponsiveScrollbar;
-use crate::text_display::{DrawContext, TextDisplay};
+use crate::sourceedit::text_display::{DrawContext, TextDisplay};
 use fltk::{draw as fltk_draw, enums::*, prelude::*, valuator::Scrollbar};
 use std::cell::RefCell;
 use std::rc::Rc;

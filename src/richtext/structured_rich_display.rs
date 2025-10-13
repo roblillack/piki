@@ -2,9 +2,9 @@
 // A rendering and interaction widget for StructuredDocument
 // Completely decoupled from markdown syntax
 
-use crate::structured_document::*;
-use crate::structured_editor::*;
-use crate::text_display::{style_attr, DrawContext, StyleTableEntry};
+use super::structured_document::*;
+use super::structured_editor::*;
+use crate::sourceedit::text_display::{style_attr, DrawContext, StyleTableEntry};
 
 /// Layout information for a rendered line
 #[derive(Debug, Clone)]
@@ -206,10 +206,18 @@ impl StructuredRichDisplay {
         self.layout_valid = false;
     }
 
-    pub fn x(&self) -> i32 { self.x }
-    pub fn y(&self) -> i32 { self.y }
-    pub fn w(&self) -> i32 { self.w }
-    pub fn h(&self) -> i32 { self.h }
+    pub fn x(&self) -> i32 {
+        self.x
+    }
+    pub fn y(&self) -> i32 {
+        self.y
+    }
+    pub fn w(&self) -> i32 {
+        self.w
+    }
+    pub fn h(&self) -> i32 {
+        self.h
+    }
 
     /// Perform layout
     fn layout(&mut self, ctx: &mut dyn DrawContext) {
@@ -257,7 +265,15 @@ impl StructuredRichDisplay {
                 let height = ((size as f32) * 1.3) as i32;
                 // Add top margin for headings (unless it's the first block)
                 let top_margin = if block_idx > 0 { 15 } else { 0 };
-                let y_after = self.layout_inline_block(block, block_idx, y + top_margin, start_x, width, height, ctx);
+                let y_after = self.layout_inline_block(
+                    block,
+                    block_idx,
+                    y + top_margin,
+                    start_x,
+                    width,
+                    height,
+                    ctx,
+                );
                 y_after + 10 // Extra spacing after headings
             }
             BlockType::CodeBlock { .. } => {
@@ -291,7 +307,15 @@ impl StructuredRichDisplay {
                 current_y + 10
             }
             BlockType::BlockQuote => {
-                self.layout_inline_block(block, block_idx, y + 5, start_x + 20, width - 20, self.line_height, ctx) + 5
+                self.layout_inline_block(
+                    block,
+                    block_idx,
+                    y + 5,
+                    start_x + 20,
+                    width - 20,
+                    self.line_height,
+                    ctx,
+                ) + 5
             }
             BlockType::ListItem { .. } => {
                 // Indent: bullet is 1x text_size from left, text is another 1x text_size in
@@ -299,7 +323,8 @@ impl StructuredRichDisplay {
                 let text_indent = bullet_indent * 2;
 
                 let bullet_text = "• ";
-                let bullet_width = ctx.text_width(bullet_text, self.text_font, self.text_size) as i32;
+                let bullet_width =
+                    ctx.text_width(bullet_text, self.text_font, self.text_size) as i32;
 
                 let mut runs = vec![VisualRun {
                     text: bullet_text.to_string(),
@@ -330,8 +355,18 @@ impl StructuredRichDisplay {
                     runs.extend(content_runs[0].drain(..));
 
                     // Calculate char range from content runs (skip bullet)
-                    let char_start = runs.iter().skip(1).map(|r| r.char_range.0).min().unwrap_or(0);
-                    let char_end = runs.iter().skip(1).map(|r| r.char_range.1).max().unwrap_or(0);
+                    let char_start = runs
+                        .iter()
+                        .skip(1)
+                        .map(|r| r.char_range.0)
+                        .min()
+                        .unwrap_or(0);
+                    let char_end = runs
+                        .iter()
+                        .skip(1)
+                        .map(|r| r.char_range.1)
+                        .max()
+                        .unwrap_or(0);
 
                     self.layout_lines.push(LayoutLine {
                         y: current_y,
@@ -474,7 +509,10 @@ impl StructuredRichDisplay {
                     let mut in_word = false;
                     let mut leading_space_handled = false;
 
-                    for (i, ch) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {
+                    for (i, ch) in text
+                        .char_indices()
+                        .chain(std::iter::once((text.len(), ' ')))
+                    {
                         let is_whitespace = ch.is_whitespace();
 
                         // Handle leading whitespace at the start of the run
@@ -512,7 +550,12 @@ impl StructuredRichDisplay {
                             // End of word - extract word with trailing whitespace
                             let mut word_end = i;
                             // Include trailing whitespace in the word
-                            while word_end < text.len() && text[word_end..].chars().next().map_or(false, |c| c.is_whitespace() && c != '\n') {
+                            while word_end < text.len()
+                                && text[word_end..]
+                                    .chars()
+                                    .next()
+                                    .map_or(false, |c| c.is_whitespace() && c != '\n')
+                            {
                                 word_end += text[word_end..].chars().next().unwrap().len_utf8();
                             }
 
@@ -548,11 +591,15 @@ impl StructuredRichDisplay {
 
                     char_offset += text.len();
                 }
-                InlineContent::Link { link: _, content: link_content } => {
+                InlineContent::Link {
+                    link: _,
+                    content: link_content,
+                } => {
                     // Render link content
                     // For simplicity, treat as styled text
                     let style_idx = 5; // STYLE_LINK
-                    let text = link_content.iter()
+                    let text = link_content
+                        .iter()
                         .map(|c| c.to_plain_text())
                         .collect::<String>();
 
@@ -719,8 +766,12 @@ impl StructuredRichDisplay {
         }
 
         // Calculate the intersection
-        let start_in_run = sel_start_offset.saturating_sub(run_start).min(run_end - run_start);
-        let end_in_run = sel_end_offset.saturating_sub(run_start).min(run_end - run_start);
+        let start_in_run = sel_start_offset
+            .saturating_sub(run_start)
+            .min(run_end - run_start);
+        let end_in_run = sel_end_offset
+            .saturating_sub(run_start)
+            .min(run_end - run_start);
 
         Some((start_in_run, end_in_run))
     }
@@ -805,8 +856,10 @@ impl StructuredRichDisplay {
                             ""
                         };
 
-                        let before_width = ctx.text_width(text_before, style.font, style.size) as i32;
-                        let sel_width = ctx.text_width(text_selected, style.font, style.size) as i32;
+                        let before_width =
+                            ctx.text_width(text_before, style.font, style.size) as i32;
+                        let sel_width =
+                            ctx.text_width(text_selected, style.font, style.size) as i32;
 
                         ctx.set_color(self.selection_color);
                         ctx.draw_rect_filled(
@@ -823,7 +876,12 @@ impl StructuredRichDisplay {
                 if is_hovered {
                     let text_width = ctx.text_width(&run.text, style.font, style.size) as i32;
                     ctx.set_color(style.bgcolor);
-                    ctx.draw_rect_filled(draw_x, self.y + line.y - self.scroll_offset, text_width, line.height);
+                    ctx.draw_rect_filled(
+                        draw_x,
+                        self.y + line.y - self.scroll_offset,
+                        text_width,
+                        line.height,
+                    );
                     ctx.set_color(style.color); // Restore text color
                 }
 
@@ -895,7 +953,8 @@ impl StructuredRichDisplay {
                                 &run.text
                             };
 
-                            let width_before = ctx.text_width(text_before_cursor, font, size) as i32;
+                            let width_before =
+                                ctx.text_width(text_before_cursor, font, size) as i32;
                             x = run.x + width_before;
                             return Some((x, line.y, line.height));
                         }
@@ -934,7 +993,8 @@ impl StructuredRichDisplay {
                     let chars_in_run = run.char_range.1 - run.char_range.0;
                     if run.width > 0 && chars_in_run > 0 {
                         let char_pos = ((click_offset_in_run * chars_in_run as i32) / run.width)
-                            .clamp(0, chars_in_run as i32 - 1) as usize;
+                            .clamp(0, chars_in_run as i32 - 1)
+                            as usize;
                         return run.char_range.0 + char_pos;
                     } else {
                         return run.char_range.0;
@@ -980,7 +1040,11 @@ impl StructuredRichDisplay {
                 // Distance to bottom of previous vs top of next
                 let prev_dist = adjusted_y - (self.layout_lines[p].y + self.layout_lines[p].height);
                 let next_dist = self.layout_lines[n].y - adjusted_y;
-                if prev_dist <= next_dist { p } else { n }
+                if prev_dist <= next_dist {
+                    p
+                } else {
+                    n
+                }
             }
             (Some(p), None) => p,
             (None, Some(n)) => n,
@@ -1021,8 +1085,13 @@ impl StructuredRichDisplay {
                             if run.block_index < doc.block_count() {
                                 let block = &doc.blocks()[run.block_index];
                                 if inline_idx < block.content.len() {
-                                    if let InlineContent::Link { link, .. } = &block.content[inline_idx] {
-                                        return Some(((run.block_index, inline_idx), link.destination.clone()));
+                                    if let InlineContent::Link { link, .. } =
+                                        &block.content[inline_idx]
+                                    {
+                                        return Some((
+                                            (run.block_index, inline_idx),
+                                            link.destination.clone(),
+                                        ));
                                     }
                                 }
                             }

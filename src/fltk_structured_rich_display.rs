@@ -2,8 +2,9 @@
 
 use crate::fltk_text_display::FltkDrawContext;
 use crate::responsive_scrollbar::ResponsiveScrollbar;
-use crate::structured_document::InlineContent;
-use crate::structured_rich_display::StructuredRichDisplay;
+use crate::richtext::markdown_converter;
+use crate::richtext::structured_document::{BlockType, DocumentPosition, InlineContent};
+use crate::richtext::structured_rich_display::StructuredRichDisplay;
 use fltk::{app::MouseWheel, enums::*, prelude::*};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -156,9 +157,7 @@ pub fn create_structured_rich_display_widget(
                                     display
                                         .borrow_mut()
                                         .editor_mut()
-                                        .set_block_type(
-                                            crate::structured_document::BlockType::Paragraph,
-                                        )
+                                        .set_block_type(BlockType::Paragraph)
                                         .ok();
                                     w_clone.redraw();
                                 }
@@ -176,11 +175,7 @@ pub fn create_structured_rich_display_widget(
                                     display
                                         .borrow_mut()
                                         .editor_mut()
-                                        .set_block_type(
-                                            crate::structured_document::BlockType::Heading {
-                                                level: 1,
-                                            },
-                                        )
+                                        .set_block_type(BlockType::Heading { level: 1 })
                                         .ok();
                                     w_clone.redraw();
                                 }
@@ -198,11 +193,7 @@ pub fn create_structured_rich_display_widget(
                                     display
                                         .borrow_mut()
                                         .editor_mut()
-                                        .set_block_type(
-                                            crate::structured_document::BlockType::Heading {
-                                                level: 2,
-                                            },
-                                        )
+                                        .set_block_type(BlockType::Heading { level: 2 })
                                         .ok();
                                     w_clone.redraw();
                                 }
@@ -220,11 +211,7 @@ pub fn create_structured_rich_display_widget(
                                     display
                                         .borrow_mut()
                                         .editor_mut()
-                                        .set_block_type(
-                                            crate::structured_document::BlockType::Heading {
-                                                level: 3,
-                                            },
-                                        )
+                                        .set_block_type(BlockType::Heading { level: 3 })
                                         .ok();
                                     w_clone.redraw();
                                 }
@@ -242,12 +229,10 @@ pub fn create_structured_rich_display_widget(
                                     display
                                         .borrow_mut()
                                         .editor_mut()
-                                        .set_block_type(
-                                            crate::structured_document::BlockType::ListItem {
-                                                ordered: false,
-                                                number: None,
-                                            },
-                                        )
+                                        .set_block_type(BlockType::ListItem {
+                                            ordered: false,
+                                            number: None,
+                                        })
                                         .ok();
                                     w_clone.redraw();
                                 }
@@ -532,14 +517,11 @@ pub fn create_structured_rich_display_widget(
                                         // Store the path in a global or pass via callback
                                         // For now, try to read and load it directly
                                         if let Ok(content) = std::fs::read_to_string(&destination) {
-                                            use crate::markdown_converter::markdown_to_document;
-                                            let new_doc = markdown_to_document(&content);
+                                            let new_doc =
+                                                markdown_converter::markdown_to_document(&content);
                                             let mut d = display.borrow_mut();
                                             *d.editor_mut().document_mut() = new_doc;
-                                            d.editor_mut().set_cursor(
-                                                crate::structured_document::DocumentPosition::start(
-                                                ),
-                                            );
+                                            d.editor_mut().set_cursor(DocumentPosition::start());
                                             w.redraw();
 
                                             // Update window title if possible
@@ -636,9 +618,8 @@ pub fn create_structured_rich_display_widget(
                         display.borrow_mut().editor_mut().extend_selection_to(pos);
 
                         // Ensure the cursor (selection end) is visible after update
-                        let has_focus =
-                            fltk::app::focus().map(|f| f.as_base_widget()).as_ref()
-                                == Some(&w.as_base_widget());
+                        let has_focus = fltk::app::focus().map(|f| f.as_base_widget()).as_ref()
+                            == Some(&w.as_base_widget());
                         let is_active = w.active();
                         let mut ctx = FltkDrawContext::new(has_focus, is_active);
                         let final_scroll = {
@@ -723,9 +704,7 @@ pub fn create_structured_rich_display_widget(
                                         display
                                             .borrow_mut()
                                             .editor_mut()
-                                            .set_block_type(
-                                                crate::structured_document::BlockType::Paragraph,
-                                            )
+                                            .set_block_type(BlockType::Paragraph)
                                             .ok();
                                         w_clone.redraw();
                                     }
@@ -743,11 +722,7 @@ pub fn create_structured_rich_display_widget(
                                         display
                                             .borrow_mut()
                                             .editor_mut()
-                                            .set_block_type(
-                                                crate::structured_document::BlockType::Heading {
-                                                    level: 1,
-                                                },
-                                            )
+                                            .set_block_type(BlockType::Heading { level: 1 })
                                             .ok();
                                         w_clone.redraw();
                                     }
@@ -765,11 +740,7 @@ pub fn create_structured_rich_display_widget(
                                         display
                                             .borrow_mut()
                                             .editor_mut()
-                                            .set_block_type(
-                                                crate::structured_document::BlockType::Heading {
-                                                    level: 2,
-                                                },
-                                            )
+                                            .set_block_type(BlockType::Heading { level: 2 })
                                             .ok();
                                         w_clone.redraw();
                                     }
@@ -787,11 +758,7 @@ pub fn create_structured_rich_display_widget(
                                         display
                                             .borrow_mut()
                                             .editor_mut()
-                                            .set_block_type(
-                                                crate::structured_document::BlockType::Heading {
-                                                    level: 3,
-                                                },
-                                            )
+                                            .set_block_type(BlockType::Heading { level: 3 })
                                             .ok();
                                         w_clone.redraw();
                                     }
@@ -809,12 +776,10 @@ pub fn create_structured_rich_display_widget(
                                         display
                                             .borrow_mut()
                                             .editor_mut()
-                                            .set_block_type(
-                                                crate::structured_document::BlockType::ListItem {
-                                                    ordered: false,
-                                                    number: None,
-                                                },
-                                            )
+                                            .set_block_type(BlockType::ListItem {
+                                                ordered: false,
+                                                number: None,
+                                            })
                                             .ok();
                                         w_clone.redraw();
                                     }
@@ -1107,9 +1072,11 @@ pub fn create_structured_rich_display_widget(
                             let shift_held = state.contains(Shortcut::Shift);
                             // Check for word navigation modifier (Alt on macOS, Ctrl elsewhere)
                             #[cfg(target_os = "macos")]
-                            let word_mod = state.contains(Shortcut::Alt) && !state.contains(Shortcut::Command);
+                            let word_mod =
+                                state.contains(Shortcut::Alt) && !state.contains(Shortcut::Command);
                             #[cfg(not(target_os = "macos"))]
-                            let word_mod = state.contains(Shortcut::Ctrl) && !state.contains(Shortcut::Shift);
+                            let word_mod =
+                                state.contains(Shortcut::Ctrl) && !state.contains(Shortcut::Shift);
 
                             match key {
                                 Key::BackSpace => {
@@ -1122,17 +1089,33 @@ pub fn create_structured_rich_display_widget(
                                 }
                                 Key::Left => {
                                     if word_mod {
-                                        if shift_held { editor.move_word_left_extend(); } else { editor.move_word_left(); }
+                                        if shift_held {
+                                            editor.move_word_left_extend();
+                                        } else {
+                                            editor.move_word_left();
+                                        }
                                     } else {
-                                        if shift_held { editor.move_cursor_left_extend(); } else { editor.move_cursor_left(); }
+                                        if shift_held {
+                                            editor.move_cursor_left_extend();
+                                        } else {
+                                            editor.move_cursor_left();
+                                        }
                                     }
                                     handled = true;
                                 }
                                 Key::Right => {
                                     if word_mod {
-                                        if shift_held { editor.move_word_right_extend(); } else { editor.move_word_right(); }
+                                        if shift_held {
+                                            editor.move_word_right_extend();
+                                        } else {
+                                            editor.move_word_right();
+                                        }
                                     } else {
-                                        if shift_held { editor.move_cursor_right_extend(); } else { editor.move_cursor_right(); }
+                                        if shift_held {
+                                            editor.move_cursor_right_extend();
+                                        } else {
+                                            editor.move_cursor_right();
+                                        }
                                     }
                                     handled = true;
                                 }
@@ -1208,9 +1191,8 @@ pub fn create_structured_rich_display_widget(
                         if handled {
                             // After handling an edit/cursor move, ensure cursor is visible
                             // Create a draw context for measurements used by ensure_cursor_visible
-                            let has_focus =
-                                fltk::app::focus().map(|f| f.as_base_widget()).as_ref()
-                                    == Some(&w.as_base_widget());
+                            let has_focus = fltk::app::focus().map(|f| f.as_base_widget()).as_ref()
+                                == Some(&w.as_base_widget());
                             let is_active = w.active();
                             let mut ctx = FltkDrawContext::new(has_focus, is_active);
 

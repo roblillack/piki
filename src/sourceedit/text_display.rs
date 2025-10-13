@@ -1,7 +1,7 @@
 // Text Display widget implementation
 // Based on FLTK's Fl_Text_Display
 
-use crate::text_buffer::TextBuffer;
+use super::text_buffer::TextBuffer;
 use std::cell::RefCell;
 use std::cmp::{max, min};
 use std::rc::Rc;

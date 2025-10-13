@@ -2,9 +2,9 @@
 // Usage: cargo run --example viewmd_structured [--edit] <filename>
 
 use fliki_rs::fltk_structured_rich_display::create_structured_rich_display_widget;
-use fliki_rs::markdown_converter::{document_to_markdown, markdown_to_document};
-use fliki_rs::structured_document::DocumentPosition;
-use fliki_rs::text_display::{style_attr, StyleTableEntry};
+use fliki_rs::richtext::markdown_converter::{document_to_markdown, markdown_to_document};
+use fliki_rs::richtext::structured_document::DocumentPosition;
+use fliki_rs::sourceedit::text_display::{style_attr, StyleTableEntry};
 use fltk::{prelude::*, *};
 use std::env;
 use std::fs;
@@ -118,7 +118,8 @@ fn build_style_table() -> Vec<StyleTableEntry> {
     let base_fonts = [0, 1, 2, 3]; // plain, bold, italic, bold+italic
 
     for base in 0..4 {
-        for decoration in 1..8 {  // Skip 0 (no decorations)
+        for decoration in 1..8 {
+            // Skip 0 (no decorations)
             let underline = (decoration & 1) != 0;
             let strikethrough = (decoration & 2) != 0;
             let highlight = (decoration & 4) != 0;
@@ -197,11 +198,11 @@ fn main() {
 
     // Create structured rich display widget
     let (mut display_widget, display) = create_structured_rich_display_widget(
-        5,                  // x
-        5 + menu_height,    // y
-        790,                // width
-        590 - menu_height,  // height
-        edit_mode,          // edit mode
+        5,                 // x
+        5 + menu_height,   // y
+        790,               // width
+        590 - menu_height, // height
+        edit_mode,         // edit mode
     );
 
     // Create menu bar if in edit mode (after display is created)
@@ -226,17 +227,12 @@ fn main() {
         let underline_shortcut = enums::Shortcut::Ctrl | 'u';
 
         let display_for_menu = display.clone();
-        menu_bar.add(
-            "Format/Bold\t",
-            bold_shortcut,
-            menu::MenuFlag::Normal,
-            {
-                let display = display_for_menu.clone();
-                move |_| {
-                    display.borrow_mut().editor_mut().toggle_bold().ok();
-                }
-            },
-        );
+        menu_bar.add("Format/Bold\t", bold_shortcut, menu::MenuFlag::Normal, {
+            let display = display_for_menu.clone();
+            move |_| {
+                display.borrow_mut().editor_mut().toggle_bold().ok();
+            }
+        });
 
         menu_bar.add(
             "Format/Italic\t",
@@ -269,7 +265,11 @@ fn main() {
             {
                 let display = display_for_menu.clone();
                 move |_| {
-                    display.borrow_mut().editor_mut().toggle_strikethrough().ok();
+                    display
+                        .borrow_mut()
+                        .editor_mut()
+                        .toggle_strikethrough()
+                        .ok();
                 }
             },
         );

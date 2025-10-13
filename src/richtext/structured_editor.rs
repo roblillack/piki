@@ -2,7 +2,7 @@
 // Provides editing operations on a StructuredDocument
 // Completely independent of markdown syntax
 
-use crate::structured_document::*;
+use super::structured_document::*;
 use std::cmp::min;
 
 /// Result of an editing operation
@@ -141,7 +141,11 @@ impl StructuredEditor {
             if ch.is_whitespace() || ch.is_ascii_punctuation() {
                 break;
             }
-            start = text[..start].char_indices().next_back().map(|(i, _)| i).unwrap_or(0);
+            start = text[..start]
+                .char_indices()
+                .next_back()
+                .map(|(i, _)| i)
+                .unwrap_or(0);
         }
 
         // Move end forward to end of word
@@ -150,12 +154,20 @@ impl StructuredEditor {
             if ch.is_whitespace() || ch.is_ascii_punctuation() {
                 break;
             }
-            end = text[..end].chars().next().map(|c| end + c.len_utf8()).unwrap_or(end);
+            end = text[..end]
+                .chars()
+                .next()
+                .map(|c| end + c.len_utf8())
+                .unwrap_or(end);
         }
 
         // If we're on whitespace, extend to include it
         if start == end {
-            end = text[end..].chars().next().map(|c| end + c.len_utf8()).unwrap_or(end);
+            end = text[end..]
+                .chars()
+                .next()
+                .map(|c| end + c.len_utf8())
+                .unwrap_or(end);
         }
 
         let start_pos = DocumentPosition::new(pos.block_index, start);
@@ -217,15 +229,21 @@ impl StructuredEditor {
         // Handle different inline content types
         if content_idx >= block.content.len() {
             // Append to end
-            block.content.push(InlineContent::Text(TextRun::plain(text)));
+            block
+                .content
+                .push(InlineContent::Text(TextRun::plain(text)));
         } else {
             match &mut block.content[content_idx] {
                 InlineContent::Text(run) => {
                     run.insert_text(content_offset, text);
                 }
-                InlineContent::Link { .. } | InlineContent::LineBreak | InlineContent::HardBreak => {
+                InlineContent::Link { .. }
+                | InlineContent::LineBreak
+                | InlineContent::HardBreak => {
                     // Insert new text run before this element
-                    block.content.insert(content_idx, InlineContent::Text(TextRun::plain(text)));
+                    block
+                        .content
+                        .insert(content_idx, InlineContent::Text(TextRun::plain(text)));
                 }
             }
         }
@@ -262,7 +280,11 @@ impl StructuredEditor {
         let (block_type, is_empty, content) = {
             let blocks = self.document.blocks();
             let current_block = &blocks[block_index];
-            (current_block.block_type.clone(), current_block.is_empty(), current_block.content.clone())
+            (
+                current_block.block_type.clone(),
+                current_block.is_empty(),
+                current_block.content.clone(),
+            )
         };
 
         // Check if we're in a list item
@@ -287,10 +309,13 @@ impl StructuredEditor {
             } else {
                 None
             };
-            let mut new_item = Block::new(0, BlockType::ListItem {
-                ordered: *ordered,
-                number: new_number,
-            });
+            let mut new_item = Block::new(
+                0,
+                BlockType::ListItem {
+                    ordered: *ordered,
+                    number: new_number,
+                },
+            );
             new_item.content = right_content;
 
             self.document.insert_block(block_index + 1, new_item);
@@ -410,7 +435,8 @@ impl StructuredEditor {
             blocks[block_index].content.extend(next_block.content);
         } else {
             // Delete character within block
-            let (content_idx, content_offset) = Self::find_content_at_offset_static(&blocks[block_index].content, offset);
+            let (content_idx, content_offset) =
+                Self::find_content_at_offset_static(&blocks[block_index].content, offset);
             let block = &mut blocks[block_index];
 
             if content_idx < block.content.len() {
@@ -581,11 +607,19 @@ impl StructuredEditor {
         }
         while i < text.len() {
             let ch = text[i..].chars().next().unwrap();
-            if ch.is_whitespace() || ch.is_ascii_punctuation() { i += ch.len_utf8(); } else { break; }
+            if ch.is_whitespace() || ch.is_ascii_punctuation() {
+                i += ch.len_utf8();
+            } else {
+                break;
+            }
         }
         while i < text.len() {
             let ch = text[i..].chars().next().unwrap();
-            if !(ch.is_whitespace() || ch.is_ascii_punctuation()) { i += ch.len_utf8(); } else { break; }
+            if !(ch.is_whitespace() || ch.is_ascii_punctuation()) {
+                i += ch.len_utf8();
+            } else {
+                break;
+            }
         }
         DocumentPosition::new(pos.block_index, i)
     }
@@ -600,7 +634,10 @@ impl StructuredEditor {
         let mut i = pos.offset.min(text.len());
         if i == 0 {
             if pos.block_index > 0 {
-                return DocumentPosition::new(pos.block_index - 1, blocks[pos.block_index - 1].text_len());
+                return DocumentPosition::new(
+                    pos.block_index - 1,
+                    blocks[pos.block_index - 1].text_len(),
+                );
             }
             return pos;
         }
@@ -610,7 +647,11 @@ impl StructuredEditor {
                 let (prev_idx, prev_ch) = it.next_back().unwrap();
                 (prev_idx, prev_ch)
             };
-            if ch.is_whitespace() || ch.is_ascii_punctuation() { i = prev_i; } else { break; }
+            if ch.is_whitespace() || ch.is_ascii_punctuation() {
+                i = prev_i;
+            } else {
+                break;
+            }
         }
         while i > 0 {
             let (prev_i, ch) = {
@@ -618,7 +659,11 @@ impl StructuredEditor {
                 let (prev_idx, prev_ch) = it.next_back().unwrap();
                 (prev_idx, prev_ch)
             };
-            if !(ch.is_whitespace() || ch.is_ascii_punctuation()) { i = prev_i; } else { break; }
+            if !(ch.is_whitespace() || ch.is_ascii_punctuation()) {
+                i = prev_i;
+            } else {
+                break;
+            }
         }
         DocumentPosition::new(pos.block_index, i)
     }
@@ -732,7 +777,9 @@ impl StructuredEditor {
             BlockType::Heading { level: 1 } => BlockType::Heading { level: 2 },
             BlockType::Heading { level: 2 } => BlockType::Heading { level: 3 },
             BlockType::Heading { level: 3 } => BlockType::Paragraph,
-            BlockType::Heading { level } => BlockType::Heading { level: (*level % 3) + 1 },
+            BlockType::Heading { level } => BlockType::Heading {
+                level: (*level % 3) + 1,
+            },
             BlockType::ListItem { .. } => BlockType::Heading { level: 1 },
             BlockType::CodeBlock { .. } => BlockType::Heading { level: 1 },
             BlockType::BlockQuote => BlockType::Heading { level: 1 },
@@ -801,18 +848,25 @@ impl StructuredEditor {
 
         // Multi-block selection: style tail of start, all middle, head of end
         let blocks_len = self.document.block_count();
-        if start.block_index >= blocks_len || end.block_index >= blocks_len { return Err(EditError::InvalidBlockIndex); }
+        if start.block_index >= blocks_len || end.block_index >= blocks_len {
+            return Err(EditError::InvalidBlockIndex);
+        }
 
         // Start block: from start.offset to end of block
         {
             let blocks = self.document.blocks();
             let block = &blocks[start.block_index];
             let block_len = block.text_len();
-            let (before, selected, after) = Self::split_content_for_style(&block.content, start.offset, block_len);
+            let (before, selected, after) =
+                Self::split_content_for_style(&block.content, start.offset, block_len);
             let styled = Self::map_style_on_runs(selected, &mut apply_style);
             let blocks = self.document.blocks_mut();
             let block_mut = &mut blocks[start.block_index];
-            block_mut.content = before.into_iter().chain(styled.into_iter()).chain(after.into_iter()).collect();
+            block_mut.content = before
+                .into_iter()
+                .chain(styled.into_iter())
+                .chain(after.into_iter())
+                .collect();
         }
 
         // Middle blocks
@@ -838,7 +892,11 @@ impl StructuredEditor {
             let styled = Self::map_style_on_runs(selected, &mut apply_style);
             let blocks = self.document.blocks_mut();
             let block_mut = &mut blocks[end.block_index];
-            block_mut.content = before.into_iter().chain(styled.into_iter()).chain(after.into_iter()).collect();
+            block_mut.content = before
+                .into_iter()
+                .chain(styled.into_iter())
+                .chain(after.into_iter())
+                .collect();
         }
 
         Ok(())
@@ -1011,25 +1069,37 @@ impl StructuredEditor {
         // Single-block selection case
         if start.block_index == end.block_index {
             let block_index = start.block_index;
-            if block_index >= self.document.block_count() { return Err(EditError::InvalidBlockIndex); }
+            if block_index >= self.document.block_count() {
+                return Err(EditError::InvalidBlockIndex);
+            }
             let (before, selected, after) = {
                 let blocks = self.document.blocks();
                 let block = &blocks[block_index];
                 Self::split_content_for_style(&block.content, start.offset, end.offset)
             };
-            let mut clear = |style: &mut TextStyle| { *style = TextStyle::default(); };
+            let mut clear = |style: &mut TextStyle| {
+                *style = TextStyle::default();
+            };
             let cleared = Self::map_style_on_runs(selected, &mut clear);
             let blocks = self.document.blocks_mut();
             let block_mut = &mut blocks[block_index];
-            block_mut.content = before.into_iter().chain(cleared.into_iter()).chain(after.into_iter()).collect();
+            block_mut.content = before
+                .into_iter()
+                .chain(cleared.into_iter())
+                .chain(after.into_iter())
+                .collect();
             return Ok(());
         }
 
         // Multi-block selection: clear tail of start, all middle, head of end
         let blocks_len = self.document.block_count();
-        if start.block_index >= blocks_len || end.block_index >= blocks_len { return Err(EditError::InvalidBlockIndex); }
+        if start.block_index >= blocks_len || end.block_index >= blocks_len {
+            return Err(EditError::InvalidBlockIndex);
+        }
 
-        let mut clear = |style: &mut TextStyle| { *style = TextStyle::default(); };
+        let mut clear = |style: &mut TextStyle| {
+            *style = TextStyle::default();
+        };
 
         // Start block
         {
@@ -1042,7 +1112,11 @@ impl StructuredEditor {
             let cleared = Self::map_style_on_runs(selected, &mut clear);
             let blocks = self.document.blocks_mut();
             let block_mut = &mut blocks[start.block_index];
-            block_mut.content = before.into_iter().chain(cleared.into_iter()).chain(after.into_iter()).collect();
+            block_mut.content = before
+                .into_iter()
+                .chain(cleared.into_iter())
+                .chain(after.into_iter())
+                .collect();
         }
 
         // Middle blocks
@@ -1068,7 +1142,11 @@ impl StructuredEditor {
             let cleared = Self::map_style_on_runs(selected, &mut clear);
             let blocks = self.document.blocks_mut();
             let block_mut = &mut blocks[end.block_index];
-            block_mut.content = before.into_iter().chain(cleared.into_iter()).chain(after.into_iter()).collect();
+            block_mut.content = before
+                .into_iter()
+                .chain(cleared.into_iter())
+                .chain(after.into_iter())
+                .collect();
         }
 
         Ok(())
@@ -1155,8 +1233,18 @@ impl StructuredEditor {
             self.document.replace_range(start, end, text);
             // Position cursor at end of first inserted paragraph
             let first_len = text.split("\n\n").next().map(|s| s.len()).unwrap_or(0);
-            self.cursor = DocumentPosition::new(start.block_index.min(self.document.block_count().saturating_sub(1)),
-                                                min(first_len, self.document.blocks()[start.block_index.min(self.document.block_count().saturating_sub(1))].text_len()));
+            self.cursor = DocumentPosition::new(
+                start
+                    .block_index
+                    .min(self.document.block_count().saturating_sub(1)),
+                min(
+                    first_len,
+                    self.document.blocks()[start
+                        .block_index
+                        .min(self.document.block_count().saturating_sub(1))]
+                    .text_len(),
+                ),
+            );
             self.selection = None;
             Ok(())
         } else {
@@ -1188,7 +1276,10 @@ impl StructuredEditor {
     }
 
     /// Split content at a given offset (static version)
-    fn split_content_at_static(content: &[InlineContent], offset: usize) -> (Vec<InlineContent>, Vec<InlineContent>) {
+    fn split_content_at_static(
+        content: &[InlineContent],
+        offset: usize,
+    ) -> (Vec<InlineContent>, Vec<InlineContent>) {
         let (idx, content_offset) = Self::find_content_at_offset_static(content, offset);
 
         let mut left = content[..idx].to_vec();
@@ -1217,7 +1308,11 @@ impl StructuredEditor {
     }
 
     /// Split content at a given offset
-    fn split_content_at(&self, content: &[InlineContent], offset: usize) -> (Vec<InlineContent>, Vec<InlineContent>) {
+    fn split_content_at(
+        &self,
+        content: &[InlineContent],
+        offset: usize,
+    ) -> (Vec<InlineContent>, Vec<InlineContent>) {
         Self::split_content_at_static(content, offset)
     }
 
@@ -1235,7 +1330,10 @@ impl StructuredEditor {
                 }
                 InlineContent::Link { link, content } => {
                     let mapped = Self::map_style_on_runs(content, apply);
-                    InlineContent::Link { link, content: mapped }
+                    InlineContent::Link {
+                        link,
+                        content: mapped,
+                    }
                 }
                 other => other,
             })
@@ -1338,7 +1436,7 @@ mod tests {
 
         // Select from inside first to inside third
         let start = DocumentPosition::new(0, 3); // "Fir|st para"
-        let end = DocumentPosition::new(2, 2);   // "Th|ird para"
+        let end = DocumentPosition::new(2, 2); // "Th|ird para"
         editor.set_selection(start, end);
 
         // Toggle bold
@@ -1348,9 +1446,17 @@ mod tests {
         let doc = editor.document();
         // First block should be split: "Fir" (plain) + "st para" (bold)
         let b0 = &doc.blocks()[0];
-        let parts0: Vec<(String, bool)> = b0.content.iter().filter_map(|c| {
-            if let InlineContent::Text(run) = c { Some((run.text.clone(), run.style.bold)) } else { None }
-        }).collect();
+        let parts0: Vec<(String, bool)> = b0
+            .content
+            .iter()
+            .filter_map(|c| {
+                if let InlineContent::Text(run) = c {
+                    Some((run.text.clone(), run.style.bold))
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert!(parts0.len() >= 2);
         assert_eq!(parts0[0].0, "Fir");
         assert_eq!(parts0[0].1, false);
@@ -1358,17 +1464,33 @@ mod tests {
 
         // Middle block entire should be bold
         let b1 = &doc.blocks()[1];
-        let parts1: Vec<bool> = b1.content.iter().filter_map(|c| {
-            if let InlineContent::Text(run) = c { Some(run.style.bold) } else { None }
-        }).collect();
+        let parts1: Vec<bool> = b1
+            .content
+            .iter()
+            .filter_map(|c| {
+                if let InlineContent::Text(run) = c {
+                    Some(run.style.bold)
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert!(!parts1.is_empty());
         assert!(parts1.into_iter().all(|b| b));
 
         // Last block should have first part bold, remainder plain
         let b2 = &doc.blocks()[2];
-        let parts2: Vec<(String, bool)> = b2.content.iter().filter_map(|c| {
-            if let InlineContent::Text(run) = c { Some((run.text.clone(), run.style.bold)) } else { None }
-        }).collect();
+        let parts2: Vec<(String, bool)> = b2
+            .content
+            .iter()
+            .filter_map(|c| {
+                if let InlineContent::Text(run) = c {
+                    Some((run.text.clone(), run.style.bold))
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert!(parts2.len() >= 2);
         assert_eq!(parts2[0].0, "Th");
         assert!(parts2[0].1);

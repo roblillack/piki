@@ -2,7 +2,7 @@
 // Converts between StructuredDocument and Markdown text format
 // Markdown is used purely as a storage/serialization format
 
-use crate::structured_document::*;
+use super::structured_document::*;
 use crate::markdown_ast::{ASTNode, Document as ASTDocument, NodeType};
 use crate::markdown_parser::parse_markdown;
 
@@ -158,10 +158,13 @@ fn ast_node_to_blocks(node: &ASTNode, doc: &mut StructuredDocument) {
                         None
                     };
 
-                    let mut block = Block::new(0, BlockType::ListItem {
-                        ordered: *ordered,
-                        number,
-                    });
+                    let mut block = Block::new(
+                        0,
+                        BlockType::ListItem {
+                            ordered: *ordered,
+                            number,
+                        },
+                    );
                     block.content = ast_node_to_inline_content(child);
                     doc.add_block(block);
                 }
@@ -192,9 +195,12 @@ fn ast_node_to_block(node: &ASTNode, doc: &mut StructuredDocument) -> Option<Blo
             Some(block)
         }
         NodeType::CodeBlock { language, .. } => {
-            let mut block = Block::new(id, BlockType::CodeBlock {
-                language: language.clone(),
-            });
+            let mut block = Block::new(
+                id,
+                BlockType::CodeBlock {
+                    language: language.clone(),
+                },
+            );
             let text = node.flatten_text();
             block.content = vec![InlineContent::Text(TextRun::plain(text))];
             Some(block)
@@ -207,10 +213,13 @@ fn ast_node_to_block(node: &ASTNode, doc: &mut StructuredDocument) -> Option<Blo
         NodeType::ListItem => {
             // Determine if parent is ordered or unordered
             // For now, assume unordered
-            let mut block = Block::new(id, BlockType::ListItem {
-                ordered: false,
-                number: None,
-            });
+            let mut block = Block::new(
+                id,
+                BlockType::ListItem {
+                    ordered: false,
+                    number: None,
+                },
+            );
             block.content = ast_node_to_inline_content(node);
             Some(block)
         }
@@ -224,7 +233,10 @@ fn ast_node_to_inline_content(node: &ASTNode) -> Vec<InlineContent> {
 
     for child in &node.children {
         match &child.node_type {
-            NodeType::Text { content: text, style } => {
+            NodeType::Text {
+                content: text,
+                style,
+            } => {
                 let text_style = TextStyle {
                     bold: style.bold,
                     italic: style.italic,
@@ -313,10 +325,26 @@ mod tests {
     #[test]
     fn test_document_to_markdown_list() {
         let mut doc = StructuredDocument::new();
-        doc.add_block(Block::new(0, BlockType::ListItem { ordered: false, number: None })
-            .with_plain_text("Item 1"));
-        doc.add_block(Block::new(0, BlockType::ListItem { ordered: false, number: None })
-            .with_plain_text("Item 2"));
+        doc.add_block(
+            Block::new(
+                0,
+                BlockType::ListItem {
+                    ordered: false,
+                    number: None,
+                },
+            )
+            .with_plain_text("Item 1"),
+        );
+        doc.add_block(
+            Block::new(
+                0,
+                BlockType::ListItem {
+                    ordered: false,
+                    number: None,
+                },
+            )
+            .with_plain_text("Item 2"),
+        );
 
         let md = document_to_markdown(&doc);
         assert_eq!(md, "- Item 1\n\n- Item 2");

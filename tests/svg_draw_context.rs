@@ -1,7 +1,7 @@
 // SVG-based DrawContext implementation for testing and visualization
 // Generates SVG output from text display rendering
 
-use crate::text_display::DrawContext;
+use fliki_rs::sourceedit::text_display::DrawContext;
 use std::fmt::Write;
 
 /// SVG-based drawing context that generates SVG markup
@@ -73,13 +73,7 @@ impl SvgDrawContext {
         if a == 0xFF {
             format!("#{:02x}{:02x}{:02x}", r, g, b)
         } else {
-            format!(
-                "rgba({}, {}, {}, {:.2})",
-                r,
-                g,
-                b,
-                a as f32 / 255.0
-            )
+            format!("rgba({}, {}, {}, {:.2})", r, g, b, a as f32 / 255.0)
         }
     }
 
@@ -146,10 +140,7 @@ impl DrawContext for SvgDrawContext {
 
         // Apply clipping if active
         let clip_attr = if let Some(&(cx, cy, cw, ch)) = self.clip_stack.last() {
-            format!(
-                r#" clip-path="url(#clip-{}-{}-{}-{})""#,
-                cx, cy, cw, ch
-            )
+            format!(r#" clip-path="url(#clip-{}-{}-{}-{})""#, cx, cy, cw, ch)
         } else {
             String::new()
         };
@@ -167,10 +158,7 @@ impl DrawContext for SvgDrawContext {
 
         // Apply clipping if active
         let clip_attr = if let Some(&(cx, cy, cw, ch)) = self.clip_stack.last() {
-            format!(
-                r#" clip-path="url(#clip-{}-{}-{}-{})""#,
-                cx, cy, cw, ch
-            )
+            format!(r#" clip-path="url(#clip-{}-{}-{}-{})""#, cx, cy, cw, ch)
         } else {
             String::new()
         };
