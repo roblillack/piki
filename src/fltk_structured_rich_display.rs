@@ -1033,8 +1033,14 @@ pub fn create_structured_rich_display_widget(
                         #[cfg(not(target_os = "macos"))]
                         let cmd_shift_modifier = state.contains(Shortcut::Ctrl | Shortcut::Shift);
 
+                        // Cmd/Ctrl-A (Select All)
+                        if cmd_modifier && key == Key::from_char('a') {
+                            let mut disp = display.borrow_mut();
+                            disp.editor_mut().select_all();
+                            handled = true;
+                        }
                         // Cmd/Ctrl-B (toggle bold)
-                        if cmd_modifier && key == Key::from_char('b') {
+                        else if cmd_modifier && key == Key::from_char('b') {
                             let mut disp = display.borrow_mut();
                             disp.editor_mut().toggle_bold().ok();
                             handled = true;
@@ -1099,6 +1105,11 @@ pub fn create_structured_rich_display_widget(
 
                             // Check if Shift is held for selection extension
                             let shift_held = state.contains(Shortcut::Shift);
+                            // Check for word navigation modifier (Alt on macOS, Ctrl elsewhere)
+                            #[cfg(target_os = "macos")]
+                            let word_mod = state.contains(Shortcut::Alt) && !state.contains(Shortcut::Command);
+                            #[cfg(not(target_os = "macos"))]
+                            let word_mod = state.contains(Shortcut::Ctrl) && !state.contains(Shortcut::Shift);
 
                             match key {
                                 Key::BackSpace => {
@@ -1110,18 +1121,18 @@ pub fn create_structured_rich_display_widget(
                                     handled = true;
                                 }
                                 Key::Left => {
-                                    if shift_held {
-                                        editor.move_cursor_left_extend();
+                                    if word_mod {
+                                        if shift_held { editor.move_word_left_extend(); } else { editor.move_word_left(); }
                                     } else {
-                                        editor.move_cursor_left();
+                                        if shift_held { editor.move_cursor_left_extend(); } else { editor.move_cursor_left(); }
                                     }
                                     handled = true;
                                 }
                                 Key::Right => {
-                                    if shift_held {
-                                        editor.move_cursor_right_extend();
+                                    if word_mod {
+                                        if shift_held { editor.move_word_right_extend(); } else { editor.move_word_right(); }
                                     } else {
-                                        editor.move_cursor_right();
+                                        if shift_held { editor.move_cursor_right_extend(); } else { editor.move_cursor_right(); }
                                     }
                                     handled = true;
                                 }

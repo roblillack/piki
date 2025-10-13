@@ -80,6 +80,23 @@ impl StructuredEditor {
         self.selection = None;
     }
 
+    /// Select all content in the document
+    pub fn select_all(&mut self) {
+        if self.document.block_count() == 0 {
+            self.selection = None;
+            return;
+        }
+        let start = DocumentPosition::new(0, 0);
+        let last_idx = self.document.block_count() - 1;
+        let end = {
+            let blocks = self.document.blocks();
+            let last_len = blocks[last_idx].text_len();
+            DocumentPosition::new(last_idx, last_len)
+        };
+        self.selection = Some((start, end));
+        self.cursor = end;
+    }
+
     /// Start or extend selection from current cursor position to a new position
     /// This is used for shift+movement and mouse drag selection
     pub fn extend_selection_to(&mut self, end: DocumentPosition) {
@@ -516,6 +533,94 @@ impl StructuredEditor {
             self.cursor.offset = blocks[self.cursor.block_index].text_len();
         }
         self.selection = None;
+    }
+
+    /// Move cursor right by one word
+    pub fn move_word_right(&mut self) {
+        let new_pos = self.word_right_position(self.cursor);
+        self.cursor = new_pos;
+        self.selection = None;
+    }
+
+    /// Move cursor left by one word
+    pub fn move_word_left(&mut self) {
+        let new_pos = self.word_left_position(self.cursor);
+        self.cursor = new_pos;
+        self.selection = None;
+    }
+
+    /// Extend selection by moving right by one word
+    pub fn move_word_right_extend(&mut self) {
+        let new_pos = self.word_right_position(self.cursor);
+        if new_pos != self.cursor {
+            self.extend_selection_to(new_pos);
+        }
+    }
+
+    /// Extend selection by moving left by one word
+    pub fn move_word_left_extend(&mut self) {
+        let new_pos = self.word_left_position(self.cursor);
+        if new_pos != self.cursor {
+            self.extend_selection_to(new_pos);
+        }
+    }
+
+    /// Compute next word-right position from a given position
+    fn word_right_position(&self, pos: DocumentPosition) -> DocumentPosition {
+        let blocks = self.document.blocks();
+        if pos.block_index >= blocks.len() {
+            return pos;
+        }
+        let text = blocks[pos.block_index].to_plain_text();
+        let mut i = pos.offset.min(text.len());
+        if i >= text.len() {
+            if pos.block_index + 1 < blocks.len() {
+                return DocumentPosition::new(pos.block_index + 1, 0);
+            }
+            return pos;
+        }
+        while i < text.len() {
+            let ch = text[i..].chars().next().unwrap();
+            if ch.is_whitespace() || ch.is_ascii_punctuation() { i += ch.len_utf8(); } else { break; }
+        }
+        while i < text.len() {
+            let ch = text[i..].chars().next().unwrap();
+            if !(ch.is_whitespace() || ch.is_ascii_punctuation()) { i += ch.len_utf8(); } else { break; }
+        }
+        DocumentPosition::new(pos.block_index, i)
+    }
+
+    /// Compute next word-left position from a given position
+    fn word_left_position(&self, pos: DocumentPosition) -> DocumentPosition {
+        let blocks = self.document.blocks();
+        if pos.block_index >= blocks.len() {
+            return pos;
+        }
+        let text = blocks[pos.block_index].to_plain_text();
+        let mut i = pos.offset.min(text.len());
+        if i == 0 {
+            if pos.block_index > 0 {
+                return DocumentPosition::new(pos.block_index - 1, blocks[pos.block_index - 1].text_len());
+            }
+            return pos;
+        }
+        while i > 0 {
+            let (prev_i, ch) = {
+                let mut it = text[..i].char_indices();
+                let (prev_idx, prev_ch) = it.next_back().unwrap();
+                (prev_idx, prev_ch)
+            };
+            if ch.is_whitespace() || ch.is_ascii_punctuation() { i = prev_i; } else { break; }
+        }
+        while i > 0 {
+            let (prev_i, ch) = {
+                let mut it = text[..i].char_indices();
+                let (prev_idx, prev_ch) = it.next_back().unwrap();
+                (prev_idx, prev_ch)
+            };
+            if !(ch.is_whitespace() || ch.is_ascii_punctuation()) { i = prev_i; } else { break; }
+        }
+        DocumentPosition::new(pos.block_index, i)
     }
 
     // Selection-extending movement methods (for Shift+arrow keys)
@@ -1268,5 +1373,34 @@ mod tests {
         assert_eq!(parts2[0].0, "Th");
         assert!(parts2[0].1);
         assert!(!parts2.last().unwrap().1);
+    }
+
+    #[test]
+    fn test_select_all() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("Hello").unwrap();
+        editor.insert_newline().unwrap();
+        editor.insert_text("World").unwrap();
+        editor.select_all();
+        let sel = editor.selection().unwrap();
+        assert_eq!(sel.0, DocumentPosition::new(0, 0));
+        assert_eq!(sel.1, DocumentPosition::new(1, 5));
+        assert_eq!(editor.cursor(), DocumentPosition::new(1, 5));
+    }
+
+    #[test]
+    fn test_word_navigation() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("Hello  world").unwrap();
+        // Cursor at end
+        assert_eq!(editor.cursor(), DocumentPosition::new(0, 12));
+        // Move left by word to start of "world"
+        editor.move_word_left();
+        assert_eq!(editor.cursor(), DocumentPosition::new(0, 6));
+        // Extend right by word to end
+        editor.move_word_right_extend();
+        let sel = editor.selection().unwrap();
+        assert_eq!(sel.0, DocumentPosition::new(0, 6));
+        assert_eq!(sel.1, DocumentPosition::new(0, 11));
     }
 }
