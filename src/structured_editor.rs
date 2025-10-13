@@ -883,6 +883,61 @@ impl StructuredEditor {
         })
     }
 
+    /// Clear all inline formatting on the current selection
+    /// Removes bold, italic, code, strikethrough, underline, and highlight
+    pub fn clear_formatting(&mut self) -> EditResult {
+        let Some((start, end)) = self.selection else {
+            return Ok(());
+        };
+
+        // Ensure start <= end
+        let (start, end) = if start.block_index < end.block_index
+            || (start.block_index == end.block_index && start.offset <= end.offset)
+        {
+            (start, end)
+        } else {
+            (end, start)
+        };
+
+        // For now, only support styling within a single block
+        if start.block_index != end.block_index {
+            return Ok(());
+        }
+
+        let block_index = start.block_index;
+        if block_index >= self.document.block_count() {
+            return Err(EditError::InvalidBlockIndex);
+        }
+
+        // Get the content and split it into three parts: before, selected, after
+        let (content_before, selected_content, content_after) = {
+            let blocks = self.document.blocks();
+            let block = &blocks[block_index];
+            Self::split_content_for_style(&block.content, start.offset, end.offset)
+        };
+
+        // Apply clear formatting to the selected content
+        let cleared_content: Vec<InlineContent> = selected_content
+            .into_iter()
+            .map(|item| match item {
+                InlineContent::Text(mut run) => {
+                    run.style = TextStyle::default();
+                    InlineContent::Text(run)
+                }
+                other => other,
+            })
+            .collect();
+
+        // Reconstruct the block content
+        let blocks = self.document.blocks_mut();
+        let block = &mut blocks[block_index];
+        block.content = content_before;
+        block.content.extend(cleared_content);
+        block.content.extend(content_after);
+
+        Ok(())
+    }
+
     /// Get the selected text as plain text
     pub fn get_selection_text(&self) -> String {
         let Some((start, end)) = self.selection else {

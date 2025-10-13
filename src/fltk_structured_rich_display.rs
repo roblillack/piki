@@ -316,6 +316,27 @@ pub fn create_structured_rich_display_widget(
 
                     // Separator
                     menu.add(
+                        "Clear Formatting\t",
+                        {
+                            #[cfg(target_os = "macos")] {
+                                fltk::enums::Shortcut::Command | '\\'
+                            }
+                            #[cfg(not(target_os = "macos"))] {
+                                fltk::enums::Shortcut::Ctrl | '\\'
+                            }
+                        },
+                        fltk::menu::MenuFlag::Normal,
+                        {
+                            let display = display.clone();
+                            let mut w_clone = w.clone();
+                            move |_| {
+                                display.borrow_mut().editor_mut().clear_formatting().ok();
+                                w_clone.redraw();
+                            }
+                        },
+                    );
+
+                    menu.add(
                         "_",
                         fltk::enums::Shortcut::None,
                         fltk::menu::MenuFlag::MenuDivider,
@@ -619,6 +640,12 @@ pub fn create_structured_rich_display_widget(
                     else if cmd_modifier && key == Key::from_char('u') {
                         let mut disp = display.borrow_mut();
                         disp.editor_mut().toggle_underline().ok();
+                        handled = true;
+                    }
+                    // Cmd/Ctrl-\ (clear formatting)
+                    else if cmd_modifier && key == Key::from_char('\\') {
+                        let mut disp = display.borrow_mut();
+                        disp.editor_mut().clear_formatting().ok();
                         handled = true;
                     }
                     // Cmd/Ctrl-C (copy)

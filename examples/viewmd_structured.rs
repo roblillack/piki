@@ -298,6 +298,24 @@ fn main() {
             },
         );
 
+        // Clear Formatting (Cmd/Ctrl-\)
+        #[cfg(target_os = "macos")]
+        let clear_shortcut = enums::Shortcut::Command | '\\';
+        #[cfg(not(target_os = "macos"))]
+        let clear_shortcut = enums::Shortcut::Ctrl | '\\';
+
+        menu_bar.add(
+            "Format/Clear Formatting\t",
+            clear_shortcut,
+            menu::MenuFlag::Normal,
+            {
+                let display = display_for_menu.clone();
+                move |_| {
+                    display.borrow_mut().editor_mut().clear_formatting().ok();
+                }
+            },
+        );
+
         format_menu = Some(menu_bar);
     }
 
