@@ -80,6 +80,9 @@ pub struct StructuredRichDisplay {
     // Cursor display
     cursor_visible: bool,
     cursor_color: u32,
+    // Cursor blink state
+    blink_on: bool,
+    blink_period_ms: u64,
 
     // Selection rendering
     selection_color: u32,
@@ -111,6 +114,8 @@ impl StructuredRichDisplay {
             line_height: 17,
             cursor_visible: true,
             cursor_color: 0x000000FF,
+            blink_on: true,
+            blink_period_ms: 1000, // 1s full period (500ms on/off)
             selection_color: 0xB4D5FEFF, // Light blue selection color
             hovered_link: None,
         }
@@ -903,8 +908,8 @@ impl StructuredRichDisplay {
             }
         }
 
-        // Draw cursor
-        if self.cursor_visible {
+        // Draw cursor (only when widget has keyboard focus)
+        if self.cursor_visible && ctx.has_focus() && self.blink_on {
             if let Some((cx, cy, ch)) = self.get_cursor_visual_position(ctx) {
                 let screen_y = self.y + cy - self.scroll_offset;
                 let screen_x = self.x + cx;
@@ -1066,6 +1071,20 @@ impl StructuredRichDisplay {
     pub fn cursor_visible(&self) -> bool {
         self.cursor_visible
     }
+
+    /// Update blink state based on elapsed ms. Returns true if visual state changed.
+    pub fn tick(&mut self, ms_since_start: u64) -> bool {
+        // Compute a simple square-wave blink: 500ms on, 500ms off
+        let half_period = (self.blink_period_ms / 2).max(1);
+        let new_on = (ms_since_start / half_period) % 2 == 0;
+        if new_on != self.blink_on {
+            self.blink_on = new_on;
+            return true;
+        }
+        false
+    }
+
+    // Note: cursor visibility with focus is handled via DrawContext::has_focus
 
     /// Find link at given widget coordinates (relative to widget, not screen)
     /// Returns ((block_index, inline_index), destination) if a link is found

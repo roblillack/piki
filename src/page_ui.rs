@@ -27,4 +27,8 @@ pub trait PageUI: ContentProvider + ContentLoader {
 
     // Optional restyle hook (no-op by default).
     fn restyle(&mut self) {}
+
+    // Optional periodic tick with ms since app start (no-op by default).
+    fn tick(&mut self, _ms_since_start: u64) {}
+
 }

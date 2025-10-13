@@ -1272,6 +1272,14 @@ impl FltkStructuredRichDisplay {
     pub fn set_change_callback(&self, cb: Option<Box<dyn FnMut() + 'static>>) {
         *self.change_cb.borrow_mut() = cb;
     }
+
+    /// Periodic tick to update cursor blinking; triggers redraw if needed
+    pub fn tick(&mut self, ms_since_start: u64) {
+        let changed = self.display.borrow_mut().tick(ms_since_start);
+        if changed {
+            self.group.redraw();
+        }
+    }
 }
 
 // Note: link callbacks are now stored per-instance in FltkStructuredRichDisplay

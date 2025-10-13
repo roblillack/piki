@@ -282,4 +282,8 @@ impl PageUI for StructuredRichUI {
     fn on_link_click(&mut self, f: Box<dyn Fn(String) + 'static>) {
         self.0.set_link_callback(Some(f));
     }
+
+    fn tick(&mut self, ms_since_start: u64) {
+        self.0.tick(ms_since_start);
+    }
 }

@@ -17,6 +17,7 @@ use fliki_rs::ui_adapters::StructuredRichUI;
 use fltk::{prelude::*, *};
 use history::History;
 use plugin::{IndexPlugin, PluginRegistry};
+use std::time::Instant;
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -797,6 +798,23 @@ fn main() {
             app::repeat_timeout3(1.0, handle);
         });
     }
+
+    // Set up a lightweight tick for blinking cursor and animations
+    {
+        let start = Instant::now();
+        let editor_ref = active_editor.clone();
+        app::add_timeout3(0.1, move |handle| {
+            let ms = start.elapsed().as_millis() as u64;
+            if let Ok(ed_ptr) = editor_ref.try_borrow() {
+                if let Ok(mut ed) = (&*ed_ptr).try_borrow_mut() {
+                    ed.tick(ms);
+                }
+            }
+            app::repeat_timeout3(0.1, handle);
+        });
+    }
+
+    // No window activation forwarding needed; cursor shows when widget has focus
 
     app.run().unwrap();
 }

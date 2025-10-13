@@ -6,6 +6,7 @@ use fliki_rs::richtext::markdown_converter::{document_to_markdown, markdown_to_d
 use fliki_rs::richtext::structured_document::DocumentPosition;
 use fliki_rs::sourceedit::text_display::{style_attr, StyleTableEntry};
 use fltk::{prelude::*, *};
+use std::time::Instant;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -338,7 +339,7 @@ fn main() {
     display_widget.set_color(enums::Color::from_rgb(255, 255, 245));
     display_widget.set_frame(enums::FrameType::FlatBox);
 
-    // Handle window resize
+    // Handle window resize (focus-based cursor handled internally)
     wind.handle({
         let mut widget_handle = display_widget.clone();
         let menu_h = menu_height;
@@ -401,6 +402,21 @@ fn main() {
                     .spawn();
             }
         })));
+    }
+
+    // Blink/tick timer for cursor
+    {
+        let start = Instant::now();
+        let display_for_tick = display.clone();
+        let mut widget_for_tick = display_widget.clone();
+        app::add_timeout3(0.1, move |handle| {
+            let ms = start.elapsed().as_millis() as u64;
+            let changed = display_for_tick.borrow_mut().tick(ms);
+            if changed {
+                widget_for_tick.redraw();
+            }
+            app::repeat_timeout3(0.1, handle);
+        });
     }
 
     app.run().unwrap();
