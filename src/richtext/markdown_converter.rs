@@ -2,9 +2,9 @@
 // Converts between StructuredDocument and Markdown text format
 // Markdown is used purely as a storage/serialization format
 
+use super::markdown_ast::{ASTNode, Document as ASTDocument, NodeType};
+use super::markdown_parser::parse_markdown;
 use super::structured_document::*;
-use crate::markdown_ast::{ASTNode, Document as ASTDocument, NodeType};
-use crate::markdown_parser::parse_markdown;
 
 /// Convert markdown text to a StructuredDocument
 pub fn markdown_to_document(markdown: &str) -> StructuredDocument {
@@ -369,7 +369,10 @@ mod tests {
         assert_eq!(doc.block_count(), 1);
         let block = &doc.blocks()[0];
         // Expect at least one InlineContent::Link
-        let has_link = block.content.iter().any(|c| matches!(c, InlineContent::Link { .. }));
+        let has_link = block
+            .content
+            .iter()
+            .any(|c| matches!(c, InlineContent::Link { .. }));
         assert!(has_link);
     }
 }

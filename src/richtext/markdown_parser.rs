@@ -1,6 +1,6 @@
 // Markdown Parser - converts pulldown-cmark events into our AST
-use crate::markdown_ast::*;
-use pulldown_cmark::{Event, Parser, Tag, TagEnd, CowStr, Options};
+use super::markdown_ast::*;
+use pulldown_cmark::{CowStr, Event, Options, Parser, Tag, TagEnd};
 
 /// Parse markdown text into an AST
 pub fn parse_markdown(text: &str) -> Document {
@@ -85,7 +85,13 @@ pub fn parse_markdown(text: &str) -> Document {
 
             Event::Text(text_content) => {
                 let current_style = style_stack.last().copied().unwrap_or_default();
-                let node = create_text_node_with_style(&mut doc, text_content, range.start, range.end, current_style);
+                let node = create_text_node_with_style(
+                    &mut doc,
+                    text_content,
+                    range.start,
+                    range.end,
+                    current_style,
+                );
                 if let Some(parent) = node_stack.last_mut() {
                     parent.add_child(node);
                 } else {
@@ -111,12 +117,7 @@ pub fn parse_markdown(text: &str) -> Document {
             }
 
             Event::SoftBreak => {
-                let node = ASTNode::new(
-                    doc.next_id(),
-                    NodeType::SoftBreak,
-                    range.start,
-                    range.end,
-                );
+                let node = ASTNode::new(doc.next_id(), NodeType::SoftBreak, range.start, range.end);
                 if let Some(parent) = node_stack.last_mut() {
                     parent.add_child(node);
                 } else {
@@ -125,12 +126,7 @@ pub fn parse_markdown(text: &str) -> Document {
             }
 
             Event::HardBreak => {
-                let node = ASTNode::new(
-                    doc.next_id(),
-                    NodeType::HardBreak,
-                    range.start,
-                    range.end,
-                );
+                let node = ASTNode::new(doc.next_id(), NodeType::HardBreak, range.start, range.end);
                 if let Some(parent) = node_stack.last_mut() {
                     parent.add_child(node);
                 } else {
@@ -197,9 +193,7 @@ fn create_node_from_tag(doc: &mut Document, tag: Tag, start: usize, end: usize) 
     let node_type = match tag {
         Tag::Paragraph => NodeType::Paragraph,
 
-        Tag::Heading { level, .. } => NodeType::Heading {
-            level: level as u8,
-        },
+        Tag::Heading { level, .. } => NodeType::Heading { level: level as u8 },
 
         Tag::BlockQuote(_) => NodeType::BlockQuote,
 
@@ -226,7 +220,9 @@ fn create_node_from_tag(doc: &mut Document, tag: Tag, start: usize, end: usize) 
 
         Tag::Item => NodeType::ListItem,
 
-        Tag::Link { dest_url, title, .. } => NodeType::Link {
+        Tag::Link {
+            dest_url, title, ..
+        } => NodeType::Link {
             destination: dest_url.to_string(),
             title: if title.is_empty() {
                 None
@@ -235,7 +231,9 @@ fn create_node_from_tag(doc: &mut Document, tag: Tag, start: usize, end: usize) 
             },
         },
 
-        Tag::Image { dest_url, title, .. } => NodeType::Image {
+        Tag::Image {
+            dest_url, title, ..
+        } => NodeType::Image {
             destination: dest_url.to_string(),
             title: if title.is_empty() {
                 None
@@ -276,7 +274,13 @@ fn create_text_node(doc: &mut Document, content: CowStr, start: usize, end: usiz
 }
 
 /// Create a text node with explicit style
-fn create_text_node_with_style(doc: &mut Document, content: CowStr, start: usize, end: usize, style: TextStyle) -> ASTNode {
+fn create_text_node_with_style(
+    doc: &mut Document,
+    content: CowStr,
+    start: usize,
+    end: usize,
+    style: TextStyle,
+) -> ASTNode {
     ASTNode::new(
         doc.next_id(),
         NodeType::Text {
@@ -311,7 +315,6 @@ fn verify_tag_match(node_type: &NodeType, tag_end: &TagEnd) -> bool {
     }
 }
 
-
 /// Parse a single block (paragraph) - useful for incremental parsing
 pub fn parse_block(text: &str, start_pos: usize) -> Option<ASTNode> {
     let mut doc = Document::new();
@@ -323,7 +326,12 @@ pub fn parse_block(text: &str, start_pos: usize) -> Option<ASTNode> {
     for (event, range) in parser {
         match event {
             Event::Start(tag) => {
-                let node = create_node_from_tag(&mut doc, tag, start_pos + range.start, start_pos + range.end);
+                let node = create_node_from_tag(
+                    &mut doc,
+                    tag,
+                    start_pos + range.start,
+                    start_pos + range.end,
+                );
                 node_stack.push(node);
             }
 
@@ -343,7 +351,12 @@ pub fn parse_block(text: &str, start_pos: usize) -> Option<ASTNode> {
             }
 
             Event::Text(text_content) => {
-                let node = create_text_node(&mut doc, text_content, start_pos + range.start, start_pos + range.end);
+                let node = create_text_node(
+                    &mut doc,
+                    text_content,
+                    start_pos + range.start,
+                    start_pos + range.end,
+                );
                 if let Some(parent) = node_stack.last_mut() {
                     parent.add_child(node);
                 }
@@ -380,7 +393,10 @@ mod tests {
         let doc = parse_markdown(text);
 
         assert_eq!(doc.root.children.len(), 1);
-        assert!(matches!(doc.root.children[0].node_type, NodeType::Paragraph));
+        assert!(matches!(
+            doc.root.children[0].node_type,
+            NodeType::Paragraph
+        ));
     }
 
     #[test]
@@ -408,9 +424,10 @@ mod tests {
         assert!(matches!(para.node_type, NodeType::Paragraph));
 
         // Find the link node
-        let has_link = para.children.iter().any(|child| {
-            matches!(child.node_type, NodeType::Link { .. })
-        });
+        let has_link = para
+            .children
+            .iter()
+            .any(|child| matches!(child.node_type, NodeType::Link { .. }));
         assert!(has_link);
     }
 
@@ -453,9 +470,10 @@ mod tests {
         assert!(matches!(para.node_type, NodeType::Paragraph));
 
         // Find a Link child (wikilink parsed as standard link)
-        let has_link = para.children.iter().any(|child| {
-            matches!(child.node_type, NodeType::Link { .. })
-        });
+        let has_link = para
+            .children
+            .iter()
+            .any(|child| matches!(child.node_type, NodeType::Link { .. }));
         assert!(has_link);
     }
 

@@ -46,7 +46,9 @@ pub enum NodeType {
 
     /// Block-level elements
     Paragraph,
-    Heading { level: u8 }, // 1-6
+    Heading {
+        level: u8,
+    }, // 1-6
     CodeBlock {
         language: Option<String>,
         fence_info: String,
@@ -74,14 +76,20 @@ pub enum NodeType {
         destination: String,
         title: Option<String>,
     },
-    Code { content: String },
+    Code {
+        content: String,
+    },
 
     /// Extensions
-    WikiLink { destination: String }, // [[page]]
+    WikiLink {
+        destination: String,
+    }, // [[page]]
     Table,
     TableHead,
     TableRow,
-    TableCell { alignment: Option<Alignment> },
+    TableCell {
+        alignment: Option<Alignment>,
+    },
 }
 
 impl NodeType {
@@ -134,9 +142,9 @@ impl NodeType {
 /// This is calculated based on the node type and can be cached
 #[derive(Debug, Clone)]
 pub struct ComputedStyle {
-    pub font_face: u8,    // Font index
-    pub font_size: u8,    // Font size in points
-    pub color: u32,       // RGBA color
+    pub font_face: u8,        // Font index
+    pub font_size: u8,        // Font size in points
+    pub color: u32,           // RGBA color
     pub bgcolor: Option<u32>, // Optional background color
     pub underline: bool,
     pub line_height: f32, // Multiplier (e.g., 1.2)
@@ -226,7 +234,9 @@ impl ASTNode {
                 style.font_face = 3; // Italic
                 style.color = 0x640000FF; // Dark red
             }
-            NodeType::Text { style: text_style, .. } => {
+            NodeType::Text {
+                style: text_style, ..
+            } => {
                 if text_style.bold && text_style.italic {
                     style.font_face = 3; // Bold+Italic
                 } else if text_style.bold {
@@ -329,13 +339,41 @@ impl ASTNode {
 
         match &self.node_type {
             NodeType::Document => writeln!(f, "Document [{}-{}]", self.char_start, self.char_end)?,
-            NodeType::Paragraph => writeln!(f, "Paragraph [{}-{}]", self.char_start, self.char_end)?,
-            NodeType::Heading { level } => writeln!(f, "Heading(h{}) [{}-{}]", level, self.char_start, self.char_end)?,
-            NodeType::Text { content, style } => writeln!(f, "Text({:?}): {:?} [{}-{}]", style, content, self.char_start, self.char_end)?,
-            NodeType::Link { destination, .. } => writeln!(f, "Link -> {:?} [{}-{}]", destination, self.char_start, self.char_end)?,
-            NodeType::CodeBlock { language, .. } => writeln!(f, "CodeBlock({:?}) [{}-{}]", language, self.char_start, self.char_end)?,
-            NodeType::List { ordered, .. } => writeln!(f, "List({}) [{}-{}]", if *ordered { "ordered" } else { "unordered" }, self.char_start, self.char_end)?,
-            _ => writeln!(f, "{:?} [{}-{}]", self.node_type, self.char_start, self.char_end)?,
+            NodeType::Paragraph => {
+                writeln!(f, "Paragraph [{}-{}]", self.char_start, self.char_end)?
+            }
+            NodeType::Heading { level } => writeln!(
+                f,
+                "Heading(h{}) [{}-{}]",
+                level, self.char_start, self.char_end
+            )?,
+            NodeType::Text { content, style } => writeln!(
+                f,
+                "Text({:?}): {:?} [{}-{}]",
+                style, content, self.char_start, self.char_end
+            )?,
+            NodeType::Link { destination, .. } => writeln!(
+                f,
+                "Link -> {:?} [{}-{}]",
+                destination, self.char_start, self.char_end
+            )?,
+            NodeType::CodeBlock { language, .. } => writeln!(
+                f,
+                "CodeBlock({:?}) [{}-{}]",
+                language, self.char_start, self.char_end
+            )?,
+            NodeType::List { ordered, .. } => writeln!(
+                f,
+                "List({}) [{}-{}]",
+                if *ordered { "ordered" } else { "unordered" },
+                self.char_start,
+                self.char_end
+            )?,
+            _ => writeln!(
+                f,
+                "{:?} [{}-{}]",
+                self.node_type, self.char_start, self.char_end
+            )?,
         }
 
         for child in &self.children {
@@ -401,7 +439,11 @@ impl Document {
         self.find_node_at_position_recursive(&self.root, pos)
     }
 
-    fn find_node_at_position_recursive<'a>(&'a self, node: &'a ASTNode, pos: usize) -> Option<&'a ASTNode> {
+    fn find_node_at_position_recursive<'a>(
+        &'a self,
+        node: &'a ASTNode,
+        pos: usize,
+    ) -> Option<&'a ASTNode> {
         if !node.contains_position(pos) {
             return None;
         }
@@ -483,10 +525,15 @@ mod tests {
     #[test]
     fn test_add_child() {
         let mut parent = ASTNode::new(0, NodeType::Paragraph, 0, 10);
-        let child = ASTNode::new(1, NodeType::Text {
-            content: "hello".to_string(),
-            style: TextStyle::default()
-        }, 0, 5);
+        let child = ASTNode::new(
+            1,
+            NodeType::Text {
+                content: "hello".to_string(),
+                style: TextStyle::default(),
+            },
+            0,
+            5,
+        );
 
         parent.add_child(child);
 
@@ -497,14 +544,24 @@ mod tests {
     #[test]
     fn test_flatten_text() {
         let mut para = ASTNode::new(0, NodeType::Paragraph, 0, 15);
-        para.add_child(ASTNode::new(1, NodeType::Text {
-            content: "hello".to_string(),
-            style: TextStyle::default()
-        }, 0, 5));
-        para.add_child(ASTNode::new(2, NodeType::Text {
-            content: " world".to_string(),
-            style: TextStyle::default()
-        }, 5, 11));
+        para.add_child(ASTNode::new(
+            1,
+            NodeType::Text {
+                content: "hello".to_string(),
+                style: TextStyle::default(),
+            },
+            0,
+            5,
+        ));
+        para.add_child(ASTNode::new(
+            2,
+            NodeType::Text {
+                content: " world".to_string(),
+                style: TextStyle::default(),
+            },
+            5,
+            11,
+        ));
 
         assert_eq!(para.flatten_text(), "hello world");
     }
@@ -521,10 +578,15 @@ mod tests {
     #[test]
     fn test_adjust_positions() {
         let mut node = ASTNode::new(0, NodeType::Paragraph, 10, 20);
-        let child = ASTNode::new(1, NodeType::Text {
-            content: "test".to_string(),
-            style: TextStyle::default()
-        }, 10, 14);
+        let child = ASTNode::new(
+            1,
+            NodeType::Text {
+                content: "test".to_string(),
+                style: TextStyle::default(),
+            },
+            10,
+            14,
+        );
         node.add_child(child);
 
         node.adjust_positions(5, 3); // Insert 3 chars at position 5
@@ -541,10 +603,15 @@ mod tests {
         doc.root.char_end = 10; // Set root to cover the range
 
         let mut para = ASTNode::new(doc.next_id(), NodeType::Paragraph, 0, 10);
-        para.add_child(ASTNode::new(doc.next_id(), NodeType::Text {
-            content: "hello".to_string(),
-            style: TextStyle::default()
-        }, 0, 5));
+        para.add_child(ASTNode::new(
+            doc.next_id(),
+            NodeType::Text {
+                content: "hello".to_string(),
+                style: TextStyle::default(),
+            },
+            0,
+            5,
+        ));
 
         doc.root.add_child(para);
 
