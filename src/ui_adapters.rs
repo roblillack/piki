@@ -89,14 +89,6 @@ impl PageUI for TextDisplayUI {
     fn on_link_click(&mut self, _f: Box<dyn Fn(String) + 'static>) {
         // TextDisplay adapter does not implement link detection.
     }
-
-    fn show(&mut self) {
-        self.group.show();
-    }
-
-    fn hide(&mut self) {
-        self.group.hide();
-    }
 }
 
 /// PageUI adapter for StructuredRichDisplay + FLTK Group wrapper
@@ -113,27 +105,93 @@ impl StructuredRichUI {
             // Base styles 0..10
             let mut styles: Vec<StyleTableEntry> = vec![
                 // 0 Plain
-                StyleTableEntry { color: 0x000000FF, font: 0, size: DEFAULT_FONT_SIZE, attr: style_attr::BGCOLOR, bgcolor: 0xFFFFF5FF },
+                StyleTableEntry {
+                    color: 0x000000FF,
+                    font: 0,
+                    size: DEFAULT_FONT_SIZE,
+                    attr: style_attr::BGCOLOR,
+                    bgcolor: 0xFFFFF5FF,
+                },
                 // 1 Bold
-                StyleTableEntry { color: 0x000000FF, font: 1, size: DEFAULT_FONT_SIZE, attr: style_attr::BGCOLOR, bgcolor: 0xFFFFF5FF },
+                StyleTableEntry {
+                    color: 0x000000FF,
+                    font: 1,
+                    size: DEFAULT_FONT_SIZE,
+                    attr: style_attr::BGCOLOR,
+                    bgcolor: 0xFFFFF5FF,
+                },
                 // 2 Italic
-                StyleTableEntry { color: 0x000000FF, font: 2, size: DEFAULT_FONT_SIZE, attr: style_attr::BGCOLOR, bgcolor: 0xFFFFF5FF },
+                StyleTableEntry {
+                    color: 0x000000FF,
+                    font: 2,
+                    size: DEFAULT_FONT_SIZE,
+                    attr: style_attr::BGCOLOR,
+                    bgcolor: 0xFFFFF5FF,
+                },
                 // 3 Bold+Italic
-                StyleTableEntry { color: 0x000000FF, font: 3, size: DEFAULT_FONT_SIZE, attr: style_attr::BGCOLOR, bgcolor: 0xFFFFF5FF },
+                StyleTableEntry {
+                    color: 0x000000FF,
+                    font: 3,
+                    size: DEFAULT_FONT_SIZE,
+                    attr: style_attr::BGCOLOR,
+                    bgcolor: 0xFFFFF5FF,
+                },
                 // 4 Code
-                StyleTableEntry { color: 0x0064C8FF, font: 4, size: DEFAULT_FONT_SIZE, attr: style_attr::BGCOLOR, bgcolor: 0xFFFFF5FF },
+                StyleTableEntry {
+                    color: 0x0064C8FF,
+                    font: 4,
+                    size: DEFAULT_FONT_SIZE,
+                    attr: style_attr::BGCOLOR,
+                    bgcolor: 0xFFFFF5FF,
+                },
                 // 5 Link
-                StyleTableEntry { color: 0x0000FFFF, font: 0, size: DEFAULT_FONT_SIZE, attr: style_attr::UNDERLINE | style_attr::BGCOLOR, bgcolor: 0xFFFFF5FF },
+                StyleTableEntry {
+                    color: 0x0000FFFF,
+                    font: 0,
+                    size: DEFAULT_FONT_SIZE,
+                    attr: style_attr::UNDERLINE | style_attr::BGCOLOR,
+                    bgcolor: 0xFFFFF5FF,
+                },
                 // 6 Header1
-                StyleTableEntry { color: 0x000000FF, font: 1, size: DEFAULT_FONT_SIZE + 6, attr: style_attr::BGCOLOR, bgcolor: 0xFFFFF5FF },
+                StyleTableEntry {
+                    color: 0x000000FF,
+                    font: 1,
+                    size: DEFAULT_FONT_SIZE + 6,
+                    attr: style_attr::BGCOLOR,
+                    bgcolor: 0xFFFFF5FF,
+                },
                 // 7 Header2
-                StyleTableEntry { color: 0x000000FF, font: 1, size: DEFAULT_FONT_SIZE + 4, attr: style_attr::BGCOLOR, bgcolor: 0xFFFFF5FF },
+                StyleTableEntry {
+                    color: 0x000000FF,
+                    font: 1,
+                    size: DEFAULT_FONT_SIZE + 4,
+                    attr: style_attr::BGCOLOR,
+                    bgcolor: 0xFFFFF5FF,
+                },
                 // 8 Header3
-                StyleTableEntry { color: 0x000000FF, font: 1, size: DEFAULT_FONT_SIZE + 2, attr: style_attr::BGCOLOR, bgcolor: 0xFFFFF5FF },
+                StyleTableEntry {
+                    color: 0x000000FF,
+                    font: 1,
+                    size: DEFAULT_FONT_SIZE + 2,
+                    attr: style_attr::BGCOLOR,
+                    bgcolor: 0xFFFFF5FF,
+                },
                 // 9 Quote
-                StyleTableEntry { color: 0x640000FF, font: 10, size: DEFAULT_FONT_SIZE, attr: style_attr::BGCOLOR, bgcolor: 0xFFFFF5FF },
+                StyleTableEntry {
+                    color: 0x640000FF,
+                    font: 10,
+                    size: DEFAULT_FONT_SIZE,
+                    attr: style_attr::BGCOLOR,
+                    bgcolor: 0xFFFFF5FF,
+                },
                 // 10 Link hover
-                StyleTableEntry { color: 0x0000FFFF, font: 0, size: DEFAULT_FONT_SIZE, attr: style_attr::UNDERLINE | style_attr::BGCOLOR, bgcolor: 0xD3D3D3FF },
+                StyleTableEntry {
+                    color: 0x0000FFFF,
+                    font: 0,
+                    size: DEFAULT_FONT_SIZE,
+                    attr: style_attr::UNDERLINE | style_attr::BGCOLOR,
+                    bgcolor: 0xD3D3D3FF,
+                },
             ];
 
             // Decorated variants 11..42 like in example
@@ -145,10 +203,24 @@ impl StructuredRichUI {
                     let highlight = (decoration & 4) != 0;
 
                     let mut attr = style_attr::BGCOLOR;
-                    if underline { attr |= style_attr::UNDERLINE; }
-                    if strikethrough { attr |= style_attr::STRIKE_THROUGH; }
-                    let bgcolor = if highlight { HIGHLIGHT_COLOR } else { 0xFFFFF5FF };
-                    styles.push(StyleTableEntry { color: 0x000000FF, font: base_fonts[base], size: DEFAULT_FONT_SIZE, attr, bgcolor });
+                    if underline {
+                        attr |= style_attr::UNDERLINE;
+                    }
+                    if strikethrough {
+                        attr |= style_attr::STRIKE_THROUGH;
+                    }
+                    let bgcolor = if highlight {
+                        HIGHLIGHT_COLOR
+                    } else {
+                        0xFFFFF5FF
+                    };
+                    styles.push(StyleTableEntry {
+                        color: 0x000000FF,
+                        font: base_fonts[base],
+                        size: DEFAULT_FONT_SIZE,
+                        attr,
+                        bgcolor,
+                    });
                 }
             }
 
@@ -209,13 +281,5 @@ impl PageUI for StructuredRichUI {
 
     fn on_link_click(&mut self, f: Box<dyn Fn(String) + 'static>) {
         self.0.set_link_callback(Some(f));
-    }
-
-    fn show(&mut self) {
-        self.0.group.show();
-    }
-
-    fn hide(&mut self) {
-        self.0.group.hide();
     }
 }

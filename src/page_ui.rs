@@ -27,8 +27,4 @@ pub trait PageUI: ContentProvider + ContentLoader {
 
     // Optional restyle hook (no-op by default).
     fn restyle(&mut self) {}
-
-    // Visibility controls for toggling UIs
-    fn show(&mut self);
-    fn hide(&mut self);
 }

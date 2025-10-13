@@ -431,14 +431,6 @@ impl fliki_rs::page_ui::PageUI for MarkdownEditor {
     fn restyle(&mut self) {
         self.restyle();
     }
-
-    fn show(&mut self) {
-        self.editor.show();
-    }
-
-    fn hide(&mut self) {
-        self.editor.hide();
-    }
 }
 
 /// Helper function to find a delimiter in a character slice
