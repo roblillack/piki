@@ -151,7 +151,7 @@ pub fn parse_markdown(text: &str) -> Document {
                 }
             }
 
-            Event::Html(html) => {
+            Event::Html(html) | Event::InlineHtml(html) => {
                 // Handle <u> and <mark> HTML tags for underline and highlight
                 let html_str = html.to_string();
                 if html_str == "<u>" || html_str.starts_with("<u ") {
