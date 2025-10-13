@@ -115,7 +115,7 @@ impl StructuredRichDisplay {
             cursor_visible: true,
             cursor_color: 0x000000FF,
             blink_on: true,
-            blink_period_ms: 1000, // 1s full period (500ms on/off)
+            blink_period_ms: 1000,       // 1s full period (500ms on/off)
             selection_color: 0xB4D5FEFF, // Light blue selection color
             hovered_link: None,
         }
@@ -1083,8 +1083,6 @@ impl StructuredRichDisplay {
         }
         false
     }
-
-    // Note: cursor visibility with focus is handled via DrawContext::has_focus
 
     /// Find link at given widget coordinates (relative to widget, not screen)
     /// Returns ((block_index, inline_index), destination) if a link is found
