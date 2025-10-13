@@ -1,31 +1,6 @@
 ---
 source: tests/text_display_snapshots.rs
-assertion_line: 257
 expression: svg
+extension: svg
+snapshot_kind: binary
 ---
-<svg xmlns="http://www.w3.org/2000/svg" width="400" height="100" viewBox="0 0 400 100">
-  <rect width="400" height="100" fill="#ffffff"/>
-  <defs>
-    <clipPath id="clip-0-0-400-100">
-      <rect x="0" y="0" width="400" height="100"/>
-    </clipPath>
-  </defs>
-  <rect x="0" y="0" width="42" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-100)"/>
-  <rect x="42" y="0" width="22" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-100)"/>
-  <rect x="64" y="0" width="42" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-100)"/>
-  <rect x="106" y="0" width="294" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-100)"/>
-  <text x="0" y="17" fill="#000000" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-100)">Name:</text>
-  <text x="64" y="17" fill="#000000" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-100)">Value</text>
-  <rect x="0" y="19" width="42" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-100)"/>
-  <rect x="42" y="19" width="22" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-100)"/>
-  <rect x="64" y="19" width="33" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-100)"/>
-  <rect x="97" y="19" width="303" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-100)"/>
-  <text x="0" y="36" fill="#000000" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-100)">Item:</text>
-  <text x="64" y="36" fill="#000000" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-100)">Data</text>
-  <rect x="0" y="38" width="400" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-100)"/>
-  <rect x="0" y="57" width="400" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-100)"/>
-  <rect x="0" y="76" width="400" height="19" fill="#ffffff" clip-path="url(#clip-0-0-400-100)"/>
-  <line x1="-2" y1="0" x2="2" y2="0" stroke="#000000" stroke-width="1"/>
-  <line x1="0" y1="0" x2="0" y2="18" stroke="#000000" stroke-width="1"/>
-  <line x1="-2" y1="18" x2="2" y2="18" stroke="#000000" stroke-width="1"/>
-</svg>

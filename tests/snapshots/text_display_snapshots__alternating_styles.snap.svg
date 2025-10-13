@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="100" viewBox="0 0 300 100">
+  <rect width="300" height="100" fill="#ffffff"/>
+  <defs>
+    <clipPath id="clip-0-0-300-100">
+      <rect x="0" y="0" width="300" height="100"/>
+    </clipPath>
+  </defs>
+  <rect x="0" y="0" width="8" height="19" fill="#ffffff" clip-path="url(#clip-0-0-300-100)"/>
+  <rect x="8" y="0" width="8" height="19" fill="#ffffff" clip-path="url(#clip-0-0-300-100)"/>
+  <rect x="16" y="0" width="9" height="19" fill="#ffffff" clip-path="url(#clip-0-0-300-100)"/>
+  <rect x="25" y="0" width="8" height="19" fill="#ffffff" clip-path="url(#clip-0-0-300-100)"/>
+  <rect x="33" y="0" width="10" height="19" fill="#ffffff" clip-path="url(#clip-0-0-300-100)"/>
+  <rect x="43" y="0" width="8" height="19" fill="#ffffff" clip-path="url(#clip-0-0-300-100)"/>
+  <rect x="51" y="0" width="9" height="19" fill="#ffffff" clip-path="url(#clip-0-0-300-100)"/>
+  <rect x="60" y="0" width="8" height="19" fill="#ffffff" clip-path="url(#clip-0-0-300-100)"/>
+  <rect x="68" y="0" width="8" height="19" fill="#ffffff" clip-path="url(#clip-0-0-300-100)"/>
+  <rect x="76" y="0" width="10" height="19" fill="#ffffff" clip-path="url(#clip-0-0-300-100)"/>
+  <rect x="86" y="0" width="214" height="19" fill="#ffffff" clip-path="url(#clip-0-0-300-100)"/>
+  <text x="0" y="17" fill="#000000" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-300-100)">A</text>
+  <text x="8" y="17" fill="#00aa00" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-300-100)">B</text>
+  <text x="16" y="17" fill="#0000ff" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-300-100)">C</text>
+  <line x1="16" y1="18" x2="25" y2="18" stroke="#0000ff" stroke-width="1"/>
+  <text x="25" y="17" fill="#ff00ff" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-300-100)">D</text>
+  <text x="33" y="16" fill="#00aaaa" font-family="Courier, 'Courier New', monospace" font-size="16" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-300-100)">E</text>
+  <text x="43" y="17" fill="#000000" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-300-100)">F</text>
+  <text x="51" y="17" fill="#00aa00" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-300-100)">G</text>
+  <text x="60" y="17" fill="#0000ff" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-300-100)">H</text>
+  <line x1="60" y1="18" x2="68" y2="18" stroke="#0000ff" stroke-width="1"/>
+  <text x="68" y="17" fill="#ff00ff" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-300-100)">I</text>
+  <text x="76" y="16" fill="#00aaaa" font-family="Courier, 'Courier New', monospace" font-size="16" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-300-100)">J</text>
+  <rect x="0" y="19" width="300" height="19" fill="#ffffff" clip-path="url(#clip-0-0-300-100)"/>
+  <rect x="0" y="38" width="300" height="19" fill="#ffffff" clip-path="url(#clip-0-0-300-100)"/>
+  <rect x="0" y="57" width="300" height="19" fill="#ffffff" clip-path="url(#clip-0-0-300-100)"/>
+  <rect x="0" y="76" width="300" height="19" fill="#ffffff" clip-path="url(#clip-0-0-300-100)"/>
+  <line x1="-2" y1="0" x2="2" y2="0" stroke="#000000" stroke-width="1"/>
+  <line x1="0" y1="0" x2="0" y2="18" stroke="#000000" stroke-width="1"/>
+  <line x1="-2" y1="18" x2="2" y2="18" stroke="#000000" stroke-width="1"/>
+</svg>

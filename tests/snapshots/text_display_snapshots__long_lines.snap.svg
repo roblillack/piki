@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="100" viewBox="0 0 600 100">
+  <rect width="600" height="100" fill="#ffffff"/>
+  <defs>
+    <clipPath id="clip-0-0-600-100">
+      <rect x="0" y="0" width="600" height="100"/>
+    </clipPath>
+  </defs>
+  <rect x="0" y="0" width="739" height="19" fill="#ffffff" clip-path="url(#clip-0-0-600-100)"/>
+  <rect x="739" y="0" width="-139" height="19" fill="#ffffff" clip-path="url(#clip-0-0-600-100)"/>
+  <text x="0" y="17" fill="#000000" font-family="Courier, 'Courier New', monospace" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-600-100)">This is a very long line that might extend beyond the visible area of the display widget</text>
+  <rect x="0" y="19" width="600" height="19" fill="#ffffff" clip-path="url(#clip-0-0-600-100)"/>
+  <rect x="0" y="38" width="600" height="19" fill="#ffffff" clip-path="url(#clip-0-0-600-100)"/>
+  <rect x="0" y="57" width="600" height="19" fill="#ffffff" clip-path="url(#clip-0-0-600-100)"/>
+  <rect x="0" y="76" width="600" height="19" fill="#ffffff" clip-path="url(#clip-0-0-600-100)"/>
+  <line x1="-2" y1="0" x2="2" y2="0" stroke="#000000" stroke-width="1"/>
+  <line x1="0" y1="0" x2="0" y2="18" stroke="#000000" stroke-width="1"/>
+  <line x1="-2" y1="18" x2="2" y2="18" stroke="#000000" stroke-width="1"/>
+</svg>

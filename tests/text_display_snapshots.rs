@@ -16,7 +16,7 @@ fn render_to_svg(
     style_table: Vec<StyleTableEntry>,
     width: i32,
     height: i32,
-) -> String {
+) -> Vec<u8> {
     let mut display = TextDisplay::new(0, 0, width, height);
 
     // Set up text buffer
@@ -44,7 +44,7 @@ fn render_to_svg(
     let mut ctx = SvgDrawContext::new(width, height);
     display.draw(&mut ctx);
 
-    ctx.finish()
+    ctx.finish().as_bytes().to_vec()
 }
 
 /// Helper to create a simple markdown-like style text
@@ -139,7 +139,7 @@ fn test_plain_text_rendering() {
     let style_table = create_test_style_table();
 
     let svg = render_to_svg(text, &style, style_table, 400, 200);
-    insta::assert_snapshot!(svg);
+    insta::assert_binary_snapshot!(".svg", svg);
 }
 
 #[test]
@@ -149,7 +149,7 @@ fn test_markdown_header() {
     let style_table = create_test_style_table();
 
     let svg = render_to_svg(text, &style, style_table, 500, 200);
-    insta::assert_snapshot!(svg);
+    insta::assert_binary_snapshot!(".svg", svg);
 }
 
 #[test]
@@ -159,7 +159,7 @@ fn test_markdown_emphasis() {
     let style_table = create_test_style_table();
 
     let svg = render_to_svg(text, &style, style_table, 500, 150);
-    insta::assert_snapshot!(svg);
+    insta::assert_binary_snapshot!(".svg", svg);
 }
 
 #[test]
@@ -169,7 +169,7 @@ fn test_markdown_code_block() {
     let style_table = create_test_style_table();
 
     let svg = render_to_svg(text, &style, style_table, 400, 150);
-    insta::assert_snapshot!(svg);
+    insta::assert_binary_snapshot!(".svg", svg);
 }
 
 #[test]
@@ -179,7 +179,7 @@ fn test_markdown_mixed_styles() {
     let style_table = create_test_style_table();
 
     let svg = render_to_svg(text, &style, style_table, 500, 300);
-    insta::assert_snapshot!(svg);
+    insta::assert_binary_snapshot!(".svg", svg);
 }
 
 #[test]
@@ -189,7 +189,7 @@ fn test_style_with_background_colors() {
     let style_table = create_test_style_table();
 
     let svg = render_to_svg(text, style, style_table, 500, 100);
-    insta::assert_snapshot!(svg);
+    insta::assert_binary_snapshot!(".svg", svg);
 }
 
 #[test]
@@ -199,7 +199,7 @@ fn test_underlined_text() {
     let style_table = create_test_style_table();
 
     let svg = render_to_svg(text, style, style_table, 400, 100);
-    insta::assert_snapshot!(svg);
+    insta::assert_binary_snapshot!(".svg", svg);
 }
 
 #[test]
@@ -226,7 +226,7 @@ fn test_multiline_styled_text() {
 
     let style_table = create_test_style_table();
     let svg = render_to_svg(text, &style, style_table, 500, 150);
-    insta::assert_snapshot!(svg);
+    insta::assert_binary_snapshot!(".svg", svg);
 }
 
 #[test]
@@ -236,7 +236,7 @@ fn test_empty_lines() {
     let style_table = create_test_style_table();
 
     let svg = render_to_svg(text, &style, style_table, 400, 200);
-    insta::assert_snapshot!(svg);
+    insta::assert_binary_snapshot!(".svg", svg);
 }
 
 #[test]
@@ -247,7 +247,7 @@ fn test_long_lines() {
     let style_table = create_test_style_table();
 
     let svg = render_to_svg(text, &style, style_table, 600, 100);
-    insta::assert_snapshot!(svg);
+    insta::assert_binary_snapshot!(".svg", svg);
 }
 
 #[test]
@@ -257,7 +257,7 @@ fn test_tab_characters() {
     let style_table = create_test_style_table();
 
     let svg = render_to_svg(text, &style, style_table, 400, 100);
-    insta::assert_snapshot!(svg);
+    insta::assert_binary_snapshot!(".svg", svg);
 }
 
 #[test]
@@ -278,7 +278,7 @@ More _emphasized_ text here."#;
     let style_table = create_test_style_table();
 
     let svg = render_to_svg(markdown, &style, style_table, 600, 400);
-    insta::assert_snapshot!(svg);
+    insta::assert_binary_snapshot!(".svg", svg);
 }
 
 // Note: Unicode test disabled due to UTF-8 boundary issues in text_display slicing
@@ -304,5 +304,5 @@ fn test_alternating_styles() {
     let style_table = create_test_style_table();
 
     let svg = render_to_svg(text, style, style_table, 300, 100);
-    insta::assert_snapshot!(svg);
+    insta::assert_binary_snapshot!(".svg", svg);
 }
