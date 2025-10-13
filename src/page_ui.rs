@@ -25,6 +25,10 @@ pub trait PageUI: ContentProvider + ContentLoader {
     // Install internal event handler to detect link clicks and cursor hints.
     fn on_link_click(&mut self, f: Box<dyn Fn(String) + 'static>);
 
+    // Install handler for link hover; called with Some(dest) when hovering a link,
+    // and None when not hovering any link. Default no-op.
+    fn on_link_hover(&mut self, _f: Box<dyn Fn(Option<String>) + 'static>) {}
+
     // Optional restyle hook (no-op by default).
     fn restyle(&mut self) {}
 

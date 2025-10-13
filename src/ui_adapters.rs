@@ -286,4 +286,8 @@ impl PageUI for StructuredRichUI {
     fn tick(&mut self, ms_since_start: u64) {
         self.0.tick(ms_since_start);
     }
+
+    fn on_link_hover(&mut self, f: Box<dyn Fn(Option<String>) + 'static>) {
+        self.0.set_link_hover_callback(Some(f));
+    }
 }

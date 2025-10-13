@@ -15,6 +15,7 @@ pub struct FltkStructuredRichDisplay {
     pub group: fltk::group::Group,
     pub display: Rc<RefCell<StructuredRichDisplay>>,
     link_cb: Rc<RefCell<Option<Box<dyn Fn(String) + 'static>>>>,
+    hover_cb: Rc<RefCell<Option<Box<dyn Fn(Option<String>) + 'static>>>>,
     change_cb: Rc<RefCell<Option<Box<dyn FnMut() + 'static>>>>,
 }
 
@@ -43,6 +44,8 @@ impl FltkStructuredRichDisplay {
     let link_callback: Rc<RefCell<Option<Box<dyn Fn(String) + 'static>>>> =
         Rc::new(RefCell::new(None));
     let change_callback: Rc<RefCell<Option<Box<dyn FnMut() + 'static>>>> =
+        Rc::new(RefCell::new(None));
+    let hover_callback: Rc<RefCell<Option<Box<dyn Fn(Option<String>) + 'static>>>> =
         Rc::new(RefCell::new(None));
 
     // Create vertical responsive scrollbar
@@ -112,6 +115,7 @@ impl FltkStructuredRichDisplay {
         let click_time = last_click_time.clone();
         let click_count = last_click_count.clone();
         let link_cb = link_callback.clone();
+        let hover_cb = hover_callback.clone();
         let change_cb = change_callback.clone();
         move |w, event| {
             // Handle hover checking for Push, Drag, Move, and Enter
@@ -127,8 +131,11 @@ impl FltkStructuredRichDisplay {
 
                 let result = d.find_link_at(x - w.x(), y - w.y());
 
-                if let Some((link_id, _dest)) = result {
+                if let Some((link_id, dest)) = result {
                     d.set_hovered_link(Some(link_id));
+                    if let Some(cb) = &*hover_cb.borrow() {
+                        (cb)(Some(dest));
+                    }
                     if let Some(mut win) = w.window() {
                         win.set_cursor(Cursor::Hand);
                     }
@@ -136,6 +143,9 @@ impl FltkStructuredRichDisplay {
                 } else {
                     if d.hovered_link().is_some() {
                         d.set_hovered_link(None);
+                        if let Some(cb) = &*hover_cb.borrow() {
+                            (cb)(None);
+                        }
                         if let Some(mut win) = w.window() {
                             win.set_cursor(Cursor::Default);
                         }
@@ -1262,11 +1272,15 @@ impl FltkStructuredRichDisplay {
         }
     });
 
-    FltkStructuredRichDisplay { group: widget, display, link_cb: link_callback, change_cb: change_callback }
+    FltkStructuredRichDisplay { group: widget, display, link_cb: link_callback, hover_cb: hover_callback, change_cb: change_callback }
     }
 
     pub fn set_link_callback(&self, cb: Option<Box<dyn Fn(String) + 'static>>) {
         *self.link_cb.borrow_mut() = cb;
+    }
+
+    pub fn set_link_hover_callback(&self, cb: Option<Box<dyn Fn(Option<String>) + 'static>>) {
+        *self.hover_cb.borrow_mut() = cb;
     }
 
     pub fn set_change_callback(&self, cb: Option<Box<dyn FnMut() + 'static>>) {

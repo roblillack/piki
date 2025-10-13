@@ -248,7 +248,7 @@ fn create_menu(
                 let cur = *is_structured.borrow();
                 *is_structured.borrow_mut() = !cur;
                 // Rewire change + link callbacks
-                wire_editor_callbacks(&active_editor, &autosave_state, &app_state, &save_status);
+                wire_editor_callbacks(&active_editor, &autosave_state, &app_state, &page_status, &save_status);
                 // Reload current page to refresh status and content
                 if let Ok(st) = app_state.try_borrow() {
                     let current = st.current_page.clone();
@@ -443,7 +443,7 @@ fn create_menu(
                 *active_editor.borrow_mut() = new_editor.clone();
                 let cur = *is_structured.borrow();
                 *is_structured.borrow_mut() = !cur;
-                wire_editor_callbacks(&active_editor, &autosave_state, &app_state, &save_status);
+                wire_editor_callbacks(&active_editor, &autosave_state, &app_state, &page_status, &save_status);
                 if let Ok(st) = app_state.try_borrow() {
                     let current = st.current_page.clone();
                     drop(st);
@@ -776,7 +776,7 @@ fn main() {
     );
 
     // Wire callbacks for active editor
-    wire_editor_callbacks(&active_editor, &autosave_state, &app_state, &save_status);
+    wire_editor_callbacks(&active_editor, &autosave_state, &app_state, &page_status, &save_status);
 
     // Set up periodic timer to update "X ago" display
     {
@@ -823,6 +823,7 @@ fn wire_editor_callbacks(
     active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
     app_state: &Rc<RefCell<AppState>>,
+    page_status: &Rc<RefCell<frame::Frame>>,
     save_status: &Rc<RefCell<frame::Frame>>,
 ) {
     let editor_for_callback = active_editor.clone();
@@ -911,6 +912,37 @@ fn wire_editor_callbacks(
                     &save_status,
                     None,
                 );
+            });
+        }));
+    }
+
+    // Hover handler to show link destinations in the page status bar
+    let current_for_hover = active_editor.borrow().clone();
+    {
+        let mut cur = current_for_hover.borrow_mut();
+        let page_status_clone = page_status.clone();
+        let base_label: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        cur.on_link_hover(Box::new(move |target: Option<String>| {
+            let page_status_for_cb = page_status_clone.clone();
+            let base_label_for_cb = base_label.clone();
+            let tgt = target.clone();
+            app::awake_callback(move || {
+                match &tgt {
+                    Some(dest) => {
+                        let dest = dest.clone();
+                        if base_label_for_cb.borrow().is_none() {
+                            let current = page_status_for_cb.borrow().label();
+                            *base_label_for_cb.borrow_mut() = Some(current);
+                        }
+                        page_status_for_cb.borrow_mut().set_label(&dest);
+                    }
+                    None => {
+                        if let Some(orig) = base_label_for_cb.borrow_mut().take() {
+                            page_status_for_cb.borrow_mut().set_label(&orig);
+                        }
+                    }
+                }
+                app::redraw();
             });
         }));
     }

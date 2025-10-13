@@ -428,6 +428,34 @@ impl fliki_rs::page_ui::PageUI for MarkdownEditor {
         });
     }
 
+    fn on_link_hover(&mut self, f: Box<dyn Fn(Option<String>) + 'static>) {
+        use crate::link_handler::{extract_links, find_link_at_position};
+        let cb = std::rc::Rc::new(f);
+        let mut w = self.editor.clone();
+        w.handle(move |widget, evt| match evt {
+            enums::Event::Move | enums::Event::Enter | enums::Event::Drag => {
+                let pos = widget.xy_to_position(
+                    app::event_x() - widget.x(),
+                    app::event_y() - widget.y(),
+                    PositionType::Cursor,
+                );
+                if let Some(buf) = widget.buffer() {
+                    let text = buf.text();
+                    let links = extract_links(&text);
+                    if let Some(link) = find_link_at_position(&links, pos as usize) {
+                        let cb2 = cb.clone();
+                        (cb2)(Some(link.destination.clone()));
+                        return false;
+                    }
+                }
+                let cb2 = cb.clone();
+                (cb2)(None);
+                false
+            }
+            _ => false,
+        });
+    }
+
     fn restyle(&mut self) {
         self.restyle();
     }
