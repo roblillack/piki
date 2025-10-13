@@ -869,6 +869,20 @@ impl StructuredEditor {
         })
     }
 
+    /// Toggle underline style on the current selection
+    pub fn toggle_underline(&mut self) -> EditResult {
+        self.toggle_style_attribute(|style| {
+            style.underline = !style.underline;
+        })
+    }
+
+    /// Toggle highlight style on the current selection
+    pub fn toggle_highlight(&mut self) -> EditResult {
+        self.toggle_style_attribute(|style| {
+            style.highlight = !style.highlight;
+        })
+    }
+
     /// Get the selected text as plain text
     pub fn get_selection_text(&self) -> String {
         let Some((start, end)) = self.selection else {

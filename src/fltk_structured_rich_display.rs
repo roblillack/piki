@@ -281,6 +281,39 @@ pub fn create_structured_rich_display_widget(
                         },
                     );
 
+                    #[cfg(target_os = "macos")]
+                    let underline_shortcut = fltk::enums::Shortcut::Command | 'u';
+                    #[cfg(not(target_os = "macos"))]
+                    let underline_shortcut = fltk::enums::Shortcut::Ctrl | 'u';
+
+                    menu.add(
+                        "Toggle Underline\t",
+                        underline_shortcut,
+                        fltk::menu::MenuFlag::Normal,
+                        {
+                            let display = display.clone();
+                            let mut w_clone = w.clone();
+                            move |_| {
+                                display.borrow_mut().editor_mut().toggle_underline().ok();
+                                w_clone.redraw();
+                            }
+                        },
+                    );
+
+                    menu.add(
+                        "Toggle Highlight",
+                        fltk::enums::Shortcut::None,
+                        fltk::menu::MenuFlag::Normal,
+                        {
+                            let display = display.clone();
+                            let mut w_clone = w.clone();
+                            move |_| {
+                                display.borrow_mut().editor_mut().toggle_highlight().ok();
+                                w_clone.redraw();
+                            }
+                        },
+                    );
+
                     // Separator
                     menu.add(
                         "_",
@@ -580,6 +613,12 @@ pub fn create_structured_rich_display_widget(
                     else if cmd_modifier && key == Key::from_char('i') {
                         let mut disp = display.borrow_mut();
                         disp.editor_mut().toggle_italic().ok();
+                        handled = true;
+                    }
+                    // Cmd/Ctrl-U (toggle underline)
+                    else if cmd_modifier && key == Key::from_char('u') {
+                        let mut disp = display.borrow_mut();
+                        disp.editor_mut().toggle_underline().ok();
                         handled = true;
                     }
                     // Cmd/Ctrl-C (copy)

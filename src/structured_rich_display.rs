@@ -590,18 +590,40 @@ impl StructuredRichDisplay {
     }
 
     /// Get style index for text style
+    ///
+    /// Style indices:
+    /// - 0-10: Predefined (plain, bold, italic, bold+italic, code, link, headers, quote, link_hover)
+    /// - 11-42: Computed based on style flags (base + decorations)
+    ///   Formula: 11 + (base * 8) + decoration_flags
+    ///   where base = 0 (plain), 1 (bold), 2 (italic), 3 (bold+italic)
+    ///   and decoration_flags = (underline ? 1 : 0) | (strikethrough ? 2 : 0) | (highlight ? 4 : 0)
     fn get_style_for_text_style(&self, style: &TextStyle) -> u8 {
         if style.code {
-            4 // STYLE_CODE
-        } else if style.bold && style.italic {
-            3 // STYLE_BOLD_ITALIC
-        } else if style.bold {
-            1 // STYLE_BOLD
-        } else if style.italic {
-            2 // STYLE_ITALIC
-        } else {
-            0 // STYLE_PLAIN
+            return 4; // STYLE_CODE
         }
+
+        // Determine base style
+        let base = if style.bold && style.italic {
+            3
+        } else if style.bold {
+            1
+        } else if style.italic {
+            2
+        } else {
+            0
+        };
+
+        // Check if any decorations are present
+        if !style.underline && !style.strikethrough && !style.highlight {
+            return base; // Just base style (0, 1, 2, or 3)
+        }
+
+        // Compute decorated style index
+        let decoration = (style.underline as u8)
+            | ((style.strikethrough as u8) << 1)
+            | ((style.highlight as u8) << 2);
+
+        11 + base * 8 + decoration
     }
 
     /// Get font for style
@@ -750,10 +772,18 @@ impl StructuredRichDisplay {
 
                 ctx.draw_text(&run.text, draw_x, draw_y);
 
-                // Draw underline if needed
+                let text_width = ctx.text_width(&run.text, style.font, style.size) as i32;
+
+                // Draw underline if needed (0x0004 = UNDERLINE)
                 if style.attr & 0x0004 != 0 {
-                    let text_width = ctx.text_width(&run.text, style.font, style.size) as i32;
                     ctx.draw_line(draw_x, draw_y + 2, draw_x + text_width, draw_y + 2);
+                }
+
+                // Draw strikethrough if needed (0x0010 = STRIKE_THROUGH)
+                if style.attr & 0x0010 != 0 {
+                    // Draw line through middle of text (roughly at half the font size)
+                    let strike_y = draw_y - (style.size as i32) / 2;
+                    ctx.draw_line(draw_x, strike_y, draw_x + text_width, strike_y);
                 }
             }
         }

@@ -12,68 +12,14 @@ use std::path::PathBuf;
 use std::process;
 
 const DEFAULT_FONT_SIZE: u8 = 14;
+const HIGHLIGHT_COLOR: u32 = 0xFFFF00FF; // Yellow highlight
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
+/// Build a complete style table including all text decoration combinations
+fn build_style_table() -> Vec<StyleTableEntry> {
+    let mut styles = Vec::new();
 
-    if args.len() < 2 {
-        eprintln!("Usage: {} [--edit] <filename>", args[0]);
-        eprintln!("Example: {} README.md", args[0]);
-        eprintln!("         {} --edit README.md (enable editing)", args[0]);
-        process::exit(1);
-    }
-
-    // Check for --edit flag
-    let edit_mode = args.contains(&"--edit".to_string());
-    let filename_arg = args
-        .iter()
-        .skip(1)
-        .find(|a| *a != "--edit")
-        .expect("Filename required");
-
-    let filename = PathBuf::from(filename_arg);
-
-    // Read the file
-    let contents = match fs::read_to_string(&filename) {
-        Ok(contents) => contents,
-        Err(err) => {
-            eprintln!("Error reading file '{}': {}", filename.display(), err);
-            process::exit(1);
-        }
-    };
-
-    // Create the application
-    let app = app::App::default();
-
-    // Create main window
-    let mut wind = window::Window::default()
-        .with_size(800, 600)
-        .with_label(&format!(
-            "ViewMD (Structured{}) - {}",
-            if edit_mode { " Edit" } else { "" },
-            filename.display()
-        ))
-        .center_screen();
-
-    // Create structured rich display widget
-    let (mut display_widget, display) = create_structured_rich_display_widget(
-        5,   // x
-        5,   // y
-        790, // width
-        590, // height
-        edit_mode, // edit mode
-    );
-
-    // Convert markdown to structured document
-    let doc = markdown_to_document(&contents);
-    {
-        let mut d = display.borrow_mut();
-        *d.editor_mut().document_mut() = doc;
-        d.editor_mut().set_cursor(DocumentPosition::start());
-    }
-
-    // Set up style table
-    let style_table = vec![
+    // Styles 0-10: Base styles (existing)
+    styles.extend_from_slice(&[
         // Style 0 - STYLE_PLAIN
         StyleTableEntry {
             color: 0x000000FF,
@@ -162,8 +108,209 @@ fn main() {
             attr: style_attr::UNDERLINE | style_attr::BGCOLOR,
             bgcolor: 0xD3D3D3FF,
         },
-    ];
+    ]);
 
+    // Styles 11-42: Computed decorated styles
+    // Formula: 11 + (base * 8) + decoration_flags
+    // where base = 0 (plain), 1 (bold), 2 (italic), 3 (bold+italic)
+    // and decoration_flags = (underline ? 1 : 0) | (strikethrough ? 2 : 0) | (highlight ? 4 : 0)
+
+    let base_fonts = [0, 1, 2, 3]; // plain, bold, italic, bold+italic
+
+    for base in 0..4 {
+        for decoration in 1..8 {  // Skip 0 (no decorations)
+            let underline = (decoration & 1) != 0;
+            let strikethrough = (decoration & 2) != 0;
+            let highlight = (decoration & 4) != 0;
+
+            let mut attr = style_attr::BGCOLOR;
+            if underline {
+                attr |= style_attr::UNDERLINE;
+            }
+            if strikethrough {
+                attr |= style_attr::STRIKE_THROUGH;
+            }
+
+            let bgcolor = if highlight {
+                HIGHLIGHT_COLOR
+            } else {
+                0xFFFFF5FF
+            };
+
+            styles.push(StyleTableEntry {
+                color: 0x000000FF,
+                font: base_fonts[base],
+                size: DEFAULT_FONT_SIZE,
+                attr,
+                bgcolor,
+            });
+        }
+    }
+
+    styles
+}
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() < 2 {
+        eprintln!("Usage: {} [--edit] <filename>", args[0]);
+        eprintln!("Example: {} README.md", args[0]);
+        eprintln!("         {} --edit README.md (enable editing)", args[0]);
+        process::exit(1);
+    }
+
+    // Check for --edit flag
+    let edit_mode = args.contains(&"--edit".to_string());
+    let filename_arg = args
+        .iter()
+        .skip(1)
+        .find(|a| *a != "--edit")
+        .expect("Filename required");
+
+    let filename = PathBuf::from(filename_arg);
+
+    // Read the file
+    let contents = match fs::read_to_string(&filename) {
+        Ok(contents) => contents,
+        Err(err) => {
+            eprintln!("Error reading file '{}': {}", filename.display(), err);
+            process::exit(1);
+        }
+    };
+
+    // Create the application
+    let app = app::App::default();
+
+    // Create main window
+    let mut wind = window::Window::default()
+        .with_size(800, 600)
+        .with_label(&format!(
+            "ViewMD (Structured{}) - {}",
+            if edit_mode { " Edit" } else { "" },
+            filename.display()
+        ))
+        .center_screen();
+
+    // Determine menu height
+    let menu_height = if edit_mode { 25 } else { 0 };
+
+    // Create structured rich display widget
+    let (mut display_widget, display) = create_structured_rich_display_widget(
+        5,                  // x
+        5 + menu_height,    // y
+        790,                // width
+        590 - menu_height,  // height
+        edit_mode,          // edit mode
+    );
+
+    // Create menu bar if in edit mode (after display is created)
+    let mut format_menu: Option<menu::MenuBar> = None;
+
+    if edit_mode {
+        let mut menu_bar = menu::MenuBar::new(0, 0, 800, 25, None);
+
+        #[cfg(target_os = "macos")]
+        let bold_shortcut = enums::Shortcut::Command | 'b';
+        #[cfg(not(target_os = "macos"))]
+        let bold_shortcut = enums::Shortcut::Ctrl | 'b';
+
+        #[cfg(target_os = "macos")]
+        let italic_shortcut = enums::Shortcut::Command | 'i';
+        #[cfg(not(target_os = "macos"))]
+        let italic_shortcut = enums::Shortcut::Ctrl | 'i';
+
+        #[cfg(target_os = "macos")]
+        let underline_shortcut = enums::Shortcut::Command | 'u';
+        #[cfg(not(target_os = "macos"))]
+        let underline_shortcut = enums::Shortcut::Ctrl | 'u';
+
+        let display_for_menu = display.clone();
+        menu_bar.add(
+            "Format/Bold\t",
+            bold_shortcut,
+            menu::MenuFlag::Normal,
+            {
+                let display = display_for_menu.clone();
+                move |_| {
+                    display.borrow_mut().editor_mut().toggle_bold().ok();
+                }
+            },
+        );
+
+        menu_bar.add(
+            "Format/Italic\t",
+            italic_shortcut,
+            menu::MenuFlag::Normal,
+            {
+                let display = display_for_menu.clone();
+                move |_| {
+                    display.borrow_mut().editor_mut().toggle_italic().ok();
+                }
+            },
+        );
+
+        menu_bar.add(
+            "Format/Underline\t",
+            underline_shortcut,
+            menu::MenuFlag::Normal,
+            {
+                let display = display_for_menu.clone();
+                move |_| {
+                    display.borrow_mut().editor_mut().toggle_underline().ok();
+                }
+            },
+        );
+
+        menu_bar.add(
+            "Format/Strikethrough",
+            enums::Shortcut::None,
+            menu::MenuFlag::Normal,
+            {
+                let display = display_for_menu.clone();
+                move |_| {
+                    display.borrow_mut().editor_mut().toggle_strikethrough().ok();
+                }
+            },
+        );
+
+        menu_bar.add(
+            "Format/Highlight",
+            enums::Shortcut::None,
+            menu::MenuFlag::Normal,
+            {
+                let display = display_for_menu.clone();
+                move |_| {
+                    display.borrow_mut().editor_mut().toggle_highlight().ok();
+                }
+            },
+        );
+
+        menu_bar.add(
+            "Format/Code",
+            enums::Shortcut::None,
+            menu::MenuFlag::Normal,
+            {
+                let display = display_for_menu.clone();
+                move |_| {
+                    display.borrow_mut().editor_mut().toggle_code().ok();
+                }
+            },
+        );
+
+        format_menu = Some(menu_bar);
+    }
+
+    // Convert markdown to structured document
+    let doc = markdown_to_document(&contents);
+    {
+        let mut d = display.borrow_mut();
+        *d.editor_mut().document_mut() = doc;
+        d.editor_mut().set_cursor(DocumentPosition::start());
+    }
+
+    // Set up style table with all text decoration combinations
+    let style_table = build_style_table();
     display.borrow_mut().set_style_table(style_table);
     display.borrow_mut().set_padding(10, 10, 25, 25);
 
@@ -174,11 +321,12 @@ fn main() {
     // Handle window resize
     wind.handle({
         let mut widget_handle = display_widget.clone();
+        let menu_h = menu_height;
         move |w, event| match event {
             enums::Event::Resize => {
                 let new_w = w.w() - 10;
-                let new_h = w.h() - 10;
-                widget_handle.resize(5, 5, new_w, new_h);
+                let new_h = w.h() - 10 - menu_h;
+                widget_handle.resize(5, 5 + menu_h, new_w, new_h);
                 true
             }
             _ => false,

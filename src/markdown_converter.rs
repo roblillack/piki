@@ -69,16 +69,39 @@ fn inline_content_to_markdown(content: &[InlineContent]) -> String {
         match item {
             InlineContent::Text(run) => {
                 let text = &run.text;
+
+                // Handle code specially (overrides other styles)
                 let styled = if run.style.code {
                     format!("`{}`", text)
-                } else if run.style.bold && run.style.italic {
-                    format!("***{}***", text)
-                } else if run.style.bold {
-                    format!("**{}**", text)
-                } else if run.style.italic {
-                    format!("*{}*", text)
                 } else {
-                    text.clone()
+                    // Build up style wrappers from outermost to innermost
+                    let mut result = text.clone();
+
+                    // Strikethrough (outermost)
+                    if run.style.strikethrough {
+                        result = format!("~~{}~~", result);
+                    }
+
+                    // Bold and/or italic
+                    if run.style.bold && run.style.italic {
+                        result = format!("***{}***", result);
+                    } else if run.style.bold {
+                        result = format!("**{}**", result);
+                    } else if run.style.italic {
+                        result = format!("*{}*", result);
+                    }
+
+                    // Underline (HTML tag)
+                    if run.style.underline {
+                        result = format!("<u>{}</u>", result);
+                    }
+
+                    // Highlight (HTML tag, outermost)
+                    if run.style.highlight {
+                        result = format!("<mark>{}</mark>", result);
+                    }
+
+                    result
                 };
                 output.push_str(&styled);
             }
@@ -207,6 +230,8 @@ fn ast_node_to_inline_content(node: &ASTNode) -> Vec<InlineContent> {
                     italic: style.italic,
                     code: style.code,
                     strikethrough: style.strikethrough,
+                    underline: style.underline,
+                    highlight: style.highlight,
                 };
                 content.push(InlineContent::Text(TextRun::new(text, text_style)));
             }

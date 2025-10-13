@@ -13,6 +13,8 @@ pub struct TextStyle {
     pub italic: bool,
     pub code: bool,
     pub strikethrough: bool,
+    pub underline: bool,
+    pub highlight: bool,
 }
 
 impl Default for TextStyle {
@@ -22,6 +24,8 @@ impl Default for TextStyle {
             italic: false,
             code: false,
             strikethrough: false,
+            underline: false,
+            highlight: false,
         }
     }
 }

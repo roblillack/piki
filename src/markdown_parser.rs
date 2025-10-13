@@ -1,6 +1,6 @@
 // Markdown Parser - converts pulldown-cmark events into our AST
 use crate::markdown_ast::*;
-use pulldown_cmark::{Event, Parser, Tag, TagEnd, CowStr};
+use pulldown_cmark::{Event, Parser, Tag, TagEnd, CowStr, Options};
 use regex::Regex;
 
 /// Parse markdown text into an AST
@@ -8,8 +8,11 @@ pub fn parse_markdown(text: &str) -> Document {
     let mut doc = Document::new();
     doc.source = text.to_string();
 
-    // Parse using pulldown-cmark with offset tracking
-    let parser = Parser::new(text).into_offset_iter();
+    // Parse using pulldown-cmark with offset tracking and HTML enabled
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_STRIKETHROUGH);
+    options.insert(Options::ENABLE_TABLES);
+    let parser = Parser::new_ext(text, options).into_offset_iter();
 
     // Stack to track open container nodes - start with just the document
     let mut node_stack: Vec<ASTNode> = Vec::new();
@@ -148,8 +151,34 @@ pub fn parse_markdown(text: &str) -> Document {
                 }
             }
 
+            Event::Html(html) => {
+                // Handle <u> and <mark> HTML tags for underline and highlight
+                let html_str = html.to_string();
+                if html_str == "<u>" || html_str.starts_with("<u ") {
+                    // Start underline
+                    let mut new_style = style_stack.last().copied().unwrap_or_default();
+                    new_style.underline = true;
+                    style_stack.push(new_style);
+                } else if html_str == "</u>" {
+                    // End underline
+                    if style_stack.len() > 1 {
+                        style_stack.pop();
+                    }
+                } else if html_str == "<mark>" || html_str.starts_with("<mark ") {
+                    // Start highlight
+                    let mut new_style = style_stack.last().copied().unwrap_or_default();
+                    new_style.highlight = true;
+                    style_stack.push(new_style);
+                } else if html_str == "</mark>" {
+                    // End highlight
+                    if style_stack.len() > 1 {
+                        style_stack.pop();
+                    }
+                }
+            }
+
             _ => {
-                // Ignore other events for now (Html, FootnoteReference, TaskListMarker, etc.)
+                // Ignore other events for now (FootnoteReference, TaskListMarker, etc.)
             }
         }
     }
