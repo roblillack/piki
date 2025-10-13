@@ -4,7 +4,7 @@
 
 use crate::structured_document::*;
 use crate::structured_editor::*;
-use crate::text_display::{DrawContext, StyleTableEntry};
+use crate::text_display::{style_attr, DrawContext, StyleTableEntry};
 
 /// Layout information for a rendered line
 #[derive(Debug, Clone)]
@@ -619,11 +619,15 @@ impl StructuredRichDisplay {
         }
 
         // Compute decorated style index
+        // Decoration bits: underline=1, strikethrough=2, highlight=4
         let decoration = (style.underline as u8)
             | ((style.strikethrough as u8) << 1)
             | ((style.highlight as u8) << 2);
 
-        11 + base * 8 + decoration
+        // Style table layout reserves indices 0..10 for base styles and link variants.
+        // Decorated styles are appended as 7 entries per base style (for decoration values 1..7).
+        // Therefore the correct index is 11 + base*7 + (decoration-1).
+        11 + base * 7 + (decoration - 1)
     }
 
     /// Get font for style
@@ -730,6 +734,22 @@ impl StructuredRichDisplay {
 
                 let draw_y = self.y + line.y - self.scroll_offset + style.size as i32;
                 let draw_x = self.x + run.x;
+
+                // Draw inline highlight background for styles that specify a bgcolor
+                // (e.g., text highlight). Draw this first so selection can paint over it.
+                {
+                    let text_width = ctx.text_width(&run.text, style.font, style.size) as i32;
+                    if (style.attr & style_attr::BGCOLOR) != 0 {
+                        ctx.set_color(style.bgcolor);
+                        ctx.draw_rect_filled(
+                            draw_x,
+                            self.y + line.y - self.scroll_offset,
+                            text_width,
+                            line.height,
+                        );
+                        ctx.set_color(style.color); // Restore text color for text drawing
+                    }
+                }
 
                 // Draw selection highlight (if run is selected)
                 if let Some((sel_start, sel_end)) = self.get_run_selection_range(run) {
