@@ -247,6 +247,7 @@ fn ast_node_to_inline_content(node: &ASTNode) -> Vec<InlineContent> {
                 };
                 content.push(InlineContent::Text(TextRun::new(text, text_style)));
             }
+            NodeType::WikiLink { destination: _ } => {}
             NodeType::Code { content: text } => {
                 content.push(InlineContent::Text(TextRun::new(text, TextStyle::code())));
             }
@@ -359,5 +360,16 @@ mod tests {
         // Re-parse to verify structure is preserved
         let doc2 = markdown_to_document(&md);
         assert_eq!(doc.block_count(), doc2.block_count());
+    }
+
+    #[test]
+    fn test_markdown_to_document_wikilink() {
+        let md = "A [[WikiPage]] link";
+        let doc = markdown_to_document(md);
+        assert_eq!(doc.block_count(), 1);
+        let block = &doc.blocks()[0];
+        // Expect at least one InlineContent::Link
+        let has_link = block.content.iter().any(|c| matches!(c, InlineContent::Link { .. }));
+        assert!(has_link);
     }
 }

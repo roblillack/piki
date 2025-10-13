@@ -1,7 +1,6 @@
 // Markdown Parser - converts pulldown-cmark events into our AST
 use crate::markdown_ast::*;
 use pulldown_cmark::{Event, Parser, Tag, TagEnd, CowStr, Options};
-use regex::Regex;
 
 /// Parse markdown text into an AST
 pub fn parse_markdown(text: &str) -> Document {
@@ -12,6 +11,8 @@ pub fn parse_markdown(text: &str) -> Document {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TABLES);
+    // Enable wikilink parsing ([[Page]]) via pulldown-cmark option
+    options.insert(Options::ENABLE_WIKILINKS);
     let parser = Parser::new_ext(text, options).into_offset_iter();
 
     // Stack to track open container nodes - start with just the document
@@ -186,8 +187,7 @@ pub fn parse_markdown(text: &str) -> Document {
     // Update root's end position
     doc.root.char_end = text.len();
 
-    // Post-process: add wiki-style [[links]] which pulldown-cmark doesn't handle
-    add_wiki_links(&mut doc);
+    // Note: wikilinks are parsed directly by pulldown-cmark when enabled above
 
     doc
 }
@@ -311,48 +311,6 @@ fn verify_tag_match(node_type: &NodeType, tag_end: &TagEnd) -> bool {
     }
 }
 
-/// Add wiki-style [[page]] links to the AST
-/// This is a post-processing step since pulldown-cmark doesn't handle these
-fn add_wiki_links(doc: &mut Document) {
-    let wiki_link_re = Regex::new(r"\[\[([^\]]+)\]\]").unwrap();
-
-    let source = doc.source.clone();
-    let mut wiki_links = Vec::new();
-
-    // Find all wiki links in the source
-    for cap in wiki_link_re.captures_iter(&source) {
-        if let Some(matched) = cap.get(0) {
-            let page = cap.get(1).unwrap().as_str().to_string();
-            wiki_links.push((matched.start(), matched.end(), page));
-        }
-    }
-
-    // Insert wiki link nodes into the AST
-    // This is a simplified approach - ideally we'd split text nodes at link boundaries
-    for (start, end, page) in wiki_links {
-        insert_wiki_link_node(doc, start, end, page);
-    }
-}
-
-/// Insert a wiki link node into the AST at the given position
-/// This will split any text node that contains this range
-fn insert_wiki_link_node(doc: &mut Document, start: usize, _end: usize, _page: String) {
-    // Find the node containing this position
-    let node_id = doc
-        .find_node_at_position(start)
-        .map(|n| n.id);
-
-    if let Some(_id) = node_id {
-        // For now, we'll skip the complex splitting logic
-        // In a full implementation, we would:
-        // 1. Find the text node containing this range
-        // 2. Split it into three parts: before, link, after
-        // 3. Insert the wiki link node between them
-        // This requires mutable tree traversal which is complex in Rust
-    }
-
-    // TODO: Implement text node splitting for wiki links
-}
 
 /// Parse a single block (paragraph) - useful for incremental parsing
 pub fn parse_block(text: &str, start_pos: usize) -> Option<ASTNode> {
@@ -483,6 +441,22 @@ mod tests {
             }
             _ => panic!("Expected list"),
         }
+    }
+
+    #[test]
+    fn test_parse_wikilink() {
+        let text = "This has a [[WikiPage]] inside.";
+        let doc = parse_markdown(text);
+
+        assert_eq!(doc.root.children.len(), 1);
+        let para = &doc.root.children[0];
+        assert!(matches!(para.node_type, NodeType::Paragraph));
+
+        // Find a Link child (wikilink parsed as standard link)
+        let has_link = para.children.iter().any(|child| {
+            matches!(child.node_type, NodeType::Link { .. })
+        });
+        assert!(has_link);
     }
 
     #[test]
