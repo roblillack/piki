@@ -325,8 +325,9 @@ fn load_page_helper(
                 None
             };
 
+            use fliki_rs::content::ContentLoader;
             let mut editor_mut = editor.borrow_mut();
-            editor_mut.set_content(&content);
+            editor_mut.set_content_from_markdown(&content);
 
             // Set read-only mode for plugin pages, editable for regular pages
             editor_mut.set_readonly(is_plugin);
@@ -623,7 +624,7 @@ fn main() {
                         autosave_clone.try_borrow_mut(),
                         app_state_clone.try_borrow(),
                     ) {
-                        match as_state.trigger_save(&ed, &app_st.store) {
+                        match as_state.trigger_save(&*ed, &app_st.store) {
                             Ok(()) => {
                                 // Update status with new save time
                                 if let Ok(mut status) = save_status_clone.try_borrow_mut() {

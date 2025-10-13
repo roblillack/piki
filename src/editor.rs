@@ -1,5 +1,7 @@
 use crate::link_handler::{extract_links, find_link_at_position, Link};
 use fltk::{prelude::*, *};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 const DEFAULT_FONT_SIZE: i32 = 14;
 
@@ -314,6 +316,20 @@ impl MarkdownEditor {
 
             i += 1;
         }
+    }
+}
+
+// Implement the shared content trait so this editor can work
+// with autosave and other generic content consumers.
+impl fliki_rs::content::ContentProvider for MarkdownEditor {
+    fn get_content(&self) -> String {
+        self.get_content()
+    }
+}
+
+impl fliki_rs::content::ContentLoader for MarkdownEditor {
+    fn set_content_from_markdown(&mut self, markdown: &str) {
+        self.set_content(markdown);
     }
 }
 

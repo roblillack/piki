@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 use crate::document::DocumentStore;
-use crate::editor::MarkdownEditor;
+use fliki_rs::content::ContentProvider;
 
 /// State management for auto-save functionality
 pub struct AutoSaveState {
@@ -67,9 +67,9 @@ impl AutoSaveState {
     }
 
     /// Trigger a save operation
-    pub fn trigger_save(
+    pub fn trigger_save<T: ContentProvider>(
         &mut self,
-        editor: &MarkdownEditor,
+        editor: &T,
         store: &DocumentStore,
     ) -> Result<(), String> {
         // Don't save plugin pages
