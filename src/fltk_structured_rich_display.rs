@@ -603,12 +603,52 @@ pub fn create_structured_rich_display_widget(
                     true
                 }
                 Event::Drag => {
-                    // In edit mode, handle drag selection
+                    // In edit mode, handle drag selection and auto-scroll
                     if edit_mode {
                         let x = fltk::app::event_x();
                         let y = fltk::app::event_y();
+
+                        // Auto-scroll when dragging near top/bottom edges
+                        let mut disp = display.borrow_mut();
+                        let mut new_scroll = disp.scroll_offset();
+                        let top_edge = w.y() + 12;
+                        let bottom_edge = w.y() + w.h() - 12;
+
+                        if y < top_edge {
+                            let delta = (top_edge - y).max(4);
+                            new_scroll = (new_scroll - delta).max(0);
+                        } else if y > bottom_edge {
+                            let delta = (y - bottom_edge).max(4);
+                            new_scroll = new_scroll + delta;
+                        }
+
+                        if new_scroll != disp.scroll_offset() {
+                            disp.set_scroll(new_scroll);
+                            drop(disp); // release before UI updates
+                            vscroll_handle.set_value(new_scroll as f64);
+                            vscroll_handle.wake();
+                        } else {
+                            drop(disp);
+                        }
+
+                        // Update selection end to the current pointer position
                         let pos = display.borrow().xy_to_position(x - w.x(), y - w.y());
                         display.borrow_mut().editor_mut().extend_selection_to(pos);
+
+                        // Ensure the cursor (selection end) is visible after update
+                        let has_focus =
+                            fltk::app::focus().map(|f| f.as_base_widget()).as_ref()
+                                == Some(&w.as_base_widget());
+                        let is_active = w.active();
+                        let mut ctx = FltkDrawContext::new(has_focus, is_active);
+                        let final_scroll = {
+                            let mut d = display.borrow_mut();
+                            d.ensure_cursor_visible(&mut ctx);
+                            d.scroll_offset()
+                        };
+                        vscroll_handle.set_value(final_scroll as f64);
+                        vscroll_handle.wake();
+
                         w.redraw();
                     }
                     // Hover handled above
@@ -1155,6 +1195,24 @@ pub fn create_structured_rich_display_widget(
                         }
 
                         if handled {
+                            // After handling an edit/cursor move, ensure cursor is visible
+                            // Create a draw context for measurements used by ensure_cursor_visible
+                            let has_focus =
+                                fltk::app::focus().map(|f| f.as_base_widget()).as_ref()
+                                    == Some(&w.as_base_widget());
+                            let is_active = w.active();
+                            let mut ctx = FltkDrawContext::new(has_focus, is_active);
+
+                            // Adjust scroll to bring cursor into view
+                            let new_scroll = {
+                                let mut disp = display.borrow_mut();
+                                disp.ensure_cursor_visible(&mut ctx);
+                                disp.scroll_offset()
+                            };
+
+                            // Sync scrollbar position and redraw
+                            vscroll_handle.set_value(new_scroll as f64);
+                            vscroll_handle.wake();
                             w.redraw();
                         }
                         handled

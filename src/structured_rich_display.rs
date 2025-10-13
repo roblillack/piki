@@ -151,6 +151,43 @@ impl StructuredRichDisplay {
         self.scroll_offset
     }
 
+    /// Ensure the cursor's line is visible by adjusting scroll offset
+    /// Minimally scrolls to bring the cursor line within the viewport with small margins
+    pub fn ensure_cursor_visible(&mut self, ctx: &mut dyn DrawContext) {
+        // Ensure layout is up to date
+        self.layout(ctx);
+
+        // Get cursor visual position (content coords)
+        if let Some((_cx, cy, ch)) = self.get_cursor_visual_position(ctx) {
+            let viewport_top = self.scroll_offset;
+            let viewport_bottom = self.scroll_offset + self.h;
+
+            // Provide a small comfort margin around the cursor line
+            let margin_top = 8;
+            let margin_bottom = 8;
+
+            let mut new_scroll = self.scroll_offset;
+
+            // If above viewport (with margin), scroll up
+            if cy < viewport_top + margin_top {
+                new_scroll = (cy - margin_top).max(0);
+            }
+
+            // If below viewport (with margin), scroll down
+            if cy + ch > viewport_bottom - margin_bottom {
+                new_scroll = (cy + ch + margin_bottom - self.h).max(0);
+            }
+
+            // Clamp to content height
+            let max_scroll = (self.content_height() - self.h).max(0);
+            if new_scroll > max_scroll {
+                new_scroll = max_scroll;
+            }
+
+            self.scroll_offset = new_scroll;
+        }
+    }
+
     /// Get content height
     pub fn content_height(&self) -> i32 {
         if let Some(last_line) = self.layout_lines.last() {
@@ -883,44 +920,77 @@ impl StructuredRichDisplay {
     pub fn xy_to_position(&self, x: i32, y: i32) -> DocumentPosition {
         let adjusted_y = y + self.scroll_offset;
 
+        if self.layout_lines.is_empty() {
+            return DocumentPosition::start();
+        }
+
+        // Helper to compute offset within a specific line based on x
+        fn offset_in_line(line: &LayoutLine, x: i32) -> usize {
+            let mut offset = line.char_start;
+            for run in &line.runs {
+                let run_end_x = run.x + run.width;
+                if x >= run.x && x < run_end_x {
+                    let click_offset_in_run = x - run.x;
+                    let chars_in_run = run.char_range.1 - run.char_range.0;
+                    if run.width > 0 && chars_in_run > 0 {
+                        let char_pos = ((click_offset_in_run * chars_in_run as i32) / run.width)
+                            .clamp(0, chars_in_run as i32 - 1) as usize;
+                        return run.char_range.0 + char_pos;
+                    } else {
+                        return run.char_range.0;
+                    }
+                }
+                if x >= run_end_x {
+                    offset = run.char_range.1;
+                }
+            }
+            offset
+        }
+
+        // First try: direct hit on a line
         for line in &self.layout_lines {
             if adjusted_y >= line.y && adjusted_y < line.y + line.height {
                 let block_index = line.block_index;
-                let mut offset = 0;
-
-                for run in &line.runs {
-                    let run_end_x = run.x + run.width;
-                    if x >= run.x && x < run_end_x {
-                        // Click is within this run - find the exact character position
-                        // For now, use a simple approximation within the run
-                        let click_offset_in_run = x - run.x;
-                        let chars_in_run = run.char_range.1 - run.char_range.0;
-
-                        if run.width > 0 && chars_in_run > 0 {
-                            // Estimate character position
-                            let char_pos = ((click_offset_in_run * chars_in_run as i32) / run.width).min(chars_in_run as i32 - 1).max(0);
-                            offset = run.char_range.0 + char_pos as usize;
-                        } else {
-                            offset = run.char_range.0;
-                        }
-                        break;
-                    }
-                    if x >= run_end_x {
-                        offset = run.char_range.1;
-                    }
-                }
-
+                let offset = offset_in_line(line, x);
                 return DocumentPosition::new(block_index, offset);
             }
         }
 
-        // Default: end of document
-        let doc = self.editor.document();
-        if doc.block_count() > 0 {
-            DocumentPosition::new(doc.block_count() - 1, 0)
-        } else {
-            DocumentPosition::start()
+        // No line directly under the cursor. Choose the nearest line vertically.
+        // Find the previous line (the last line with y <= adjusted_y)
+        let mut prev_idx: Option<usize> = None;
+        for (i, line) in self.layout_lines.iter().enumerate() {
+            if line.y <= adjusted_y {
+                prev_idx = Some(i);
+            } else {
+                break;
+            }
         }
+
+        // Find the next line (first with y > adjusted_y)
+        let next_idx = self
+            .layout_lines
+            .iter()
+            .enumerate()
+            .find(|(_, line)| line.y > adjusted_y)
+            .map(|(i, _)| i);
+
+        let target_idx = match (prev_idx, next_idx) {
+            (Some(p), Some(n)) => {
+                // Distance to bottom of previous vs top of next
+                let prev_dist = adjusted_y - (self.layout_lines[p].y + self.layout_lines[p].height);
+                let next_dist = self.layout_lines[n].y - adjusted_y;
+                if prev_dist <= next_dist { p } else { n }
+            }
+            (Some(p), None) => p,
+            (None, Some(n)) => n,
+            (None, None) => 0,
+        };
+
+        let line = &self.layout_lines[target_idx];
+        let block_index = line.block_index;
+        let offset = offset_in_line(line, x);
+        DocumentPosition::new(block_index, offset)
     }
 
     /// Set cursor visibility
