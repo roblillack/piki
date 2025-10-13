@@ -10,15 +10,16 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
 
-/// Create a Structured Rich Text Display widget with scrollbar
-pub fn create_structured_rich_display_widget(
-    x: i32,
-    y: i32,
-    w: i32,
-    h: i32,
-    edit_mode: bool,
-) -> (fltk::group::Group, Rc<RefCell<StructuredRichDisplay>>) {
-    let mut widget = fltk::group::Group::new(x, y, w, h, None);
+/// FLTK wrapper for StructuredRichDisplay with scrollbar and event handling
+pub struct FltkStructuredRichDisplay {
+    pub group: fltk::group::Group,
+    pub display: Rc<RefCell<StructuredRichDisplay>>,
+    link_cb: Rc<RefCell<Option<Box<dyn Fn(String) + 'static>>>>,
+}
+
+impl FltkStructuredRichDisplay {
+    pub fn new(x: i32, y: i32, w: i32, h: i32, edit_mode: bool) -> Self {
+        let mut widget = fltk::group::Group::new(x, y, w, h, None);
 
     let scrollbar_size = 15;
 
@@ -36,6 +37,10 @@ pub fn create_structured_rich_display_widget(
 
     // Set cursor visibility based on edit mode
     display.borrow_mut().set_cursor_visible(edit_mode);
+
+    // Link callback holder
+    let link_callback: Rc<RefCell<Option<Box<dyn Fn(String) + 'static>>>> =
+        Rc::new(RefCell::new(None));
 
     // Create vertical responsive scrollbar
     let mut vscroll = ResponsiveScrollbar::new(
@@ -103,6 +108,7 @@ pub fn create_structured_rich_display_widget(
         let mut vscroll_handle = vscroll.clone();
         let click_time = last_click_time.clone();
         let click_count = last_click_count.clone();
+        let link_cb = link_callback.clone();
         move |w, event| {
             // Handle hover checking for Push, Drag, Move, and Enter
             let check_hover = matches!(
@@ -494,68 +500,11 @@ pub fn create_structured_rich_display_widget(
                                     let destination = link.destination.clone();
                                     drop(d); // Release borrow before processing
 
-                                    // Check if this is a local markdown file
-                                    use std::path::Path;
-                                    let path = Path::new(&destination);
-
-                                    // Check if it's a relative or absolute path to a markdown file
-                                    let is_markdown = path
-                                        .extension()
-                                        .and_then(|e| e.to_str())
-                                        .map(|e| {
-                                            e.eq_ignore_ascii_case("md")
-                                                || e.eq_ignore_ascii_case("markdown")
-                                        })
-                                        .unwrap_or(false);
-
-                                    if is_markdown && (path.is_relative() || path.exists()) {
-                                        // It's a local markdown file - send a custom event to load it
-                                        // We'll use app::handle to send a custom message
-                                        fltk::app::handle_main(fltk::enums::Event::from_i32(40))
-                                            .ok(); // Custom event
-
-                                        // Store the path in a global or pass via callback
-                                        // For now, try to read and load it directly
-                                        if let Ok(content) = std::fs::read_to_string(&destination) {
-                                            let new_doc =
-                                                markdown_converter::markdown_to_document(&content);
-                                            let mut d = display.borrow_mut();
-                                            *d.editor_mut().document_mut() = new_doc;
-                                            d.editor_mut().set_cursor(DocumentPosition::start());
-                                            w.redraw();
-
-                                            // Update window title if possible
-                                            if let Some(mut win) = w.window() {
-                                                win.set_label(&format!(
-                                                    "ViewMD (Structured) - {}",
-                                                    destination
-                                                ));
-                                            }
-
-                                            return true;
-                                        }
+                                    if let Some(cb) = &*link_cb.borrow() {
+                                        cb(destination);
+                                        return true;
                                     }
-
-                                    // Not a local markdown file - open in browser
-                                    #[cfg(target_os = "macos")]
-                                    std::process::Command::new("open")
-                                        .arg(&destination)
-                                        .spawn()
-                                        .ok();
-
-                                    #[cfg(target_os = "linux")]
-                                    std::process::Command::new("xdg-open")
-                                        .arg(&destination)
-                                        .spawn()
-                                        .ok();
-
-                                    #[cfg(target_os = "windows")]
-                                    std::process::Command::new("cmd")
-                                        .args(&["/C", "start", &destination])
-                                        .spawn()
-                                        .ok();
-
-                                    return true;
+                                    return false;
                                 }
                             }
                         }
@@ -1272,5 +1221,12 @@ pub fn create_structured_rich_display_widget(
         }
     });
 
-    (widget, display)
+    FltkStructuredRichDisplay { group: widget, display, link_cb: link_callback }
+    }
+
+    pub fn set_link_callback(&self, cb: Option<Box<dyn Fn(String) + 'static>>) {
+        *self.link_cb.borrow_mut() = cb;
+    }
 }
+
+// Note: link callbacks are now stored per-instance in FltkStructuredRichDisplay

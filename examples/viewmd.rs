@@ -1,7 +1,7 @@
 // viewmd_structured - Markdown file viewer with structured editor
 // Usage: cargo run --example viewmd_structured [--edit] <filename>
 
-use fliki_rs::fltk_structured_rich_display::create_structured_rich_display_widget;
+use fliki_rs::fltk_structured_rich_display::FltkStructuredRichDisplay;
 use fliki_rs::richtext::markdown_converter::{document_to_markdown, markdown_to_document};
 use fliki_rs::richtext::structured_document::DocumentPosition;
 use fliki_rs::sourceedit::text_display::{style_attr, StyleTableEntry};
@@ -197,13 +197,15 @@ fn main() {
     let menu_height = if edit_mode { 25 } else { 0 };
 
     // Create structured rich display widget
-    let (mut display_widget, display) = create_structured_rich_display_widget(
+    let structured = FltkStructuredRichDisplay::new(
         5,                 // x
         5 + menu_height,   // y
         790,               // width
         590 - menu_height, // height
         edit_mode,         // edit mode
     );
+    let mut display_widget = structured.group.clone();
+    let display = structured.display.clone();
 
     // Create menu bar if in edit mode (after display is created)
     let mut format_menu: Option<menu::MenuBar> = None;
@@ -356,6 +358,45 @@ fn main() {
     wind.show();
 
     display_widget.take_focus().ok();
+
+    // Register link click callback to load markdown files
+    {
+        let display_ref = display.clone();
+        let mut win_handle = wind.clone();
+        structured.set_link_callback(Some(Box::new(move |destination: String| {
+            use std::path::Path;
+            let path = Path::new(&destination);
+            let is_markdown = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"))
+                .unwrap_or(false);
+
+            if is_markdown && (path.is_relative() || path.exists()) {
+                if let Ok(content) = fs::read_to_string(&destination) {
+                    let new_doc = markdown_to_document(&content);
+                    let mut d = display_ref.borrow_mut();
+                    *d.editor_mut().document_mut() = new_doc;
+                    d.editor_mut().set_cursor(DocumentPosition::start());
+                    if let Some(mut win) = win_handle.as_base_widget().window() {
+                        win.set_label(&format!(
+                            "ViewMD (Structured{}) - {}",
+                            if edit_mode { " Edit" } else { "" },
+                            destination
+                        ));
+                    }
+                    app::redraw();
+                }
+            } else {
+                #[cfg(target_os = "macos")]
+                let _ = std::process::Command::new("open").arg(&destination).spawn();
+                #[cfg(target_os = "linux")]
+                let _ = std::process::Command::new("xdg-open").arg(&destination).spawn();
+                #[cfg(target_os = "windows")]
+                let _ = std::process::Command::new("cmd").args(&["/C", "start", &destination]).spawn();
+            }
+        })));
+    }
 
     app.run().unwrap();
 }
