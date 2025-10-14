@@ -100,7 +100,13 @@ impl ResponsiveScrollbar {
 
                             // Draw light gray slider rectangle
                             fltk_draw::set_draw_color(rect_col);
-                            fltk_draw::draw_rectf(x + offset, slider_y, sbw, slider_height);
+                            fltk_draw::draw_rounded_rectf(
+                                x + offset,
+                                slider_y,
+                                sbw,
+                                slider_height,
+                                1,
+                            );
                         }
                     }
                     ScrollbarState::Hovered => {
