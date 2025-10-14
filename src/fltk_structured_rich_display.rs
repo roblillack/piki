@@ -987,7 +987,11 @@ impl FltkStructuredRichDisplay {
                             match effective_clicks {
                                 1 => {
                                     // Single click: position cursor
-                                    display.borrow_mut().editor_mut().set_cursor(pos);
+                                    {
+                                        let mut d = display.borrow_mut();
+                                        d.editor_mut().set_cursor(pos);
+                                        d.record_preferred_x_from_layout();
+                                    }
                                 }
                                 2 => {
                                     // Double click: select word
@@ -1096,7 +1100,7 @@ impl FltkStructuredRichDisplay {
 
                         // Handle editing keys if in edit mode
                         if edit_mode {
-                            let mut handled = false;
+                            let mut handled = false; let mut did_horizontal = false;
 
                             // Ctrl/Cmd+K: Open link editor dialog
                             #[cfg(target_os = "macos")]
@@ -1553,7 +1557,6 @@ impl FltkStructuredRichDisplay {
                                 handled = true;
                             } else {
                                 let mut disp = display.borrow_mut();
-                                let editor = disp.editor_mut();
 
                                 // Check if Shift is held for selection extension
                                 let shift_held = state.contains(Shortcut::Shift);
@@ -1567,93 +1570,119 @@ impl FltkStructuredRichDisplay {
 
                                 match key {
                                     Key::BackSpace => {
-                                        if word_mod {
-                                            editor.delete_word_backward().ok();
-                                        } else {
-                                            editor.delete_backward().ok();
+                                        {
+                                            let editor = disp.editor_mut();
+                                            if word_mod {
+                                                editor.delete_word_backward().ok();
+                                            } else {
+                                                editor.delete_backward().ok();
+                                            }
                                         }
+                                        // non-vertical action
+                                        did_horizontal = true;
                                         if let Some(cb) = &mut *change_cb.borrow_mut() {
                                             (cb)();
                                         }
                                         handled = true;
                                     }
                                     Key::Delete => {
-                                        if word_mod {
-                                            editor.delete_word_forward().ok();
-                                        } else {
-                                            editor.delete_forward().ok();
+                                        {
+                                            let editor = disp.editor_mut();
+                                            if word_mod {
+                                                editor.delete_word_forward().ok();
+                                            } else {
+                                                editor.delete_forward().ok();
+                                            }
                                         }
+                                        // non-vertical action
+                                        did_horizontal = true;
                                         if let Some(cb) = &mut *change_cb.borrow_mut() {
                                             (cb)();
                                         }
                                         handled = true;
                                     }
                                     Key::Left => {
-                                        if word_mod {
-                                            if shift_held {
-                                                editor.move_word_left_extend();
+                                        {
+                                            let editor = disp.editor_mut();
+                                            if word_mod {
+                                                if shift_held {
+                                                    editor.move_word_left_extend();
+                                                } else {
+                                                    editor.move_word_left();
+                                                }
                                             } else {
-                                                editor.move_word_left();
-                                            }
-                                        } else {
-                                            if shift_held {
-                                                editor.move_cursor_left_extend();
-                                            } else {
-                                                editor.move_cursor_left();
+                                                if shift_held {
+                                                    editor.move_cursor_left_extend();
+                                                } else {
+                                                    editor.move_cursor_left();
+                                                }
                                             }
                                         }
+                                        // non-vertical action
+                                        did_horizontal = true;
                                         handled = true;
                                     }
                                     Key::Right => {
-                                        if word_mod {
-                                            if shift_held {
-                                                editor.move_word_right_extend();
+                                        {
+                                            let editor = disp.editor_mut();
+                                            if word_mod {
+                                                if shift_held {
+                                                    editor.move_word_right_extend();
+                                                } else {
+                                                    editor.move_word_right();
+                                                }
                                             } else {
-                                                editor.move_word_right();
-                                            }
-                                        } else {
-                                            if shift_held {
-                                                editor.move_cursor_right_extend();
-                                            } else {
-                                                editor.move_cursor_right();
+                                                if shift_held {
+                                                    editor.move_cursor_right_extend();
+                                                } else {
+                                                    editor.move_cursor_right();
+                                                }
                                             }
                                         }
+                                        // non-vertical action
+                                        did_horizontal = true;
                                         handled = true;
                                     }
                                     Key::Up => {
-                                        if shift_held {
-                                            editor.move_cursor_up_extend();
-                                        } else {
-                                            editor.move_cursor_up();
-                                        }
+                                        // Visual line-aware up movement using wrapped lines
+                                        disp.move_cursor_visual_up(shift_held);
+                                        
                                         handled = true;
                                     }
                                     Key::Down => {
-                                        if shift_held {
-                                            editor.move_cursor_down_extend();
-                                        } else {
-                                            editor.move_cursor_down();
-                                        }
+                                        // Visual line-aware down movement using wrapped lines
+                                        disp.move_cursor_visual_down(shift_held);
+                                        
                                         handled = true;
                                     }
                                     Key::Home => {
-                                        if shift_held {
-                                            editor.move_cursor_to_line_start_extend();
-                                        } else {
-                                            editor.move_cursor_to_line_start();
+                                        {
+                                            let editor = disp.editor_mut();
+                                            if shift_held {
+                                                editor.move_cursor_to_line_start_extend();
+                                            } else {
+                                                editor.move_cursor_to_line_start();
+                                            }
                                         }
+                                        // non-vertical action
+                                        did_horizontal = true;
                                         handled = true;
                                     }
                                     Key::End => {
-                                        if shift_held {
-                                            editor.move_cursor_to_line_end_extend();
-                                        } else {
-                                            editor.move_cursor_to_line_end();
+                                        {
+                                            let editor = disp.editor_mut();
+                                            if shift_held {
+                                                editor.move_cursor_to_line_end_extend();
+                                            } else {
+                                                editor.move_cursor_to_line_end();
+                                            }
                                         }
+                                        // non-vertical action
+                                        did_horizontal = true;
                                         handled = true;
                                     }
                                     Key::Enter => {
-                                        editor.insert_newline().ok();
+                                        disp.editor_mut().insert_newline().ok();
                                         if let Some(cb) = &mut *change_cb.borrow_mut() {
                                             (cb)();
                                         }
@@ -1685,7 +1714,8 @@ impl FltkStructuredRichDisplay {
                                         let has_cmd_modifier = state.contains(Shortcut::Ctrl);
 
                                         if !text_input.is_empty() && !has_cmd_modifier {
-                                            editor.insert_text(&text_input).ok();
+                                            disp.editor_mut().insert_text(&text_input).ok();
+                                            did_horizontal = true;
                                             if let Some(cb) = &mut *change_cb.borrow_mut() {
                                                 (cb)();
                                             }
@@ -1709,6 +1739,7 @@ impl FltkStructuredRichDisplay {
                                 // Adjust scroll to bring cursor into view
                                 let new_scroll = {
                                     let mut disp = display.borrow_mut();
+                                    if did_horizontal { disp.record_preferred_x_from_ctx(&mut ctx); }
                                     disp.ensure_cursor_visible(&mut ctx);
                                     disp.scroll_offset()
                                 };
@@ -1868,3 +1899,7 @@ impl FltkStructuredRichDisplay {
         }
     }
 }
+
+
+
+
