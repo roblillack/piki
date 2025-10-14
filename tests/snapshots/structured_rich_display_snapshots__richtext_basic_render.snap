@@ -1,0 +1,6 @@
+---
+source: tests/structured_rich_display_snapshots.rs
+expression: svg
+extension: svg
+snapshot_kind: binary
+---

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="500" height="140" viewBox="0 0 500 140">
+<style>
+            @font-face { font-family: 'SnapshotSans'; font-weight: 500; font-style: normal; src: url('../NotoSans-Medium.ttf') format('truetype'); }
+            @font-face { font-family: 'SnapshotSans'; font-weight: 700; font-style: normal; src: url('../NotoSans-Bold.ttf') format('truetype'); }
+            @font-face { font-family: 'SnapshotSans'; font-weight: 500; font-style: italic; src: url('../NotoSans-MediumItalic.ttf') format('truetype'); }
+            @font-face { font-family: 'SnapshotSans'; font-weight: 700; font-style: italic; src: url('../NotoSans-BoldItalic.ttf') format('truetype'); }
+            </style>
+  <rect width="500" height="140" fill="#ffffff"/>
+  <rect x="0" y="0" width="500" height="140" fill="#fffff5"/>
+  <defs>
+    <clipPath id="clip-0-0-500-140">
+      <rect x="0" y="0" width="500" height="140"/>
+    </clipPath>
+  </defs>
+  <rect x="25" y="10" width="31" height="17" fill="#fffff5" clip-path="url(#clip-0-0-500-140)"/>
+  <text x="25" y="24" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-500-140)">This </text>
+  <rect x="56" y="10" width="14" height="17" fill="#fffff5" clip-path="url(#clip-0-0-500-140)"/>
+  <text x="56" y="24" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-500-140)">is </text>
+  <rect x="70" y="10" width="65" height="17" fill="#fffff5" clip-path="url(#clip-0-0-500-140)"/>
+  <rect x="70" y="10" width="61" height="17" fill="#b4d5fe" clip-path="url(#clip-0-0-500-140)"/>
+  <text x="70" y="24" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-500-140)">selection </text>
+  <rect x="135" y="10" width="30" height="17" fill="#fffff5" clip-path="url(#clip-0-0-500-140)"/>
+  <text x="135" y="24" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-500-140)">test.</text>
+  <line x1="25" y1="10" x2="25" y2="27" stroke="#000000" stroke-width="1"/>
+</svg>

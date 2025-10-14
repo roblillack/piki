@@ -1,8 +1,11 @@
 // SVG-based DrawContext implementation for testing and visualization
-// Generates SVG output from text display rendering
+// Generates SVG output from text display rendering with accurate font metrics
 
 use fliki_rs::sourceedit::text_display::DrawContext;
+use rusttype::{point, Font, Scale};
+use std::collections::HashMap;
 use std::fmt::Write;
+use std::fs;
 
 /// SVG-based drawing context that generates SVG markup
 pub struct SvgDrawContext {
@@ -13,11 +16,14 @@ pub struct SvgDrawContext {
     has_focus: bool,
     is_active: bool,
     clip_stack: Vec<(i32, i32, i32, i32)>,
+    fonts: FontSet,
 }
 
 impl SvgDrawContext {
     /// Create a new SVG drawing context
     pub fn new(width: i32, height: i32) -> Self {
+        let fonts = FontSet::load_default();
+
         let mut ctx = SvgDrawContext {
             svg_content: String::new(),
             current_color: 0x000000FF,
@@ -26,6 +32,7 @@ impl SvgDrawContext {
             has_focus: true,
             is_active: true,
             clip_stack: Vec::new(),
+            fonts,
         };
 
         // Start SVG document
@@ -33,6 +40,20 @@ impl SvgDrawContext {
             &mut ctx.svg_content,
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">"#,
             width, height, width, height
+        )
+        .unwrap();
+
+        // Inject a style tag that registers the local test fonts for browser
+        // preview of snapshots. The snapshot files live in tests/snapshots,
+        // and the fonts are in tests/, thus "..".
+        writeln!(
+            &mut ctx.svg_content,
+            r#"<style>
+            @font-face {{ font-family: 'SnapshotSans'; font-weight: 500; font-style: normal; src: url('../NotoSans-Medium.ttf') format('truetype'); }}
+            @font-face {{ font-family: 'SnapshotSans'; font-weight: 700; font-style: normal; src: url('../NotoSans-Bold.ttf') format('truetype'); }}
+            @font-face {{ font-family: 'SnapshotSans'; font-weight: 500; font-style: italic; src: url('../NotoSans-MediumItalic.ttf') format('truetype'); }}
+            @font-face {{ font-family: 'SnapshotSans'; font-weight: 700; font-style: italic; src: url('../NotoSans-BoldItalic.ttf') format('truetype'); }}
+            </style>"#
         )
         .unwrap();
 
@@ -77,17 +98,10 @@ impl SvgDrawContext {
         }
     }
 
-    /// Get font family for a font ID
-    fn font_family(&self, font: u8) -> &str {
-        match font {
-            0 => "Helvetica, Arial, sans-serif",
-            1 => "Helvetica, Arial, sans-serif", // Helvetica Bold
-            2 => "Helvetica, Arial, sans-serif", // Helvetica Italic
-            3 => "Helvetica, Arial, sans-serif", // Helvetica Bold Italic
-            4 => "Courier, 'Courier New', monospace",
-            5 => "Courier, 'Courier New', monospace", // Courier Bold
-            _ => "monospace",
-        }
+    /// Get font family name for SVG text; we register these via the style tag.
+    fn font_family(&self, _font: u8) -> &str {
+        // Use a single logical family name with different weight/style faces provided.
+        "SnapshotSans"
     }
 
     /// Get font weight for a font ID
@@ -182,22 +196,37 @@ impl DrawContext for SvgDrawContext {
         .unwrap();
     }
 
-    fn text_width(&mut self, text: &str, _font: u8, size: u8) -> f64 {
-        // Approximate monospace character width
-        // For monospace fonts: width ≈ 0.6 * font_size per character
-        let char_count = text.chars().count();
-        (char_count as f64) * (size as f64 * 0.6)
+    fn text_width(&mut self, text: &str, font: u8, size: u8) -> f64 {
+        let font_ref = self.fonts.font_for_id(font);
+        let scale = Scale::uniform(size as f32);
+        // Determine width using laid-out glyph positions including kerning
+        let mut max_x: f32 = 0.0;
+        for g in font_ref.layout(text, scale, point(0.0, 0.0)) {
+            let adv = g.unpositioned().h_metrics().advance_width;
+            let x = g.position().x + adv;
+            if x > max_x {
+                max_x = x;
+            }
+        }
+        // TODO: Don't know where this is coming from, but browser SVG
+        // text rendering is larger -- we scale it up to match visually
+        // with browser so we can manually verify snapshots.
+        max_x as f64 * 1.4
     }
 
-    fn text_height(&self, _font: u8, size: u8) -> i32 {
-        // Height includes ascent, descent, and leading
-        // Approximately 1.2x the point size
-        ((size as f64) * 1.2) as i32
+    fn text_height(&self, font: u8, size: u8) -> i32 {
+        let font_ref = self.fonts.font_for_id(font);
+        let scale = Scale::uniform(size as f32);
+        let v = font_ref.v_metrics(scale);
+        // Total recommended line height
+        (v.ascent - v.descent + v.line_gap).ceil() as i32
     }
 
-    fn text_descent(&self, _font: u8, size: u8) -> i32 {
-        // Descent is approximately 0.2x the point size
-        ((size as f64) * 0.2) as i32
+    fn text_descent(&self, font: u8, size: u8) -> i32 {
+        let font_ref = self.fonts.font_for_id(font);
+        let scale = Scale::uniform(size as f32);
+        let v = font_ref.v_metrics(scale);
+        (-v.descent).ceil() as i32
     }
 
     fn push_clip(&mut self, x: i32, y: i32, w: i32, h: i32) {
@@ -294,6 +323,83 @@ impl DrawContext for SvgDrawContext {
 
     fn is_active(&self) -> bool {
         self.is_active
+    }
+}
+
+/// Holds loaded fonts and maps font IDs used by the style tables to the correct face.
+struct FontSet {
+    // Key: (weight, italic)
+    faces: HashMap<(u16, bool), Font<'static>>,
+    // Fallback face key present in `faces`
+    fallback_key: (u16, bool),
+}
+
+impl FontSet {
+    fn load_default() -> Self {
+        // Attempt to load the four NotoSans variants placed under tests/
+        // If any load fails, fall back to Medium for all.
+        let mut faces: HashMap<(u16, bool), Font<'static>> = HashMap::new();
+
+        let load_font = |path: &str| -> Option<Font<'static>> {
+            match fs::read(path) {
+                Ok(bytes) => Font::try_from_vec(bytes),
+                Err(_) => None,
+            }
+        };
+
+        // Medium (weight 500, normal)
+        let medium = load_font("tests/NotoSans-Medium.ttf");
+        let bold = load_font("tests/NotoSans-Bold.ttf");
+        let medium_it = load_font("tests/NotoSans-MediumItalic.ttf");
+        let bold_it = load_font("tests/NotoSans-BoldItalic.ttf");
+
+        if let Some(f) = medium {
+            faces.insert((500, false), f);
+        }
+        if let Some(f) = bold {
+            faces.insert((700, false), f);
+        }
+        if let Some(f) = medium_it {
+            faces.insert((500, true), f);
+        }
+        if let Some(f) = bold_it {
+            faces.insert((700, true), f);
+        }
+
+        // Determine fallback key based on what we actually loaded
+        let fallback_key = if faces.contains_key(&(500, false)) {
+            (500, false)
+        } else if faces.contains_key(&(700, false)) {
+            (700, false)
+        } else if faces.contains_key(&(500, true)) {
+            (500, true)
+        } else if faces.contains_key(&(700, true)) {
+            (700, true)
+        } else {
+            panic!("No test fonts found under tests/ (NotoSans-*.ttf)");
+        };
+
+        FontSet {
+            faces,
+            fallback_key,
+        }
+    }
+
+    /// Map style-table font IDs to weight/italic and return a font face.
+    fn font_for_id(&self, font_id: u8) -> &Font<'static> {
+        let (weight, italic) = match font_id {
+            1 => (700, false), // Bold
+            2 => (500, true),  // Italic
+            3 => (700, true),  // Bold Italic
+            5 => (700, false), // Bold (legacy mapping from sourceedit tests)
+            // 4 (code) and everything else -> Medium normal
+            _ => (500, false),
+        };
+        if let Some(f) = self.faces.get(&(weight, italic)) {
+            f
+        } else {
+            &self.faces[&self.fallback_key]
+        }
     }
 }
 
