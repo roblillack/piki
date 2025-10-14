@@ -838,6 +838,145 @@ impl StructuredEditor {
         Ok(())
     }
 
+    /// Insert an inline element at the current cursor position
+    pub fn insert_inline_at_cursor(&mut self, inline: InlineContent) -> EditResult {
+        if self.document.is_empty() {
+            let mut block = Block::paragraph(0);
+            block.content.push(inline);
+            let text_len = block.text_len();
+            self.document.add_block(block);
+            self.cursor = DocumentPosition::new(0, text_len);
+            return Ok(());
+        }
+
+        let block_index = self.cursor.block_index;
+        if block_index >= self.document.block_count() {
+            return Err(EditError::InvalidBlockIndex);
+        }
+
+        // Delete selection first if there is one
+        if self.selection.is_some() {
+            self.delete_selection()?;
+        }
+
+        let offset = self.cursor.offset;
+        let (left, right) = {
+            let blocks = self.document.blocks();
+            let block = &blocks[block_index];
+            Self::split_content_at_static(&block.content, offset)
+        };
+
+        let blocks = self.document.blocks_mut();
+        let block = &mut blocks[block_index];
+        block.content = left;
+        block.content.push(inline);
+        block.content.extend(right);
+
+        // Advance cursor by inserted inline's text length
+        let inserted_len = match block.content.get(block.content.len().saturating_sub(1)) {
+            Some(InlineContent::Text(run)) => run.len(),
+            Some(InlineContent::Link { content, .. }) => content.iter().map(|c| c.text_len()).sum(),
+            Some(InlineContent::LineBreak) | Some(InlineContent::HardBreak) => 1,
+            _ => 0,
+        };
+        self.cursor.offset = offset + inserted_len;
+        self.selection = None;
+        Ok(())
+    }
+
+    /// Replace current selection with a link (destination + text)
+    pub fn replace_selection_with_link(&mut self, destination: &str, text: &str) -> EditResult {
+        // Delete selection, which moves cursor to start of selection
+        self.delete_selection()?;
+        self.insert_link_at_cursor(destination, text)
+    }
+
+    /// Insert a link at the cursor
+    pub fn insert_link_at_cursor(&mut self, destination: &str, text: &str) -> EditResult {
+        let link_inline = InlineContent::Link {
+            link: Link {
+                destination: destination.to_string(),
+                title: None,
+            },
+            content: vec![InlineContent::Text(TextRun::plain(text))],
+        };
+        self.insert_inline_at_cursor(link_inline)
+    }
+
+    /// Edit an existing link at the given block + inline index
+    pub fn edit_link_at(
+        &mut self,
+        block_index: usize,
+        inline_index: usize,
+        destination: &str,
+        text: &str,
+    ) -> EditResult {
+        if block_index >= self.document.block_count() {
+            return Err(EditError::InvalidBlockIndex);
+        }
+        let blocks = self.document.blocks_mut();
+        let block = &mut blocks[block_index];
+        if inline_index >= block.content.len() {
+            return Err(EditError::InvalidPosition);
+        }
+        if let InlineContent::Link { link, content } = &mut block.content[inline_index] {
+            link.destination = destination.to_string();
+            *content = vec![InlineContent::Text(TextRun::plain(text))];
+            Ok(())
+        } else {
+            Err(EditError::InvalidPosition)
+        }
+    }
+
+    /// Remove (unwrap) a link at the given block + inline index, preserving its text content
+    pub fn remove_link_at(&mut self, block_index: usize, inline_index: usize) -> EditResult {
+        if block_index >= self.document.block_count() {
+            return Err(EditError::InvalidBlockIndex);
+        }
+        let blocks = self.document.blocks_mut();
+        let block = &mut blocks[block_index];
+        if inline_index >= block.content.len() {
+            return Err(EditError::InvalidPosition);
+        }
+        if let InlineContent::Link { content, .. } = block.content.remove(inline_index) {
+            // Splice inner content in place of the link
+            for (i, item) in content.into_iter().enumerate() {
+                block.content.insert(inline_index + i, item);
+            }
+            Ok(())
+        } else {
+            Err(EditError::InvalidPosition)
+        }
+    }
+
+    /// Extract plain text for a document range
+    pub fn text_in_range(&self, start: DocumentPosition, end: DocumentPosition) -> String {
+        let doc = self.document();
+        if doc.block_count() == 0 {
+            return String::new();
+        }
+        let mut s = String::new();
+        let (mut a, mut b) = (start, end);
+        if a.block_index > b.block_index
+            || (a.block_index == b.block_index && a.offset > b.offset)
+        {
+            std::mem::swap(&mut a, &mut b);
+        }
+        for bi in a.block_index..=b.block_index {
+            let block = &doc.blocks()[bi];
+            let text = block.to_plain_text();
+            let from = if bi == a.block_index { a.offset.min(text.len()) } else { 0 };
+            let to = if bi == b.block_index { b.offset.min(text.len()) } else { text.len() };
+            if from < to {
+                if !s.is_empty() {
+                    s.push_str("\n\n");
+                }
+                s.push_str(&text[from..to]);
+            }
+        }
+        s
+    }
+
     /// Toggle bold style on the current selection
     pub fn toggle_bold(&mut self) -> EditResult {
         self.toggle_style_attribute(|style| {

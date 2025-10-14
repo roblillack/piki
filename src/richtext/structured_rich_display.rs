@@ -844,7 +844,22 @@ impl StructuredRichDisplay {
                     }
                 }
 
+                // Draw background for hover (if link is hovered)
+                // Draw this BEFORE selection so selection remains visible on top
+                if is_hovered {
+                    let text_width = ctx.text_width(&run.text, style.font, style.size) as i32;
+                    ctx.set_color(style.bgcolor);
+                    ctx.draw_rect_filled(
+                        draw_x,
+                        self.y + line.y - self.scroll_offset,
+                        text_width,
+                        line.height,
+                    );
+                    ctx.set_color(style.color); // Restore text color
+                }
+
                 // Draw selection highlight (if run is selected)
+                // Draw AFTER hover so the selection rectangle is on top
                 if let Some((sel_start, sel_end)) = self.get_run_selection_range(run) {
                     if sel_end > sel_start {
                         // Measure the text before and within selection
@@ -875,19 +890,6 @@ impl StructuredRichDisplay {
                         );
                         ctx.set_color(style.color); // Restore text color
                     }
-                }
-
-                // Draw background for hover (if link is hovered)
-                if is_hovered {
-                    let text_width = ctx.text_width(&run.text, style.font, style.size) as i32;
-                    ctx.set_color(style.bgcolor);
-                    ctx.draw_rect_filled(
-                        draw_x,
-                        self.y + line.y - self.scroll_offset,
-                        text_width,
-                        line.height,
-                    );
-                    ctx.set_color(style.color); // Restore text color
                 }
 
                 ctx.draw_text(&run.text, draw_x, draw_y);
