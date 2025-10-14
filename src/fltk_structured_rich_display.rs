@@ -1489,6 +1489,25 @@ impl FltkStructuredRichDisplay {
                                     disp.scroll_offset()
                                 };
 
+                                // Update link hover state based on the new cursor position
+                                {
+                                    let mut disp = display.borrow_mut();
+                                    if let Some(((b, i), dest)) = disp.find_link_near_cursor() {
+                                        let prev = disp.hovered_link();
+                                        if prev != Some((b, i)) {
+                                            disp.set_hovered_link(Some((b, i)));
+                                            if let Some(cb) = &*hover_cb.borrow() {
+                                                (cb)(Some(dest));
+                                            }
+                                        }
+                                    } else if disp.hovered_link().is_some() {
+                                        disp.set_hovered_link(None);
+                                        if let Some(cb) = &*hover_cb.borrow() {
+                                            (cb)(None);
+                                        }
+                                    }
+                                }
+
                                 // Sync scrollbar position and redraw
                                 vscroll_handle.set_value(new_scroll as f64);
                                 vscroll_handle.wake();

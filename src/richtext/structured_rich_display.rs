@@ -1132,6 +1132,41 @@ impl StructuredRichDisplay {
     pub fn hovered_link(&self) -> Option<(usize, usize)> {
         self.hovered_link
     }
+
+    /// Find a link at or adjacent to the current cursor position.
+    ///
+    /// Treats the cursor as "inside" the link when its offset lies within the
+    /// link's text range, and also when it is exactly at the start (directly
+    /// before) or exactly at the end (directly after) of the link.
+    ///
+    /// Returns ((block_index, inline_index), destination) if a link is found.
+    pub fn find_link_near_cursor(&self) -> Option<((usize, usize), String)> {
+        let cursor = self.editor.cursor();
+        let doc = self.editor.document();
+
+        if cursor.block_index >= doc.block_count() {
+            return None;
+        }
+
+        let block = &doc.blocks()[cursor.block_index];
+        let mut pos = 0usize;
+
+        for (inline_idx, item) in block.content.iter().enumerate() {
+            let len = item.text_len();
+            if let InlineContent::Link { link, .. } = item {
+                let start = pos;
+                let end = pos + len; // end is exclusive for text, but we allow equality for adjacency
+
+                // Cursor is within, or exactly at start/end (adjacent)
+                if cursor.offset >= start && cursor.offset <= end {
+                    return Some(((cursor.block_index, inline_idx), link.destination.clone()));
+                }
+            }
+            pos += len;
+        }
+
+        None
+    }
 }
 
 #[cfg(test)]
