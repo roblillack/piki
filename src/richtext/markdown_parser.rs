@@ -183,8 +183,6 @@ pub fn parse_markdown(text: &str) -> Document {
     // Update root's end position
     doc.root.char_end = text.len();
 
-    // Note: wikilinks are parsed directly by pulldown-cmark when enabled above
-
     doc
 }
 

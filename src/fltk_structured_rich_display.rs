@@ -1130,14 +1130,22 @@ impl FltkStructuredRichDisplay {
 
                                 match key {
                                     Key::BackSpace => {
-                                        editor.delete_backward().ok();
+                                        if word_mod {
+                                            editor.delete_word_backward().ok();
+                                        } else {
+                                            editor.delete_backward().ok();
+                                        }
                                         if let Some(cb) = &mut *change_cb.borrow_mut() {
                                             (cb)();
                                         }
                                         handled = true;
                                     }
                                     Key::Delete => {
-                                        editor.delete_forward().ok();
+                                        if word_mod {
+                                            editor.delete_word_forward().ok();
+                                        } else {
+                                            editor.delete_forward().ok();
+                                        }
                                         if let Some(cb) = &mut *change_cb.borrow_mut() {
                                             (cb)();
                                         }
@@ -1380,5 +1388,3 @@ impl FltkStructuredRichDisplay {
         }
     }
 }
-
-// Note: link callbacks are now stored per-instance in FltkStructuredRichDisplay

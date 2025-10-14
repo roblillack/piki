@@ -467,6 +467,56 @@ impl StructuredEditor {
         Ok(())
     }
 
+    /// Delete word before cursor (Alt/Ctrl+Backspace)
+    pub fn delete_word_backward(&mut self) -> EditResult {
+        if self.document.is_empty() {
+            return Err(EditError::EmptyDocument);
+        }
+
+        // If there's a selection, delete it
+        if self.selection.is_some() {
+            return self.delete_selection();
+        }
+
+        let from = self.cursor;
+        let to = self.word_left_position(from);
+
+        // Nothing to delete
+        if to == from {
+            return Ok(());
+        }
+
+        self.document.delete_range(to, from);
+        self.cursor = to;
+        self.selection = None;
+        Ok(())
+    }
+
+    /// Delete word at/after cursor (Alt/Ctrl+Delete)
+    pub fn delete_word_forward(&mut self) -> EditResult {
+        if self.document.is_empty() {
+            return Err(EditError::EmptyDocument);
+        }
+
+        // If there's a selection, delete it
+        if self.selection.is_some() {
+            return self.delete_selection();
+        }
+
+        let from = self.cursor;
+        let to = self.word_right_position(from);
+
+        // Nothing to delete
+        if to == from {
+            return Ok(());
+        }
+
+        self.document.delete_range(from, to);
+        // Cursor stays at original start
+        self.selection = None;
+        Ok(())
+    }
+
     /// Delete the current selection
     pub fn delete_selection(&mut self) -> EditResult {
         let Some((start, end)) = self.selection else {
