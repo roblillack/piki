@@ -230,6 +230,7 @@ fn main() {
         let underline_shortcut = enums::Shortcut::Ctrl | 'u';
 
         let display_for_menu = display.clone();
+        let widget_for_menu = display_widget.clone();
         menu_bar.add("Format/Bold\t", bold_shortcut, menu::MenuFlag::Normal, {
             let display = display_for_menu.clone();
             move |_| {
@@ -316,6 +317,135 @@ fn main() {
             },
         );
 
+        // Edit Link (Cmd/Ctrl-K)
+        #[cfg(target_os = "macos")]
+        let edit_link_shortcut = enums::Shortcut::Command | 'k';
+        #[cfg(not(target_os = "macos"))]
+        let edit_link_shortcut = enums::Shortcut::Ctrl | 'k';
+        let display_for_menu = display.clone();
+        menu_bar.add(
+            "Format/Edit Link…\t",
+            edit_link_shortcut,
+            menu::MenuFlag::Normal,
+            move |_| {
+                use fltk::{button, input, window};
+                // Determine initial values
+                let (init_target, init_text, mode_existing_link, selection_mode, link_pos) = {
+                    let mut d = display_for_menu.borrow_mut();
+                    if let Some((b, i)) = d.hovered_link() {
+                        let doc = d.editor().document();
+                        let block = &doc.blocks()[b];
+                        if let fliki_rs::richtext::structured_document::InlineContent::Link { link, content } = &block.content[i] {
+                            let text = content.iter().map(|c| c.to_plain_text()).collect::<String>();
+                            (link.destination.clone(), text, true, false, Some((b, i)))
+                        } else { (String::new(), String::new(), false, false, None) }
+                    } else if let Some((a, b)) = d.editor().selection() {
+                        let text = d.editor().text_in_range(a, b);
+                        (String::new(), text, false, true, None)
+                    } else {
+                        (String::new(), String::new(), false, false, None)
+                    }
+                };
+
+                // Build dialog
+                let mut win = window::Window::new(0, 0, 420, 160, Some("Edit Link"));
+                let mut target_label = fltk::frame::Frame::new(10, 10, 120, 24, Some("Link target:"));
+                target_label.set_align(fltk::enums::Align::Inside | fltk::enums::Align::Left);
+                let mut target_input = input::Input::new(130, 10, 280, 24, None);
+                target_input.set_value(&init_target);
+                let mut text_label = fltk::frame::Frame::new(10, 44, 120, 24, Some("Link text:"));
+                text_label.set_align(fltk::enums::Align::Inside | fltk::enums::Align::Left);
+                let mut text_input_w = input::Input::new(130, 44, 280, 24, None);
+                text_input_w.set_value(&init_text);
+
+                let mut remove_btn = button::Button::new(130, 110, 80, 30, Some("Remove"));
+                let mut cancel_btn = button::Button::new(220, 110, 80, 30, Some("Cancel"));
+                let mut save_btn = button::ReturnButton::new(310, 110, 80, 30, Some("Save"));
+                if !mode_existing_link { remove_btn.deactivate(); }
+
+                // Initial validation
+                {
+                    let target_ok = !target_input.value().trim().is_empty();
+                    let text_ok = if mode_existing_link || selection_mode { true } else { !text_input_w.value().trim().is_empty() };
+                    if target_ok && text_ok { save_btn.activate(); } else { save_btn.deactivate(); }
+                }
+                // Live validation
+                let mut save_btn_v = save_btn.clone();
+                let mut tgt_v = target_input.clone();
+                let mut txt_v = text_input_w.clone();
+                let validate_cb = move |_i: &mut input::Input| {
+                    let target_ok = !tgt_v.value().trim().is_empty();
+                    let text_ok = if mode_existing_link || selection_mode { true } else { !txt_v.value().trim().is_empty() };
+                    if target_ok && text_ok { save_btn_v.activate(); } else { save_btn_v.deactivate(); }
+                };
+                target_input.set_trigger(fltk::enums::CallbackTrigger::Changed);
+                target_input.set_callback(validate_cb.clone());
+                text_input_w.set_trigger(fltk::enums::CallbackTrigger::Changed);
+                text_input_w.set_callback(validate_cb);
+
+                let mut win_for_save = win.clone();
+                let mut win_for_remove = win.clone();
+                let mut win_for_cancel = win.clone();
+                let mut target_input_s = target_input.clone();
+                let mut text_input_s = text_input_w.clone();
+                let init_text_s = init_text.clone();
+
+                // Save action
+                save_btn.set_callback({
+                    let display_for_menu = display_for_menu.clone();
+                    let mut redraw_widget = widget_for_menu.clone();
+                    move |_| {
+                        let dest = target_input_s.value();
+                        let txt = if selection_mode || mode_existing_link {
+                            let val = text_input_s.value();
+                            if !val.is_empty() { val } else { init_text_s.clone() }
+                        } else { text_input_s.value() };
+                        let mut d = display_for_menu.borrow_mut();
+                        let editor = d.editor_mut();
+                        if let Some((b, i)) = link_pos {
+                            editor.edit_link_at(b, i, &dest, &txt).ok();
+                        } else if !txt.is_empty() {
+                            if editor.selection().is_some() { editor.replace_selection_with_link(&dest, &txt).ok(); }
+                            else { editor.insert_link_at_cursor(&dest, &txt).ok(); }
+                        }
+                        drop(d);
+                        win_for_save.hide();
+                        redraw_widget.redraw();
+                    }
+                });
+
+                // Remove action
+                remove_btn.set_callback({
+                    let display_for_menu = display_for_menu.clone();
+                    let mut redraw_widget = widget_for_menu.clone();
+                    move |_| {
+                        if let Some((b, i)) = link_pos {
+                            let mut d = display_for_menu.borrow_mut();
+                            d.editor_mut().remove_link_at(b, i).ok();
+                            drop(d);
+                        }
+                        win_for_remove.hide();
+                        redraw_widget.redraw();
+                    }
+                });
+
+                // Cancel action
+                cancel_btn.set_callback(move |_| { win_for_cancel.hide(); });
+
+                win.end();
+                // Center over window and focus target
+                win.make_resizable(false);
+                let dlg_w = 420; let dlg_h = 160;
+                let mut dw_for_center = widget_for_menu.clone();
+                let mut parent = dw_for_center.parent().unwrap_or(dw_for_center.clone());
+                let cx = parent.x() + (parent.w() - dlg_w) / 2;
+                let cy = parent.y() + (parent.h() - dlg_h) / 2;
+                win.set_pos(cx.max(0), cy.max(0));
+                win.show();
+                let _ = target_input.take_focus();
+            }
+        );
+
         // Bullet list toggle (Cmd/Ctrl-Shift-8) under Paragraph Style
         #[cfg(target_os = "macos")]
         let list_shortcut = enums::Shortcut::Command | enums::Shortcut::Shift | '8';
@@ -326,7 +456,7 @@ fn main() {
             list_shortcut,
             menu::MenuFlag::Normal,
             {
-                let display = display_for_menu.clone();
+                let display = display.clone();
                 move |_| {
                     display.borrow_mut().editor_mut().toggle_list().ok();
                 }
