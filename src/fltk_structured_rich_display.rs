@@ -166,9 +166,46 @@ impl FltkStructuredRichDisplay {
                             menu.set_pos(x, y);
 
                             // Paragraph Style submenu
+                            // Platform-specific shortcuts for paragraph and headings
+                            #[cfg(target_os = "macos")]
+                            let para_shortcut = fltk::enums::Shortcut::Command
+                                | fltk::enums::Shortcut::Alt
+                                | '0';
+                            #[cfg(not(target_os = "macos"))]
+                            let para_shortcut = fltk::enums::Shortcut::Ctrl
+                                | fltk::enums::Shortcut::Alt
+                                | '0';
+
+                            #[cfg(target_os = "macos")]
+                            let h1_shortcut = fltk::enums::Shortcut::Command
+                                | fltk::enums::Shortcut::Alt
+                                | '1';
+                            #[cfg(not(target_os = "macos"))]
+                            let h1_shortcut = fltk::enums::Shortcut::Ctrl
+                                | fltk::enums::Shortcut::Alt
+                                | '1';
+
+                            #[cfg(target_os = "macos")]
+                            let h2_shortcut = fltk::enums::Shortcut::Command
+                                | fltk::enums::Shortcut::Alt
+                                | '2';
+                            #[cfg(not(target_os = "macos"))]
+                            let h2_shortcut = fltk::enums::Shortcut::Ctrl
+                                | fltk::enums::Shortcut::Alt
+                                | '2';
+
+                            #[cfg(target_os = "macos")]
+                            let h3_shortcut = fltk::enums::Shortcut::Command
+                                | fltk::enums::Shortcut::Alt
+                                | '3';
+                            #[cfg(not(target_os = "macos"))]
+                            let h3_shortcut = fltk::enums::Shortcut::Ctrl
+                                | fltk::enums::Shortcut::Alt
+                                | '3';
+
                             menu.add(
-                                "Paragraph Style/Paragraph",
-                                fltk::enums::Shortcut::None,
+                                "Paragraph Style/Paragraph\t",
+                                para_shortcut,
                                 fltk::menu::MenuFlag::Normal,
                                 {
                                     let display = display.clone();
@@ -189,8 +226,8 @@ impl FltkStructuredRichDisplay {
                             );
 
                             menu.add(
-                                "Paragraph Style/Heading 1",
-                                fltk::enums::Shortcut::None,
+                                "Paragraph Style/Heading 1\t",
+                                h1_shortcut,
                                 fltk::menu::MenuFlag::Normal,
                                 {
                                     let display = display.clone();
@@ -211,8 +248,8 @@ impl FltkStructuredRichDisplay {
                             );
 
                             menu.add(
-                                "Paragraph Style/Heading 2",
-                                fltk::enums::Shortcut::None,
+                                "Paragraph Style/Heading 2\t",
+                                h2_shortcut,
                                 fltk::menu::MenuFlag::Normal,
                                 {
                                     let display = display.clone();
@@ -233,8 +270,8 @@ impl FltkStructuredRichDisplay {
                             );
 
                             menu.add(
-                                "Paragraph Style/Heading 3",
-                                fltk::enums::Shortcut::None,
+                                "Paragraph Style/Heading 3\t",
+                                h3_shortcut,
                                 fltk::menu::MenuFlag::Normal,
                                 {
                                     let display = display.clone();
@@ -254,9 +291,18 @@ impl FltkStructuredRichDisplay {
                                 },
                             );
 
+                            #[cfg(target_os = "macos")]
+                            let list_shortcut = fltk::enums::Shortcut::Command
+                                | fltk::enums::Shortcut::Shift
+                                | '8';
+                            #[cfg(not(target_os = "macos"))]
+                            let list_shortcut = fltk::enums::Shortcut::Ctrl
+                                | fltk::enums::Shortcut::Shift
+                                | '8';
+
                             menu.add(
-                                "Paragraph Style/List Item",
-                                fltk::enums::Shortcut::None,
+                                "Paragraph Style/List Item\t",
+                                list_shortcut,
                                 fltk::menu::MenuFlag::Normal,
                                 {
                                     let display = display.clone();
@@ -326,9 +372,18 @@ impl FltkStructuredRichDisplay {
                                 },
                             );
 
+                            #[cfg(target_os = "macos")]
+                            let code_shortcut = fltk::enums::Shortcut::Command
+                                | fltk::enums::Shortcut::Shift
+                                | 'c';
+                            #[cfg(not(target_os = "macos"))]
+                            let code_shortcut = fltk::enums::Shortcut::Ctrl
+                                | fltk::enums::Shortcut::Shift
+                                | 'c';
+
                             menu.add(
-                                "Toggle Code",
-                                fltk::enums::Shortcut::None,
+                                "Toggle Code\t",
+                                code_shortcut,
                                 fltk::menu::MenuFlag::Normal,
                                 {
                                     let display = display.clone();
@@ -344,9 +399,18 @@ impl FltkStructuredRichDisplay {
                                 },
                             );
 
+                            #[cfg(target_os = "macos")]
+                            let strike_shortcut = fltk::enums::Shortcut::Command
+                                | fltk::enums::Shortcut::Shift
+                                | 'x';
+                            #[cfg(not(target_os = "macos"))]
+                            let strike_shortcut = fltk::enums::Shortcut::Ctrl
+                                | fltk::enums::Shortcut::Shift
+                                | 'x';
+
                             menu.add(
-                                "Toggle Strikethrough",
-                                fltk::enums::Shortcut::None,
+                                "Toggle Strikethrough\t",
+                                strike_shortcut,
                                 fltk::menu::MenuFlag::Normal,
                                 {
                                     let display = display.clone();
@@ -389,9 +453,18 @@ impl FltkStructuredRichDisplay {
                                 },
                             );
 
+                            #[cfg(target_os = "macos")]
+                            let highlight_shortcut = fltk::enums::Shortcut::Command
+                                | fltk::enums::Shortcut::Shift
+                                | 'h';
+                            #[cfg(not(target_os = "macos"))]
+                            let highlight_shortcut = fltk::enums::Shortcut::Ctrl
+                                | fltk::enums::Shortcut::Shift
+                                | 'h';
+
                             menu.add(
-                                "Toggle Highlight",
-                                fltk::enums::Shortcut::None,
+                                "Toggle Highlight\t",
+                                highlight_shortcut,
                                 fltk::menu::MenuFlag::Normal,
                                 {
                                     let display = display.clone();
@@ -705,10 +778,55 @@ impl FltkStructuredRichDisplay {
                                 let mut menu = fltk::menu::MenuButton::default();
                                 menu.set_pos(x, y);
 
-                                // Paragraph Style submenu
+                                // Paragraph Style submenu with accelerators
+                                #[cfg(target_os = "macos")]
+                                let para_shortcut = fltk::enums::Shortcut::Command
+                                    | fltk::enums::Shortcut::Alt
+                                    | '0';
+                                #[cfg(not(target_os = "macos"))]
+                                let para_shortcut = fltk::enums::Shortcut::Ctrl
+                                    | fltk::enums::Shortcut::Alt
+                                    | '0';
+
+                                #[cfg(target_os = "macos")]
+                                let h1_shortcut = fltk::enums::Shortcut::Command
+                                    | fltk::enums::Shortcut::Alt
+                                    | '1';
+                                #[cfg(not(target_os = "macos"))]
+                                let h1_shortcut = fltk::enums::Shortcut::Ctrl
+                                    | fltk::enums::Shortcut::Alt
+                                    | '1';
+
+                                #[cfg(target_os = "macos")]
+                                let h2_shortcut = fltk::enums::Shortcut::Command
+                                    | fltk::enums::Shortcut::Alt
+                                    | '2';
+                                #[cfg(not(target_os = "macos"))]
+                                let h2_shortcut = fltk::enums::Shortcut::Ctrl
+                                    | fltk::enums::Shortcut::Alt
+                                    | '2';
+
+                                #[cfg(target_os = "macos")]
+                                let h3_shortcut = fltk::enums::Shortcut::Command
+                                    | fltk::enums::Shortcut::Alt
+                                    | '3';
+                                #[cfg(not(target_os = "macos"))]
+                                let h3_shortcut = fltk::enums::Shortcut::Ctrl
+                                    | fltk::enums::Shortcut::Alt
+                                    | '3';
+
+                                #[cfg(target_os = "macos")]
+                                let list_shortcut = fltk::enums::Shortcut::Command
+                                    | fltk::enums::Shortcut::Shift
+                                    | '8';
+                                #[cfg(not(target_os = "macos"))]
+                                let list_shortcut = fltk::enums::Shortcut::Ctrl
+                                    | fltk::enums::Shortcut::Shift
+                                    | '8';
+
                                 menu.add(
-                                    "Paragraph Style/Paragraph",
-                                    fltk::enums::Shortcut::None,
+                                    "Paragraph Style/Paragraph\t",
+                                    para_shortcut,
                                     fltk::menu::MenuFlag::Normal,
                                     {
                                         let display = display.clone();
@@ -725,8 +843,8 @@ impl FltkStructuredRichDisplay {
                                 );
 
                                 menu.add(
-                                    "Paragraph Style/Heading 1",
-                                    fltk::enums::Shortcut::None,
+                                    "Paragraph Style/Heading 1\t",
+                                    h1_shortcut,
                                     fltk::menu::MenuFlag::Normal,
                                     {
                                         let display = display.clone();
@@ -743,8 +861,8 @@ impl FltkStructuredRichDisplay {
                                 );
 
                                 menu.add(
-                                    "Paragraph Style/Heading 2",
-                                    fltk::enums::Shortcut::None,
+                                    "Paragraph Style/Heading 2\t",
+                                    h2_shortcut,
                                     fltk::menu::MenuFlag::Normal,
                                     {
                                         let display = display.clone();
@@ -761,8 +879,8 @@ impl FltkStructuredRichDisplay {
                                 );
 
                                 menu.add(
-                                    "Paragraph Style/Heading 3",
-                                    fltk::enums::Shortcut::None,
+                                    "Paragraph Style/Heading 3\t",
+                                    h3_shortcut,
                                     fltk::menu::MenuFlag::Normal,
                                     {
                                         let display = display.clone();
@@ -779,8 +897,8 @@ impl FltkStructuredRichDisplay {
                                 );
 
                                 menu.add(
-                                    "Paragraph Style/List Item",
-                                    fltk::enums::Shortcut::None,
+                                    "Paragraph Style/List Item\t",
+                                    list_shortcut,
                                     fltk::menu::MenuFlag::Normal,
                                     {
                                         let display = display.clone();
@@ -838,9 +956,18 @@ impl FltkStructuredRichDisplay {
                                     },
                                 );
 
+                                #[cfg(target_os = "macos")]
+                                let code_shortcut = fltk::enums::Shortcut::Command
+                                    | fltk::enums::Shortcut::Shift
+                                    | 'c';
+                                #[cfg(not(target_os = "macos"))]
+                                let code_shortcut = fltk::enums::Shortcut::Ctrl
+                                    | fltk::enums::Shortcut::Shift
+                                    | 'c';
+
                                 menu.add(
-                                    "Toggle Code",
-                                    fltk::enums::Shortcut::None,
+                                    "Toggle Code\t",
+                                    code_shortcut,
                                     fltk::menu::MenuFlag::Normal,
                                     {
                                         let display = display.clone();
@@ -852,9 +979,18 @@ impl FltkStructuredRichDisplay {
                                     },
                                 );
 
+                                #[cfg(target_os = "macos")]
+                                let strike_shortcut = fltk::enums::Shortcut::Command
+                                    | fltk::enums::Shortcut::Shift
+                                    | 'x';
+                                #[cfg(not(target_os = "macos"))]
+                                let strike_shortcut = fltk::enums::Shortcut::Ctrl
+                                    | fltk::enums::Shortcut::Shift
+                                    | 'x';
+
                                 menu.add(
-                                    "Toggle Strikethrough",
-                                    fltk::enums::Shortcut::None,
+                                    "Toggle Strikethrough\t",
+                                    strike_shortcut,
                                     fltk::menu::MenuFlag::Normal,
                                     {
                                         let display = display.clone();
@@ -893,9 +1029,18 @@ impl FltkStructuredRichDisplay {
                                     },
                                 );
 
+                                #[cfg(target_os = "macos")]
+                                let highlight_shortcut = fltk::enums::Shortcut::Command
+                                    | fltk::enums::Shortcut::Shift
+                                    | 'h';
+                                #[cfg(not(target_os = "macos"))]
+                                let highlight_shortcut = fltk::enums::Shortcut::Ctrl
+                                    | fltk::enums::Shortcut::Shift
+                                    | 'h';
+
                                 menu.add(
-                                    "Toggle Highlight",
-                                    fltk::enums::Shortcut::None,
+                                    "Toggle Highlight\t",
+                                    highlight_shortcut,
                                     fltk::menu::MenuFlag::Normal,
                                     {
                                         let display = display.clone();
@@ -1015,18 +1160,32 @@ impl FltkStructuredRichDisplay {
                             // Check for Cmd/Ctrl modifier (without Shift)
                             #[cfg(target_os = "macos")]
                             let cmd_modifier = state.contains(Shortcut::Command)
-                                && !state.contains(Shortcut::Shift);
+                                && !state.contains(Shortcut::Shift)
+                                && !state.contains(Shortcut::Alt);
                             #[cfg(not(target_os = "macos"))]
-                            let cmd_modifier =
-                                state.contains(Shortcut::Ctrl) && !state.contains(Shortcut::Shift);
+                            let cmd_modifier = state.contains(Shortcut::Ctrl)
+                                && !state.contains(Shortcut::Shift)
+                                && !state.contains(Shortcut::Alt);
 
                             // Check for Cmd/Ctrl-Shift modifier
                             #[cfg(target_os = "macos")]
-                            let cmd_shift_modifier =
-                                state.contains(Shortcut::Command | Shortcut::Shift);
+                            let cmd_shift_modifier = state.contains(Shortcut::Command)
+                                && state.contains(Shortcut::Shift)
+                                && !state.contains(Shortcut::Alt);
                             #[cfg(not(target_os = "macos"))]
-                            let cmd_shift_modifier =
-                                state.contains(Shortcut::Ctrl | Shortcut::Shift);
+                            let cmd_shift_modifier = state.contains(Shortcut::Ctrl)
+                                && state.contains(Shortcut::Shift)
+                                && !state.contains(Shortcut::Alt);
+
+                            // Check for Cmd/Ctrl-Alt modifier (for headings/paragraph)
+                            #[cfg(target_os = "macos")]
+                            let cmd_alt_modifier =
+                                state.contains(Shortcut::Command | Shortcut::Alt)
+                                    && !state.contains(Shortcut::Shift);
+                            #[cfg(not(target_os = "macos"))]
+                            let cmd_alt_modifier =
+                                state.contains(Shortcut::Ctrl | Shortcut::Alt)
+                                    && !state.contains(Shortcut::Shift);
 
                             // Cmd/Ctrl-A (Select All) - no content change
                             if cmd_modifier && key == Key::from_char('a') {
@@ -1094,10 +1253,28 @@ impl FltkStructuredRichDisplay {
                                 fltk::app::paste(w);
                                 handled = true;
                             }
-                            // Check for Cmd/Ctrl-Shift-H (toggle heading)
+                            // Cmd/Ctrl-Shift-H (toggle highlight)
                             else if cmd_shift_modifier && key == Key::from_char('h') {
                                 let mut disp = display.borrow_mut();
-                                disp.editor_mut().toggle_heading().ok();
+                                disp.editor_mut().toggle_highlight().ok();
+                                if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                    (cb)();
+                                }
+                                handled = true;
+                            }
+                            // Cmd/Ctrl-Shift-C (toggle code)
+                            else if cmd_shift_modifier && key == Key::from_char('c') {
+                                let mut disp = display.borrow_mut();
+                                disp.editor_mut().toggle_code().ok();
+                                if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                    (cb)();
+                                }
+                                handled = true;
+                            }
+                            // Cmd/Ctrl-Shift-X (toggle strikethrough)
+                            else if cmd_shift_modifier && key == Key::from_char('x') {
+                                let mut disp = display.borrow_mut();
+                                disp.editor_mut().toggle_strikethrough().ok();
                                 if let Some(cb) = &mut *change_cb.borrow_mut() {
                                     (cb)();
                                 }
@@ -1110,6 +1287,44 @@ impl FltkStructuredRichDisplay {
                             {
                                 let mut disp = display.borrow_mut();
                                 disp.editor_mut().toggle_list().ok();
+                                if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                    (cb)();
+                                }
+                                handled = true;
+                            }
+                            // Cmd/Ctrl-Alt-1..3: set heading level 1..3
+                            else if cmd_alt_modifier && key == Key::from_char('1') {
+                                let mut disp = display.borrow_mut();
+                                disp.editor_mut()
+                                    .set_block_type(BlockType::Heading { level: 1 })
+                                    .ok();
+                                if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                    (cb)();
+                                }
+                                handled = true;
+                            } else if cmd_alt_modifier && key == Key::from_char('2') {
+                                let mut disp = display.borrow_mut();
+                                disp.editor_mut()
+                                    .set_block_type(BlockType::Heading { level: 2 })
+                                    .ok();
+                                if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                    (cb)();
+                                }
+                                handled = true;
+                            } else if cmd_alt_modifier && key == Key::from_char('3') {
+                                let mut disp = display.borrow_mut();
+                                disp.editor_mut()
+                                    .set_block_type(BlockType::Heading { level: 3 })
+                                    .ok();
+                                if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                    (cb)();
+                                }
+                                handled = true;
+                            }
+                            // Cmd/Ctrl-Alt-0: set paragraph
+                            else if cmd_alt_modifier && key == Key::from_char('0') {
+                                let mut disp = display.borrow_mut();
+                                disp.editor_mut().set_block_type(BlockType::Paragraph).ok();
                                 if let Some(cb) = &mut *change_cb.borrow_mut() {
                                     (cb)();
                                 }

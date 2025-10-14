@@ -91,7 +91,7 @@ fn create_menu(
     // Navigate menu
     menu_bar.add(
         "Navigate/Index\t",
-        enums::Shortcut::Command | 'i',
+        enums::Shortcut::Command | enums::Shortcut::Alt | 'i',
         menu::MenuFlag::Normal,
         {
             let app_state = app_state.clone();
@@ -116,7 +116,7 @@ fn create_menu(
 
     menu_bar.add(
         "Navigate/Frontpage\t",
-        enums::Shortcut::Command | 'f',
+        enums::Shortcut::Command | enums::Shortcut::Alt | 'f',
         menu::MenuFlag::Normal,
         {
             let app_state = app_state.clone();
@@ -294,7 +294,7 @@ fn create_menu(
         let save_status = save_status.clone();
         menu_bar.add(
             "&Index",
-            enums::Shortcut::Ctrl | 'i',
+            enums::Shortcut::Ctrl | enums::Shortcut::Alt | 'i',
             menu::MenuFlag::Normal,
             move |_| {
                 load_page_helper(
@@ -319,7 +319,7 @@ fn create_menu(
         let save_status = save_status.clone();
         menu_bar.add(
             "&Frontpage",
-            enums::Shortcut::Ctrl | 'f',
+            enums::Shortcut::Ctrl | enums::Shortcut::Alt | 'f',
             menu::MenuFlag::Normal,
             move |_| {
                 load_page_helper(

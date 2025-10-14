@@ -261,9 +261,14 @@ fn main() {
             },
         );
 
+        // Strikethrough (Cmd/Ctrl-Shift-X)
+        #[cfg(target_os = "macos")]
+        let strike_shortcut = enums::Shortcut::Command | enums::Shortcut::Shift | 'x';
+        #[cfg(not(target_os = "macos"))]
+        let strike_shortcut = enums::Shortcut::Ctrl | enums::Shortcut::Shift | 'x';
         menu_bar.add(
-            "Format/Strikethrough",
-            enums::Shortcut::None,
+            "Format/Strikethrough\t",
+            strike_shortcut,
             menu::MenuFlag::Normal,
             {
                 let display = display_for_menu.clone();
@@ -277,9 +282,14 @@ fn main() {
             },
         );
 
+        // Highlight (Cmd/Ctrl-Shift-H)
+        #[cfg(target_os = "macos")]
+        let highlight_shortcut = enums::Shortcut::Command | enums::Shortcut::Shift | 'h';
+        #[cfg(not(target_os = "macos"))]
+        let highlight_shortcut = enums::Shortcut::Ctrl | enums::Shortcut::Shift | 'h';
         menu_bar.add(
-            "Format/Highlight",
-            enums::Shortcut::None,
+            "Format/Highlight\t",
+            highlight_shortcut,
             menu::MenuFlag::Normal,
             {
                 let display = display_for_menu.clone();
@@ -289,14 +299,122 @@ fn main() {
             },
         );
 
+        // Code (Cmd/Ctrl-Shift-C)
+        #[cfg(target_os = "macos")]
+        let code_shortcut = enums::Shortcut::Command | enums::Shortcut::Shift | 'c';
+        #[cfg(not(target_os = "macos"))]
+        let code_shortcut = enums::Shortcut::Ctrl | enums::Shortcut::Shift | 'c';
         menu_bar.add(
-            "Format/Code",
-            enums::Shortcut::None,
+            "Format/Code\t",
+            code_shortcut,
             menu::MenuFlag::Normal,
             {
                 let display = display_for_menu.clone();
                 move |_| {
                     display.borrow_mut().editor_mut().toggle_code().ok();
+                }
+            },
+        );
+
+        // Bullet list toggle (Cmd/Ctrl-Shift-8) under Paragraph Style
+        #[cfg(target_os = "macos")]
+        let list_shortcut = enums::Shortcut::Command | enums::Shortcut::Shift | '8';
+        #[cfg(not(target_os = "macos"))]
+        let list_shortcut = enums::Shortcut::Ctrl | enums::Shortcut::Shift | '8';
+        menu_bar.add(
+            "Paragraph Style/List Item\t",
+            list_shortcut,
+            menu::MenuFlag::Normal,
+            {
+                let display = display_for_menu.clone();
+                move |_| {
+                    display.borrow_mut().editor_mut().toggle_list().ok();
+                }
+            },
+        );
+
+        // Paragraph Style (Cmd/Ctrl-Alt-0..3)
+        #[cfg(target_os = "macos")]
+        let para_shortcut = enums::Shortcut::Command | enums::Shortcut::Alt | '0';
+        #[cfg(not(target_os = "macos"))]
+        let para_shortcut = enums::Shortcut::Ctrl | enums::Shortcut::Alt | '0';
+
+        #[cfg(target_os = "macos")]
+        let h1_shortcut = enums::Shortcut::Command | enums::Shortcut::Alt | '1';
+        #[cfg(not(target_os = "macos"))]
+        let h1_shortcut = enums::Shortcut::Ctrl | enums::Shortcut::Alt | '1';
+
+        #[cfg(target_os = "macos")]
+        let h2_shortcut = enums::Shortcut::Command | enums::Shortcut::Alt | '2';
+        #[cfg(not(target_os = "macos"))]
+        let h2_shortcut = enums::Shortcut::Ctrl | enums::Shortcut::Alt | '2';
+
+        #[cfg(target_os = "macos")]
+        let h3_shortcut = enums::Shortcut::Command | enums::Shortcut::Alt | '3';
+        #[cfg(not(target_os = "macos"))]
+        let h3_shortcut = enums::Shortcut::Ctrl | enums::Shortcut::Alt | '3';
+
+        let display_for_menu = display.clone();
+        menu_bar.add(
+            "Paragraph Style/Paragraph\t",
+            para_shortcut,
+            menu::MenuFlag::Normal,
+            {
+                let display = display_for_menu.clone();
+                move |_| {
+                    display
+                        .borrow_mut()
+                        .editor_mut()
+                        .set_block_type(fliki_rs::richtext::structured_document::BlockType::Paragraph)
+                        .ok();
+                }
+            },
+        );
+        let display_for_menu = display.clone();
+        menu_bar.add(
+            "Paragraph Style/Heading 1\t",
+            h1_shortcut,
+            menu::MenuFlag::Normal,
+            {
+                let display = display_for_menu.clone();
+                move |_| {
+                    display
+                        .borrow_mut()
+                        .editor_mut()
+                        .set_block_type(fliki_rs::richtext::structured_document::BlockType::Heading { level: 1 })
+                        .ok();
+                }
+            },
+        );
+        let display_for_menu = display.clone();
+        menu_bar.add(
+            "Paragraph Style/Heading 2\t",
+            h2_shortcut,
+            menu::MenuFlag::Normal,
+            {
+                let display = display_for_menu.clone();
+                move |_| {
+                    display
+                        .borrow_mut()
+                        .editor_mut()
+                        .set_block_type(fliki_rs::richtext::structured_document::BlockType::Heading { level: 2 })
+                        .ok();
+                }
+            },
+        );
+        let display_for_menu = display.clone();
+        menu_bar.add(
+            "Paragraph Style/Heading 3\t",
+            h3_shortcut,
+            menu::MenuFlag::Normal,
+            {
+                let display = display_for_menu.clone();
+                move |_| {
+                    display
+                        .borrow_mut()
+                        .editor_mut()
+                        .set_block_type(fliki_rs::richtext::structured_document::BlockType::Heading { level: 3 })
+                        .ok();
                 }
             },
         );
