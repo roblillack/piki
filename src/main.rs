@@ -4,6 +4,7 @@ mod editor;
 pub mod fltk_text_display;
 mod history;
 mod link_handler;
+mod page_picker;
 mod plugin;
 pub mod responsive_scrollbar;
 pub mod sourceedit;
@@ -89,6 +90,33 @@ fn create_menu(
     let mut menu_bar = menu::SysMenuBar::default();
 
     // Navigate menu
+    // Open Page (Cmd+P)
+    menu_bar.add(
+        "Navigate/Open Page…\t",
+        enums::Shortcut::Command | 'p',
+        menu::MenuFlag::Normal,
+        {
+            let app_state = app_state.clone();
+            let autosave_state = autosave_state.clone();
+            let active_editor = active_editor.clone();
+            let page_status = page_status.clone();
+            let save_status = save_status.clone();
+            let wind_ref = wind_ref.clone();
+            move |_| {
+                if let Ok(w) = wind_ref.try_borrow() {
+                    page_picker::show_page_picker(
+                        app_state.clone(),
+                        autosave_state.clone(),
+                        active_editor.clone(),
+                        page_status.clone(),
+                        save_status.clone(),
+                        &*w,
+                    );
+                }
+            }
+        },
+    );
+
     menu_bar.add(
         "Navigate/Index\t",
         enums::Shortcut::Command | enums::Shortcut::Alt | 'i',
@@ -284,6 +312,33 @@ fn create_menu(
 ) -> menu::MenuBar {
     // Use regular menu bar on other platforms
     let mut menu_bar = menu::MenuBar::new(0, 0, 660, 25, None);
+
+    // Open Page (Ctrl+P)
+    {
+        let app_state = app_state.clone();
+        let autosave_state = autosave_state.clone();
+        let active_editor = active_editor.clone();
+        let page_status = page_status.clone();
+        let save_status = save_status.clone();
+        let wind_ref = wind_ref.clone();
+        menu_bar.add(
+            "&Open Page…",
+            enums::Shortcut::Ctrl | 'p',
+            menu::MenuFlag::Normal,
+            move |_| {
+                if let Ok(w) = wind_ref.try_borrow() {
+                    page_picker::show_page_picker(
+                        app_state.clone(),
+                        autosave_state.clone(),
+                        active_editor.clone(),
+                        page_status.clone(),
+                        save_status.clone(),
+                        &*w,
+                    );
+                }
+            },
+        );
+    }
 
     // Index menu item
     {
@@ -763,6 +818,32 @@ fn main() {
     wind.end();
     active_editor.borrow().borrow().set_resizable(&mut wind);
     wind.show();
+
+    // Clicking the page status opens the page picker
+    {
+        let app_state = app_state.clone();
+        let autosave_state = autosave_state.clone();
+        let active_editor = active_editor.clone();
+        let page_status_for_click = page_status.clone();
+        let save_status_for_click = save_status.clone();
+        let wind_for_click = wind.clone();
+        page_status
+            .borrow_mut()
+            .handle(move |_, ev| match ev {
+                enums::Event::Push => {
+                    page_picker::show_page_picker(
+                        app_state.clone(),
+                        autosave_state.clone(),
+                        active_editor.clone(),
+                        page_status_for_click.clone(),
+                        save_status_for_click.clone(),
+                        &wind_for_click,
+                    );
+                    true
+                }
+                _ => false,
+            });
+    }
 
     // Load initial page
     load_page_helper(
