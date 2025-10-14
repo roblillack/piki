@@ -170,9 +170,222 @@ impl FltkStructuredRichDisplay {
                             let x = fltk::app::event_x();
                             let y = fltk::app::event_y();
 
-                            // Create context menu
-                            let mut menu = fltk::menu::MenuButton::default();
-                            menu.set_pos(x, y);
+                            // Unified context menu via context_menu module
+                            let has_selection = display.borrow().editor().selection().is_some();
+                            let mut w_for_actions = w.clone();
+                            let actions = crate::context_menu::MenuActions {
+                                has_selection,
+                                set_paragraph: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let mut w_r = w_for_actions.clone();
+                                    move || {
+                                        display.borrow_mut().editor_mut().set_block_type(BlockType::Paragraph).ok();
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
+                                        w_r.redraw();
+                                    }
+                                }),
+                                set_heading1: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let mut w_r = w_for_actions.clone();
+                                    move || {
+                                        display.borrow_mut().editor_mut().set_block_type(BlockType::Heading { level: 1 }).ok();
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
+                                        w_r.redraw();
+                                    }
+                                }),
+                                set_heading2: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let mut w_r = w_for_actions.clone();
+                                    move || {
+                                        display.borrow_mut().editor_mut().set_block_type(BlockType::Heading { level: 2 }).ok();
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
+                                        w_r.redraw();
+                                    }
+                                }),
+                                set_heading3: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let mut w_r = w_for_actions.clone();
+                                    move || {
+                                        display.borrow_mut().editor_mut().set_block_type(BlockType::Heading { level: 3 }).ok();
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
+                                        w_r.redraw();
+                                    }
+                                }),
+                                toggle_list: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let mut w_r = w_for_actions.clone();
+                                    move || {
+                                        display.borrow_mut().editor_mut().toggle_list().ok();
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
+                                        w_r.redraw();
+                                    }
+                                }),
+                                toggle_bold: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let mut w_r = w_for_actions.clone();
+                                    move || {
+                                        display.borrow_mut().editor_mut().toggle_bold().ok();
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
+                                        w_r.redraw();
+                                    }
+                                }),
+                                toggle_italic: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let mut w_r = w_for_actions.clone();
+                                    move || {
+                                        display.borrow_mut().editor_mut().toggle_italic().ok();
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
+                                        w_r.redraw();
+                                    }
+                                }),
+                                toggle_code: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let mut w_r = w_for_actions.clone();
+                                    move || {
+                                        display.borrow_mut().editor_mut().toggle_code().ok();
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
+                                        w_r.redraw();
+                                    }
+                                }),
+                                toggle_strike: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let mut w_r = w_for_actions.clone();
+                                    move || {
+                                        display.borrow_mut().editor_mut().toggle_strikethrough().ok();
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
+                                        w_r.redraw();
+                                    }
+                                }),
+                                toggle_underline: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let mut w_r = w_for_actions.clone();
+                                    move || {
+                                        display.borrow_mut().editor_mut().toggle_underline().ok();
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
+                                        w_r.redraw();
+                                    }
+                                }),
+                                toggle_highlight: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let mut w_r = w_for_actions.clone();
+                                    move || {
+                                        display.borrow_mut().editor_mut().toggle_highlight().ok();
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
+                                        w_r.redraw();
+                                    }
+                                }),
+                                clear_formatting: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let mut w_r = w_for_actions.clone();
+                                    move || {
+                                        display.borrow_mut().editor_mut().clear_formatting().ok();
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
+                                        w_r.redraw();
+                                    }
+                                }),
+                                cut: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let mut w_r = w_for_actions.clone();
+                                    move || {
+                                        if let Ok(text) = display.borrow_mut().editor_mut().cut() { fltk::app::copy(&text); }
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
+                                        w_r.redraw();
+                                    }
+                                }),
+                                copy: Box::new({
+                                    let display = display.clone();
+                                    move || {
+                                        let text = display.borrow().editor().copy();
+                                        if !text.is_empty() { fltk::app::copy(&text); }
+                                    }
+                                }),
+                                paste: Box::new({
+                                    let mut w_r = w_for_actions.clone();
+                                    move || { fltk::app::paste(&mut w_r); }
+                                }),
+                                edit_link: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let w_for_dialog = w.clone();
+                                    move || {
+                                        // Determine initial state: hovered link, selection, or empty
+                                        let (init_target, init_text, mode_existing_link, selection_mode, link_pos) = {
+                                            let mut disp = display.borrow_mut();
+                                            if let Some((b, i)) = disp.hovered_link() {
+                                                let doc = disp.editor().document();
+                                                let block = &doc.blocks()[b];
+                                                if let InlineContent::Link { link, content } = &block.content[i] {
+                                                    let text = content.iter().map(|c| c.to_plain_text()).collect::<String>();
+                                                    (link.destination.clone(), text, true, false, Some((b, i)))
+                                                } else { (String::new(), String::new(), false, false, None) }
+                                            } else if let Some((a, b)) = disp.editor().selection() {
+                                                let text = disp.editor().text_in_range(a, b);
+                                                (String::new(), text, false, true, None)
+                                            } else {
+                                                (String::new(), String::new(), false, false, None)
+                                            }
+                                        };
+
+                                        let center_rect = if let Some(parent) = w_for_dialog.window() {
+                                            Some((parent.x(), parent.y(), parent.w(), parent.h()))
+                                        } else { None };
+
+                                        let opts = crate::link_editor::LinkEditOptions {
+                                            init_target,
+                                            init_text: init_text.clone(),
+                                            mode_existing_link,
+                                            selection_mode,
+                                            center_rect,
+                                        };
+
+                                        let display_cb = display.clone();
+                                        let change_cb_ref = change_cb.clone();
+                                        crate::link_editor::show_link_editor(
+                                            opts,
+                                            move |dest: String, txt: String| {
+                                                let mut disp = display_cb.borrow_mut();
+                                                let editor = disp.editor_mut();
+                                                if let Some((b, i)) = link_pos {
+                                                    editor.edit_link_at(b, i, &dest, &txt).ok();
+                                                } else if !txt.is_empty() {
+                                                    if editor.selection().is_some() { editor.replace_selection_with_link(&dest, &txt).ok(); }
+                                                    else { editor.insert_link_at_cursor(&dest, &txt).ok(); }
+                                                }
+                                                drop(disp);
+                                                if let Some(cb) = &mut *change_cb_ref.borrow_mut() { (cb)(); }
+                                            },
+                                            Some({
+                                                let display_rm = display.clone();
+                                                let change_cb_rm = change_cb.clone();
+                                                move || {
+                                                    if let Some((b, i)) = link_pos {
+                                                        let mut disp = display_rm.borrow_mut();
+                                                        disp.editor_mut().remove_link_at(b, i).ok();
+                                                        drop(disp);
+                                                        if let Some(cb) = &mut *change_cb_rm.borrow_mut() { (cb)(); }
+                                                    }
+                                                }
+                                            }),
+                                        );
+                                    }
+                                }),
+                            };
+
+                            crate::context_menu::show_context_menu(x, y, actions);
+                            return true;
 
                             // Paragraph Style submenu
                             // Platform-specific shortcuts for paragraph and headings
@@ -211,6 +424,9 @@ impl FltkStructuredRichDisplay {
                             let h3_shortcut = fltk::enums::Shortcut::Ctrl
                                 | fltk::enums::Shortcut::Alt
                                 | '3';
+
+                            // Dummy menu to satisfy subsequent unreachable menu.add calls
+                            let mut menu = fltk::menu::MenuButton::default();
 
                             menu.add(
                                 "Paragraph Style/Paragraph\t",
@@ -559,66 +775,28 @@ impl FltkStructuredRichDisplay {
                                             }
                                         };
 
-                                        // Build dialog
-                                        use fltk::{button, input, window};
-                                        let mut win = window::Window::new(0, 0, 420, 160, Some("Edit Link"));
-                                        let mut target_label = fltk::frame::Frame::new(10, 10, 120, 24, Some("Link target:"));
-                                        target_label.set_align(Align::Inside | Align::Left);
-                                        let mut target_input = input::Input::new(130, 10, 280, 24, None);
-                                        target_input.set_value(&init_target);
-                                        let mut text_label = fltk::frame::Frame::new(10, 44, 120, 24, Some("Link text:"));
-                                        text_label.set_align(Align::Inside | Align::Left);
-                                        let mut text_input_w = input::Input::new(130, 44, 280, 24, None);
-                                        text_input_w.set_value(&init_text);
-
-                                        // Buttons
-                                        let mut remove_btn = button::Button::new(130, 110, 80, 30, Some("Remove"));
-                                        let mut cancel_btn = button::Button::new(220, 110, 80, 30, Some("Cancel"));
-                                        let mut save_btn = button::ReturnButton::new(310, 110, 80, 30, Some("Save"));
-                                        if !mode_existing_link { remove_btn.deactivate(); }
-
-                                        // Initial validation
-                                        {
-                                            let target_ok = !target_input.value().trim().is_empty();
-                                            let text_ok = if mode_existing_link || selection_mode { true } else { !text_input_w.value().trim().is_empty() };
-                                            if target_ok && text_ok { save_btn.activate(); } else { save_btn.deactivate(); }
-                                        }
-                                        // Live validation
-                                        let mut save_btn_v = save_btn.clone();
-                                        let mut tgt_v = target_input.clone();
-                                        let mut txt_v = text_input_w.clone();
-                                        let validate_cb = move |_i: &mut input::Input| {
-                                            let target_ok = !tgt_v.value().trim().is_empty();
-                                            let text_ok = if mode_existing_link || selection_mode { true } else { !txt_v.value().trim().is_empty() };
-                                            if target_ok && text_ok { save_btn_v.activate(); } else { save_btn_v.deactivate(); }
+                                        let center_rect = if let Some(parent) = w_for_dialog.window() {
+                                            Some((parent.x(), parent.y(), parent.w(), parent.h()))
+                                        } else {
+                                            None
                                         };
-                                        target_input.set_trigger(CallbackTrigger::Changed);
-                                        target_input.set_callback(validate_cb.clone());
-                                        text_input_w.set_trigger(CallbackTrigger::Changed);
-                                        text_input_w.set_callback(validate_cb);
 
-                                        // Prepare clones
-                                        let mut win_for_save = win.clone();
-                                        let mut win_for_remove = win.clone();
-                                        let mut win_for_cancel = win.clone();
-                                        let mut target_input_s = target_input.clone();
-                                        let mut text_input_s = text_input_w.clone();
-                                        let init_text_s = init_text.clone();
+                                        let opts = crate::link_editor::LinkEditOptions {
+                                            init_target,
+                                            init_text: init_text.clone(),
+                                            mode_existing_link,
+                                            selection_mode,
+                                            center_rect,
+                                        };
 
-                                        // Save action
-                                        let mut w_for_save_cb = w_for_dialog.clone();
-                                        save_btn.set_callback({
-                                            let display = display.clone();
-                                            let change_cb = change_cb.clone();
-                                            move |_| {
-                                                let dest = target_input_s.value();
-                                                let txt = if selection_mode || mode_existing_link {
-                                                    let val = text_input_s.value();
-                                                    if !val.is_empty() { val } else { init_text_s.clone() }
-                                                } else {
-                                                    text_input_s.value()
-                                                };
-                                                let mut disp = display.borrow_mut();
+                                        // Use shared link editor dialog
+                                let display_cb = display.clone();
+                                let change_cb_ref = change_cb.clone();
+                                let w_for_redraw = w_for_dialog.clone();
+                                        crate::link_editor::show_link_editor(
+                                            opts,
+                                            move |dest: String, txt: String| {
+                                                let mut disp = display_cb.borrow_mut();
                                                 let editor = disp.editor_mut();
                                                 if let Some((b, i)) = link_pos {
                                                     editor.edit_link_at(b, i, &dest, &txt).ok();
@@ -630,47 +808,26 @@ impl FltkStructuredRichDisplay {
                                                     }
                                                 }
                                                 drop(disp);
-                                                if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
-                                                win_for_save.hide();
-                                                w_for_save_cb.redraw();
-                                            }
-                                        });
-
-                                        // Remove action
-                                        let mut w_for_remove_cb = w_for_dialog.clone();
-                                        remove_btn.set_callback({
-                                            let display = display.clone();
-                                            let change_cb = change_cb.clone();
-                                            move |_| {
-                                                if let Some((b, i)) = link_pos {
-                                                    let mut disp = display.borrow_mut();
-                                                    disp.editor_mut().remove_link_at(b, i).ok();
-                                                    drop(disp);
-                                                    if let Some(cb) = &mut *change_cb.borrow_mut() { (cb)(); }
+                                                if let Some(cb) = &mut *change_cb_ref.borrow_mut() { (cb)(); }
+                                                let mut w_local = w_for_redraw.clone();
+                                                w_local.redraw();
+                                            },
+                                            Some({
+                                                let display_rm = display.clone();
+                                                let change_cb_rm = change_cb.clone();
+                                                let w_for_rm = w_for_dialog.clone();
+                                                move || {
+                                                    if let Some((b, i)) = link_pos {
+                                                        let mut disp = display_rm.borrow_mut();
+                                                        disp.editor_mut().remove_link_at(b, i).ok();
+                                                        drop(disp);
+                                                        if let Some(cb) = &mut *change_cb_rm.borrow_mut() { (cb)(); }
+                                                    }
+                                                    let mut w_local = w_for_rm.clone();
+                                                    w_local.redraw();
                                                 }
-                                                win_for_remove.hide();
-                                                w_for_remove_cb.redraw();
-                                            }
-                                        });
-
-                                        // Cancel action
-                                        cancel_btn.set_callback(move |_| { win_for_cancel.hide(); });
-
-                                        win.end();
-                                        // Center over window and focus target
-                                        win.make_resizable(false);
-                                        let dlg_w = 420; let dlg_h = 160;
-                                        if let Some(parent) = w_for_dialog.window() {
-                                            let cx = parent.x() + (parent.w() - dlg_w) / 2;
-                                            let cy = parent.y() + (parent.h() - dlg_h) / 2;
-                                            win.set_pos(cx.max(0), cy.max(0));
-                                        } else {
-                                            let (sx, sy, sw, sh) = fltk::app::screen_xywh(0);
-                                            let cx = sx + (sw - dlg_w) / 2; let cy = sy + (sh - dlg_h) / 2;
-                                            win.set_pos(cx.max(0), cy.max(0));
-                                        }
-                                        win.show();
-                                        let _ = target_input.take_focus();
+                                            }),
+                                        );
                                     }
                                 },
                             );
@@ -929,108 +1086,47 @@ impl FltkStructuredRichDisplay {
                                 // Gather current context: hovered link or selection
                                 let mut disp = display.borrow_mut();
                                 let hovered = disp.hovered_link();
-                                let (mut init_target, mut init_text, mode_existing_link, selection_mode, link_pos) =
-                                    if let Some((b, i)) = hovered {
-                                        // Prefill from hovered link
-                                        let doc = disp.editor().document();
-                                        let block = &doc.blocks()[b];
-                                        if let InlineContent::Link { link, content } = &block.content[i] {
-                                            let text = content.iter().map(|c| c.to_plain_text()).collect::<String>();
-                                            (link.destination.clone(), text, true, false, Some((b, i)))
-                                        } else {
-                                            (String::new(), String::new(), false, false, None)
-                                        }
-                                    } else if let Some((a, b)) = disp.editor().selection() {
-                                        let text = disp.editor().text_in_range(a, b);
-                                        (String::new(), text, false, true, None)
+                                let (init_target, init_text, mode_existing_link, selection_mode, link_pos) = if let Some((b, i)) = hovered {
+                                    // Prefill from hovered link
+                                    let doc = disp.editor().document();
+                                    let block = &doc.blocks()[b];
+                                    if let InlineContent::Link { link, content } = &block.content[i] {
+                                        let text = content.iter().map(|c| c.to_plain_text()).collect::<String>();
+                                        (link.destination.clone(), text, true, false, Some((b, i)))
                                     } else {
                                         (String::new(), String::new(), false, false, None)
-                                    };
+                                    }
+                                } else if let Some((a, b)) = disp.editor().selection() {
+                                    let text = disp.editor().text_in_range(a, b);
+                                    (String::new(), text, false, true, None)
+                                } else {
+                                    (String::new(), String::new(), false, false, None)
+                                };
 
                                 drop(disp); // release borrow before creating UI
 
-                                use fltk::{button, input, window};
-                                // Build dialog
-                                let mut win = window::Window::new(0, 0, 420, 160, Some("Edit Link"));
-                                let mut target_label = fltk::frame::Frame::new(10, 10, 120, 24, Some("Link target:"));
-                                target_label.set_align(Align::Inside | Align::Left);
-                                let mut target_input = input::Input::new(130, 10, 280, 24, None);
-                                target_input.set_value(&init_target);
-
-                                let mut text_label = fltk::frame::Frame::new(10, 44, 120, 24, Some("Link text:"));
-                                text_label.set_align(Align::Inside | Align::Left);
-                                let mut text_input_w = input::Input::new(130, 44, 280, 24, None);
-                                text_input_w.set_value(&init_text);
-
-                                // Button order: Remove <-----> Cancel [Save]
-                                let mut remove_btn = button::Button::new(130, 110, 80, 30, Some("Remove"));
-                                let mut cancel_btn = button::Button::new(220, 110, 80, 30, Some("Cancel"));
-                                let mut save_btn = button::ReturnButton::new(310, 110, 80, 30, Some("Save"));
-
-                                if !mode_existing_link {
-                                    remove_btn.deactivate();
-                                }
-
-                                // Validation: enable Save only when inputs are valid for the mode
-                                // Initial validation
-                                {
-                                    let target_ok = !target_input.value().trim().is_empty();
-                                    let text_ok = if mode_existing_link || selection_mode {
-                                        true
-                                    } else {
-                                        !text_input_w.value().trim().is_empty()
-                                    };
-                                    if target_ok && text_ok {
-                                        save_btn.activate();
-                                    } else {
-                                        save_btn.deactivate();
-                                    }
-                                }
-
-                                // Live validation callbacks
-                                let mut save_btn_v = save_btn.clone();
-                                let mut tgt_v = target_input.clone();
-                                let mut txt_v = text_input_w.clone();
-                                let validate_cb = move |_i: &mut input::Input| {
-                                    let target_ok = !tgt_v.value().trim().is_empty();
-                                    let text_ok = if mode_existing_link || selection_mode {
-                                        true
-                                    } else {
-                                        !txt_v.value().trim().is_empty()
-                                    };
-                                    if target_ok && text_ok {
-                                        save_btn_v.activate();
-                                    } else {
-                                        save_btn_v.deactivate();
-                                    }
+                                // Center rectangle from the current window (fallback handled in helper)
+                                let center_rect = if let Some(parent) = w.window() {
+                                    Some((parent.x(), parent.y(), parent.w(), parent.h()))
+                                } else {
+                                    None
                                 };
-                                target_input.set_trigger(CallbackTrigger::Changed);
-                                target_input.set_callback(validate_cb.clone());
-                                text_input_w.set_trigger(CallbackTrigger::Changed);
-                                text_input_w.set_callback(validate_cb);
 
-                                // Prepare widget clones for callbacks
-                                let mut win_for_save = win.clone();
-                                let mut win_for_remove = win.clone();
-                                let mut win_for_cancel = win.clone();
-                                let mut target_input_s = target_input.clone();
-                                let mut text_input_s = text_input_w.clone();
-                                let init_text_s = init_text.clone();
+                                let opts = crate::link_editor::LinkEditOptions {
+                                    init_target,
+                                    init_text: init_text.clone(),
+                                    mode_existing_link,
+                                    selection_mode,
+                                    center_rect,
+                                };
 
-                                // Save action
-                                save_btn.set_callback({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    move |_| {
-                                        let dest = target_input_s.value();
-                                        let txt = if selection_mode || mode_existing_link {
-                                            // Prefer current input if provided, fallback to initial
-                                            let val = text_input_s.value();
-                                            if !val.is_empty() { val } else { init_text_s.clone() }
-                                        } else {
-                                            text_input_s.value()
-                                        };
-                                        let mut disp = display.borrow_mut();
+                                // Invoke shared dialog
+                                let display_cb = display.clone();
+                                let change_cb_ref = change_cb.clone();
+                                crate::link_editor::show_link_editor(
+                                    opts,
+                                    move |dest: String, txt: String| {
+                                        let mut disp = display_cb.borrow_mut();
                                         let editor = disp.editor_mut();
                                         if let Some((b, i)) = link_pos {
                                             editor.edit_link_at(b, i, &dest, &txt).ok();
@@ -1041,71 +1137,22 @@ impl FltkStructuredRichDisplay {
                                                 editor.insert_link_at_cursor(&dest, &txt).ok();
                                             }
                                         }
-                                        // Release display borrow before calling external callbacks or hiding window
                                         drop(disp);
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        win_for_save.hide();
-                                    }
-                                });
-
-                                // Remove action
-                                remove_btn.set_callback({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    move |_| {
-                                        if let Some((b, i)) = link_pos {
-                                            let mut disp = display.borrow_mut();
-                                            disp.editor_mut().remove_link_at(b, i).ok();
-                                            drop(disp);
-                                            if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                                (cb)();
+                                        if let Some(cb) = &mut *change_cb_ref.borrow_mut() { (cb)(); }
+                                    },
+                                    Some({
+                                        let display_rm = display.clone();
+                                        let change_cb_rm = change_cb.clone();
+                                        move || {
+                                            if let Some((b, i)) = link_pos {
+                                                let mut disp = display_rm.borrow_mut();
+                                                disp.editor_mut().remove_link_at(b, i).ok();
+                                                drop(disp);
+                                                if let Some(cb) = &mut *change_cb_rm.borrow_mut() { (cb)(); }
                                             }
                                         }
-                                        win_for_remove.hide();
-                                    }
-                                });
-
-                                // Cancel action
-                                cancel_btn.set_callback(move |_| {
-                                    win_for_cancel.hide();
-                                });
-
-                                win.end();
-                                // Center over the current application window
-                                win.make_resizable(false);
-                                let dlg_w = 420;
-                                let dlg_h = 160;
-                                if let Some(parent) = w.window() {
-                                    let cx = parent.x() + (parent.w() - dlg_w) / 2;
-                                    let cy = parent.y() + (parent.h() - dlg_h) / 2;
-                                    win.set_pos(cx.max(0), cy.max(0));
-                                } else {
-                                    // Fallback: center on primary screen
-                                    let (sx, sy, sw, sh) = fltk::app::screen_xywh(0);
-                                    let cx = sx + (sw - dlg_w) / 2;
-                                    let cy = sy + (sh - dlg_h) / 2;
-                                    win.set_pos(cx.max(0), cy.max(0));
-                                }
-                                win.show();
-                                // Focus target input upon opening
-                                let _ = target_input.take_focus();
-
-                                // Wire Escape to Cancel via window handler (Return handled by ReturnButton)
-                                let mut cancel_btn_h = cancel_btn.clone();
-                                win.handle(move |_, e| {
-                                    if e == Event::KeyDown {
-                                        let k = fltk::app::event_key();
-                                        if k == Key::Escape {
-                                            if cancel_btn_h.active() {
-                                                cancel_btn_h.do_callback();
-                                            }
-                                            return true;
-                                        }
-                                    }
-                                    false
-                                });
+                                    }),
+                                );
                                 handled = true;
                             } else {
 
@@ -1123,385 +1170,178 @@ impl FltkStructuredRichDisplay {
                                 let x = fltk::app::event_x();
                                 let y = fltk::app::event_y();
 
-                                let mut menu = fltk::menu::MenuButton::default();
-                                menu.set_pos(x, y);
-
-                                // Paragraph Style submenu with accelerators
-                                #[cfg(target_os = "macos")]
-                                let para_shortcut = fltk::enums::Shortcut::Command
-                                    | fltk::enums::Shortcut::Alt
-                                    | '0';
-                                #[cfg(not(target_os = "macos"))]
-                                let para_shortcut = fltk::enums::Shortcut::Ctrl
-                                    | fltk::enums::Shortcut::Alt
-                                    | '0';
-
-                                #[cfg(target_os = "macos")]
-                                let h1_shortcut = fltk::enums::Shortcut::Command
-                                    | fltk::enums::Shortcut::Alt
-                                    | '1';
-                                #[cfg(not(target_os = "macos"))]
-                                let h1_shortcut = fltk::enums::Shortcut::Ctrl
-                                    | fltk::enums::Shortcut::Alt
-                                    | '1';
-
-                                #[cfg(target_os = "macos")]
-                                let h2_shortcut = fltk::enums::Shortcut::Command
-                                    | fltk::enums::Shortcut::Alt
-                                    | '2';
-                                #[cfg(not(target_os = "macos"))]
-                                let h2_shortcut = fltk::enums::Shortcut::Ctrl
-                                    | fltk::enums::Shortcut::Alt
-                                    | '2';
-
-                                #[cfg(target_os = "macos")]
-                                let h3_shortcut = fltk::enums::Shortcut::Command
-                                    | fltk::enums::Shortcut::Alt
-                                    | '3';
-                                #[cfg(not(target_os = "macos"))]
-                                let h3_shortcut = fltk::enums::Shortcut::Ctrl
-                                    | fltk::enums::Shortcut::Alt
-                                    | '3';
-
-                                #[cfg(target_os = "macos")]
-                                let list_shortcut = fltk::enums::Shortcut::Command
-                                    | fltk::enums::Shortcut::Shift
-                                    | '8';
-                                #[cfg(not(target_os = "macos"))]
-                                let list_shortcut = fltk::enums::Shortcut::Ctrl
-                                    | fltk::enums::Shortcut::Shift
-                                    | '8';
-
-                                menu.add(
-                                    "Paragraph Style/Paragraph\t",
-                                    para_shortcut,
-                                    fltk::menu::MenuFlag::Normal,
-                                    {
-                                        let display = display.clone();
-                                        let mut w_clone = w.clone();
-                                        move |_| {
-                                            display
-                                                .borrow_mut()
-                                                .editor_mut()
-                                                .set_block_type(BlockType::Paragraph)
-                                                .ok();
-                                            w_clone.redraw();
-                                        }
-                                    },
-                                );
-
-                                menu.add(
-                                    "Paragraph Style/Heading 1\t",
-                                    h1_shortcut,
-                                    fltk::menu::MenuFlag::Normal,
-                                    {
-                                        let display = display.clone();
-                                        let mut w_clone = w.clone();
-                                        move |_| {
-                                            display
-                                                .borrow_mut()
-                                                .editor_mut()
-                                                .set_block_type(BlockType::Heading { level: 1 })
-                                                .ok();
-                                            w_clone.redraw();
-                                        }
-                                    },
-                                );
-
-                                menu.add(
-                                    "Paragraph Style/Heading 2\t",
-                                    h2_shortcut,
-                                    fltk::menu::MenuFlag::Normal,
-                                    {
-                                        let display = display.clone();
-                                        let mut w_clone = w.clone();
-                                        move |_| {
-                                            display
-                                                .borrow_mut()
-                                                .editor_mut()
-                                                .set_block_type(BlockType::Heading { level: 2 })
-                                                .ok();
-                                            w_clone.redraw();
-                                        }
-                                    },
-                                );
-
-                                menu.add(
-                                    "Paragraph Style/Heading 3\t",
-                                    h3_shortcut,
-                                    fltk::menu::MenuFlag::Normal,
-                                    {
-                                        let display = display.clone();
-                                        let mut w_clone = w.clone();
-                                        move |_| {
-                                            display
-                                                .borrow_mut()
-                                                .editor_mut()
-                                                .set_block_type(BlockType::Heading { level: 3 })
-                                                .ok();
-                                            w_clone.redraw();
-                                        }
-                                    },
-                                );
-
-                                menu.add(
-                                    "Paragraph Style/List Item\t",
-                                    list_shortcut,
-                                    fltk::menu::MenuFlag::Normal,
-                                    {
-                                        let display = display.clone();
-                                        let mut w_clone = w.clone();
-                                        move |_| {
-                                            display
-                                                .borrow_mut()
-                                                .editor_mut()
-                                                .set_block_type(BlockType::ListItem {
-                                                    ordered: false,
-                                                    number: None,
-                                                })
-                                                .ok();
-                                            w_clone.redraw();
-                                        }
-                                    },
-                                );
-
-                                // Inline styles
-                                #[cfg(target_os = "macos")]
-                                let bold_shortcut = fltk::enums::Shortcut::Command | 'b';
-                                #[cfg(not(target_os = "macos"))]
-                                let bold_shortcut = fltk::enums::Shortcut::Ctrl | 'b';
-
-                                menu.add(
-                                    "Toggle Bold\t",
-                                    bold_shortcut,
-                                    fltk::menu::MenuFlag::Normal,
-                                    {
-                                        let display = display.clone();
-                                        let mut w_clone = w.clone();
-                                        move |_| {
-                                            display.borrow_mut().editor_mut().toggle_bold().ok();
-                                            w_clone.redraw();
-                                        }
-                                    },
-                                );
-
-                                #[cfg(target_os = "macos")]
-                                let italic_shortcut = fltk::enums::Shortcut::Command | 'i';
-                                #[cfg(not(target_os = "macos"))]
-                                let italic_shortcut = fltk::enums::Shortcut::Ctrl | 'i';
-
-                                menu.add(
-                                    "Toggle Italic\t",
-                                    italic_shortcut,
-                                    fltk::menu::MenuFlag::Normal,
-                                    {
-                                        let display = display.clone();
-                                        let mut w_clone = w.clone();
-                                        move |_| {
-                                            display.borrow_mut().editor_mut().toggle_italic().ok();
-                                            w_clone.redraw();
-                                        }
-                                    },
-                                );
-
-                                #[cfg(target_os = "macos")]
-                                let code_shortcut = fltk::enums::Shortcut::Command
-                                    | fltk::enums::Shortcut::Shift
-                                    | 'c';
-                                #[cfg(not(target_os = "macos"))]
-                                let code_shortcut = fltk::enums::Shortcut::Ctrl
-                                    | fltk::enums::Shortcut::Shift
-                                    | 'c';
-
-                                menu.add(
-                                    "Toggle Code\t",
-                                    code_shortcut,
-                                    fltk::menu::MenuFlag::Normal,
-                                    {
-                                        let display = display.clone();
-                                        let mut w_clone = w.clone();
-                                        move |_| {
-                                            display.borrow_mut().editor_mut().toggle_code().ok();
-                                            w_clone.redraw();
-                                        }
-                                    },
-                                );
-
-                                #[cfg(target_os = "macos")]
-                                let strike_shortcut = fltk::enums::Shortcut::Command
-                                    | fltk::enums::Shortcut::Shift
-                                    | 'x';
-                                #[cfg(not(target_os = "macos"))]
-                                let strike_shortcut = fltk::enums::Shortcut::Ctrl
-                                    | fltk::enums::Shortcut::Shift
-                                    | 'x';
-
-                                menu.add(
-                                    "Toggle Strikethrough\t",
-                                    strike_shortcut,
-                                    fltk::menu::MenuFlag::Normal,
-                                    {
-                                        let display = display.clone();
-                                        let mut w_clone = w.clone();
-                                        move |_| {
-                                            display
-                                                .borrow_mut()
-                                                .editor_mut()
-                                                .toggle_strikethrough()
-                                                .ok();
-                                            w_clone.redraw();
-                                        }
-                                    },
-                                );
-
-                                #[cfg(target_os = "macos")]
-                                let underline_shortcut = fltk::enums::Shortcut::Command | 'u';
-                                #[cfg(not(target_os = "macos"))]
-                                let underline_shortcut = fltk::enums::Shortcut::Ctrl | 'u';
-
-                                menu.add(
-                                    "Toggle Underline\t",
-                                    underline_shortcut,
-                                    fltk::menu::MenuFlag::Normal,
-                                    {
-                                        let display = display.clone();
-                                        let mut w_clone = w.clone();
-                                        move |_| {
-                                            display
-                                                .borrow_mut()
-                                                .editor_mut()
-                                                .toggle_underline()
-                                                .ok();
-                                            w_clone.redraw();
-                                        }
-                                    },
-                                );
-
-                                #[cfg(target_os = "macos")]
-                                let highlight_shortcut = fltk::enums::Shortcut::Command
-                                    | fltk::enums::Shortcut::Shift
-                                    | 'h';
-                                #[cfg(not(target_os = "macos"))]
-                                let highlight_shortcut = fltk::enums::Shortcut::Ctrl
-                                    | fltk::enums::Shortcut::Shift
-                                    | 'h';
-
-                                menu.add(
-                                    "Toggle Highlight\t",
-                                    highlight_shortcut,
-                                    fltk::menu::MenuFlag::Normal,
-                                    {
-                                        let display = display.clone();
-                                        let mut w_clone = w.clone();
-                                        move |_| {
-                                            display
-                                                .borrow_mut()
-                                                .editor_mut()
-                                                .toggle_highlight()
-                                                .ok();
-                                            w_clone.redraw();
-                                        }
-                                    },
-                                );
-
-                                // Clear Formatting
-                                #[cfg(target_os = "macos")]
-                                let clear_shortcut = fltk::enums::Shortcut::Command | '\\';
-                                #[cfg(not(target_os = "macos"))]
-                                let clear_shortcut = fltk::enums::Shortcut::Ctrl | '\\';
-
-                                menu.add(
-                                    "Clear Formatting\t",
-                                    clear_shortcut,
-                                    fltk::menu::MenuFlag::Normal,
-                                    {
-                                        let display = display.clone();
-                                        let mut w_clone = w.clone();
-                                        move |_| {
-                                            display
-                                                .borrow_mut()
-                                                .editor_mut()
-                                                .clear_formatting()
-                                                .ok();
-                                            w_clone.redraw();
-                                        }
-                                    },
-                                );
-
-                                // Separator
-                                menu.add(
-                                    "_",
-                                    fltk::enums::Shortcut::None,
-                                    fltk::menu::MenuFlag::MenuDivider,
-                                    |_| {},
-                                );
-
-                                // Edit operations
                                 let has_selection = display.borrow().editor().selection().is_some();
-
-                                #[cfg(target_os = "macos")]
-                                let cut_shortcut = fltk::enums::Shortcut::Command | 'x';
-                                #[cfg(not(target_os = "macos"))]
-                                let cut_shortcut = fltk::enums::Shortcut::Ctrl | 'x';
-
-                                menu.add("Cut\t", cut_shortcut, fltk::menu::MenuFlag::Normal, {
-                                    let display = display.clone();
-                                    let mut w_clone = w.clone();
-                                    move |_| {
-                                        if let Ok(text) = display.borrow_mut().editor_mut().cut() {
-                                            fltk::app::copy(&text);
+                                let mut w_for_actions = w.clone();
+                                let actions = crate::context_menu::MenuActions {
+                                    has_selection,
+                                    set_paragraph: Box::new({
+                                        let display = display.clone();
+                                        let mut w_r = w_for_actions.clone();
+                                        move || {
+                                            display.borrow_mut().editor_mut().set_block_type(BlockType::Paragraph).ok();
+                                            w_r.redraw();
                                         }
-                                        w_clone.redraw();
-                                    }
-                                });
-
-                                if !has_selection {
-                                    let idx = menu.find_index("Cut\t");
-                                    if idx >= 0 {
-                                        menu.set_mode(idx, fltk::menu::MenuFlag::Inactive);
-                                    }
-                                }
-
-                                #[cfg(target_os = "macos")]
-                                let copy_shortcut = fltk::enums::Shortcut::Command | 'c';
-                                #[cfg(not(target_os = "macos"))]
-                                let copy_shortcut = fltk::enums::Shortcut::Ctrl | 'c';
-
-                                menu.add("Copy\t", copy_shortcut, fltk::menu::MenuFlag::Normal, {
-                                    let display = display.clone();
-                                    move |_| {
-                                        let text = display.borrow().editor().copy();
-                                        if !text.is_empty() {
-                                            fltk::app::copy(&text);
+                                    }),
+                                    set_heading1: Box::new({
+                                        let display = display.clone();
+                                        let mut w_r = w_for_actions.clone();
+                                        move || {
+                                            display.borrow_mut().editor_mut().set_block_type(BlockType::Heading { level: 1 }).ok();
+                                            w_r.redraw();
                                         }
-                                    }
-                                });
-
-                                if !has_selection {
-                                    let idx = menu.find_index("Copy\t");
-                                    if idx >= 0 {
-                                        menu.set_mode(idx, fltk::menu::MenuFlag::Inactive);
-                                    }
-                                }
-
-                                #[cfg(target_os = "macos")]
-                                let paste_shortcut = fltk::enums::Shortcut::Command | 'v';
-                                #[cfg(not(target_os = "macos"))]
-                                let paste_shortcut = fltk::enums::Shortcut::Ctrl | 'v';
-
-                                menu.add(
-                                    "Paste\t",
-                                    paste_shortcut,
-                                    fltk::menu::MenuFlag::Normal,
-                                    {
-                                        let mut w_clone = w.clone();
-                                        move |_m: &mut fltk::menu::MenuButton| {
-                                            fltk::app::paste(&mut w_clone);
+                                    }),
+                                    set_heading2: Box::new({
+                                        let display = display.clone();
+                                        let mut w_r = w_for_actions.clone();
+                                        move || {
+                                            display.borrow_mut().editor_mut().set_block_type(BlockType::Heading { level: 2 }).ok();
+                                            w_r.redraw();
                                         }
-                                    },
-                                );
+                                    }),
+                                    set_heading3: Box::new({
+                                        let display = display.clone();
+                                        let mut w_r = w_for_actions.clone();
+                                        move || {
+                                            display.borrow_mut().editor_mut().set_block_type(BlockType::Heading { level: 3 }).ok();
+                                            w_r.redraw();
+                                        }
+                                    }),
+                                    toggle_list: Box::new({
+                                        let display = display.clone();
+                                        let mut w_r = w_for_actions.clone();
+                                        move || {
+                                            display.borrow_mut().editor_mut().toggle_list().ok();
+                                            w_r.redraw();
+                                        }
+                                    }),
+                                    toggle_bold: Box::new({
+                                        let display = display.clone();
+                                        let mut w_r = w_for_actions.clone();
+                                        move || {
+                                            display.borrow_mut().editor_mut().toggle_bold().ok();
+                                            w_r.redraw();
+                                        }
+                                    }),
+                                    toggle_italic: Box::new({
+                                        let display = display.clone();
+                                        let mut w_r = w_for_actions.clone();
+                                        move || {
+                                            display.borrow_mut().editor_mut().toggle_italic().ok();
+                                            w_r.redraw();
+                                        }
+                                    }),
+                                    toggle_code: Box::new({
+                                        let display = display.clone();
+        
+                                        let mut w_r = w_for_actions.clone();
+                                        move || {
+                                            display.borrow_mut().editor_mut().toggle_code().ok();
+                                            w_r.redraw();
+                                        }
+                                    }),
+                                    toggle_strike: Box::new({
+                                        let display = display.clone();
+                                        let mut w_r = w_for_actions.clone();
+                                        move || {
+                                            display.borrow_mut().editor_mut().toggle_strikethrough().ok();
+                                            w_r.redraw();
+                                        }
+                                    }),
+                                    toggle_underline: Box::new({
+                                        let display = display.clone();
+                                        let mut w_r = w_for_actions.clone();
+                                        move || {
+                                            display.borrow_mut().editor_mut().toggle_underline().ok();
+                                            w_r.redraw();
+                                        }
+                                    }),
+                                    toggle_highlight: Box::new({
+                                        let display = display.clone();
+                                        let mut w_r = w_for_actions.clone();
+                                        move || {
+                                            display.borrow_mut().editor_mut().toggle_highlight().ok();
+                                            w_r.redraw();
+                                        }
+                                    }),
+                                    clear_formatting: Box::new({
+                                        let display = display.clone();
+                                        let mut w_r = w_for_actions.clone();
+                                        move || {
+                                            display.borrow_mut().editor_mut().clear_formatting().ok();
+                                            w_r.redraw();
+                                        }
+                                    }),
+                                    cut: Box::new({
+                                        let display = display.clone();
+                                        let mut w_r = w_for_actions.clone();
+                                        move || {
+                                            if let Ok(text) = display.borrow_mut().editor_mut().cut() { fltk::app::copy(&text); }
+                                            w_r.redraw();
+                                        }
+                                    }),
+                                    copy: Box::new({
+                                        let display = display.clone();
+                                        move || {
+                                            let text = display.borrow().editor().copy();
+                                            if !text.is_empty() { fltk::app::copy(&text); }
+                                        }
+                                    }),
+                                    paste: Box::new({
+                                        let mut w_r = w_for_actions.clone();
+                                        move || { fltk::app::paste(&mut w_r); }
+                                    }),
+                                    edit_link: Box::new({
+                                        let display = display.clone();
+                                        let w_for_dialog = w.clone();
+                                        move || {
+                                            // Determine initial state: hovered link, selection, or empty
+                                            let (init_target, init_text, mode_existing_link, selection_mode, link_pos) = {
+                                                let mut disp = display.borrow_mut();
+                                                if let Some((b, i)) = disp.hovered_link() {
+                                                    let doc = disp.editor().document();
+                                                    let block = &doc.blocks()[b];
+                                                    if let InlineContent::Link { link, content } = &block.content[i] {
+                                                        let text = content.iter().map(|c| c.to_plain_text()).collect::<String>();
+                                                        (link.destination.clone(), text, true, false, Some((b, i)))
+                                                    } else { (String::new(), String::new(), false, false, None) }
+                                                } else if let Some((a, b)) = disp.editor().selection() {
+                                                    let text = disp.editor().text_in_range(a, b);
+                                                    (String::new(), text, false, true, None)
+                                                } else { (String::new(), String::new(), false, false, None) }
+                                            };
 
-                                menu.popup();
+                                            let center_rect = if let Some(parent) = w_for_dialog.window() {
+                                                Some((parent.x(), parent.y(), parent.w(), parent.h()))
+                                            } else { None };
+
+                                            let opts = crate::link_editor::LinkEditOptions {
+                                                init_target,
+                                                init_text: init_text.clone(),
+                                                mode_existing_link,
+                                                selection_mode,
+                                                center_rect,
+                                            };
+
+                                            let display_cb = display.clone();
+                                            crate::link_editor::show_link_editor(
+                                                opts,
+                                                move |dest: String, txt: String| {
+                                                    let mut disp = display_cb.borrow_mut();
+                                                    let editor = disp.editor_mut();
+                                                    if let Some((b, i)) = link_pos {
+                                                        editor.edit_link_at(b, i, &dest, &txt).ok();
+                                                    } else if !txt.is_empty() {
+                                                        if editor.selection().is_some() { editor.replace_selection_with_link(&dest, &txt).ok(); }
+                                                        else { editor.insert_link_at_cursor(&dest, &txt).ok(); }
+                                                    }
+                                                },
+                                                Option::<fn()>::None,
+                                            );
+                                        }
+                                    }),
+                                };
+
+                                crate::context_menu::show_context_menu(x, y, actions);
                                 return true;
                             }
 
