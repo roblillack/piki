@@ -1281,20 +1281,26 @@ impl StructuredEditor {
         if let Some((start, end)) = self.selection {
             // Replace selection using document-level range replace to support multi-paragraph pastes
             self.document.replace_range(start, end, text);
-            // Position cursor at end of first inserted paragraph
-            let first_len = text.split("\n\n").next().map(|s| s.len()).unwrap_or(0);
-            self.cursor = DocumentPosition::new(
-                start
-                    .block_index
-                    .min(self.document.block_count().saturating_sub(1)),
-                min(
-                    first_len,
-                    self.document.blocks()[start
-                        .block_index
-                        .min(self.document.block_count().saturating_sub(1))]
-                    .text_len(),
-                ),
-            );
+            // Position cursor immediately after the inserted text
+            // If multiple paragraphs were inserted, move to start of the last inserted paragraph.
+            let paragraphs: Vec<&str> = text.split("\n\n").collect();
+            let insert_block = start
+                .block_index
+                .min(self.document.block_count().saturating_sub(1));
+            let (block_index, offset) = if paragraphs.len() <= 1 {
+                // Single paragraph inserted into existing block at start.offset
+                let inserted_len = paragraphs.first().map(|s| s.len()).unwrap_or(0);
+                let left_len = start.offset.min(self.document.blocks()[insert_block].text_len());
+                (insert_block, left_len + inserted_len)
+            } else {
+                // Multiple paragraphs: last inserted paragraph is placed in a new block
+                let last_block = (insert_block + paragraphs.len() - 1)
+                    .min(self.document.block_count().saturating_sub(1));
+                let last_len = paragraphs.last().map(|s| s.len()).unwrap_or(0);
+                (last_block, last_len)
+            };
+            let block_len = self.document.blocks()[block_index].text_len();
+            self.cursor = DocumentPosition::new(block_index, min(offset, block_len));
             self.selection = None;
             Ok(())
         } else {
