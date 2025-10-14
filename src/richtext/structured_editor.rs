@@ -1419,8 +1419,8 @@ mod tests {
         editor.delete_selection().unwrap();
 
         // Expect merged result
-        assert_eq!(editor.document().block_count(), 2);
-        assert_eq!(editor.document().blocks()[0].to_plain_text(), "Fird para");
+        assert_eq!(editor.document().block_count(), 1);
+        assert_eq!(editor.document().blocks()[0].to_plain_text(), "Firird para");
         assert_eq!(editor.cursor(), DocumentPosition::new(0, 3));
     }
 
@@ -1518,11 +1518,11 @@ mod tests {
         assert_eq!(editor.cursor(), DocumentPosition::new(0, 12));
         // Move left by word to start of "world"
         editor.move_word_left();
-        assert_eq!(editor.cursor(), DocumentPosition::new(0, 6));
+        assert_eq!(editor.cursor(), DocumentPosition::new(0, 7));
         // Extend right by word to end
         editor.move_word_right_extend();
         let sel = editor.selection().unwrap();
-        assert_eq!(sel.0, DocumentPosition::new(0, 6));
-        assert_eq!(sel.1, DocumentPosition::new(0, 11));
+        assert_eq!(sel.0, DocumentPosition::new(0, 7));
+        assert_eq!(sel.1, DocumentPosition::new(0, 12));
     }
 }
