@@ -223,6 +223,23 @@ impl StructuredEditor {
             Self::find_content_at_offset_static(&block.content, offset)
         };
 
+        // Precompute inner indices if we're inside a link to avoid borrow issues
+        let inner_within_link: Option<(usize, usize)> = {
+            let blocks = self.document.blocks();
+            let block = &blocks[block_index];
+            if content_idx < block.content.len() {
+                if let InlineContent::Link { content, .. } = &block.content[content_idx] {
+                    let (inner_idx, inner_off) =
+                        Self::find_content_at_offset_static(&content, content_offset);
+                    Some((inner_idx, inner_off))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
         let blocks = self.document.blocks_mut();
         let block = &mut blocks[block_index];
 
@@ -237,9 +254,21 @@ impl StructuredEditor {
                 InlineContent::Text(run) => {
                     run.insert_text(content_offset, text);
                 }
-                InlineContent::Link { .. }
-                | InlineContent::LineBreak
-                | InlineContent::HardBreak => {
+                InlineContent::Link { content, .. } => {
+                    // Insert within the link's inner content so typing stays inside the link
+                    let (inner_idx, inner_off) = inner_within_link.unwrap_or((content.len(), 0));
+                    if inner_idx >= content.len() {
+                        content.push(InlineContent::Text(TextRun::plain(text)));
+                    } else {
+                        match &mut content[inner_idx] {
+                            InlineContent::Text(run) => run.insert_text(inner_off, text),
+                            _ => {
+                                content.insert(inner_idx, InlineContent::Text(TextRun::plain(text)))
+                            }
+                        }
+                    }
+                }
+                InlineContent::LineBreak | InlineContent::HardBreak => {
                     // Insert new text run before this element
                     block
                         .content
@@ -277,14 +306,10 @@ impl StructuredEditor {
         let offset = self.cursor.offset;
 
         // Get block type and check conditions before mut borrow
-        let (block_type, is_empty, content) = {
+        let (block_type, is_empty) = {
             let blocks = self.document.blocks();
             let current_block = &blocks[block_index];
-            (
-                current_block.block_type.clone(),
-                current_block.is_empty(),
-                current_block.content.clone(),
-            )
+            (current_block.block_type.clone(), current_block.is_empty())
         };
 
         // Check if we're in a list item
@@ -298,12 +323,14 @@ impl StructuredEditor {
                 return Ok(());
             }
 
-            // Split the current list item
-            let (left_content, right_content) = Self::split_content_at_static(&content, offset);
-            let blocks = self.document.blocks_mut();
-            blocks[block_index].content = left_content;
+            // Split the current list item at the cursor, preserving link structure
+            let right_content = {
+                let blocks = self.document.blocks_mut();
+                let block = &mut blocks[block_index];
+                block.split_content_at(offset)
+            };
 
-            // Create new list item
+            // Create new list item with the right-side content
             let new_number = if *ordered {
                 number.map(|n| n + 1)
             } else {
@@ -321,12 +348,14 @@ impl StructuredEditor {
             self.document.insert_block(block_index + 1, new_item);
             self.cursor = DocumentPosition::new(block_index + 1, 0);
         } else {
-            // Regular paragraph split
-            let (left_content, right_content) = Self::split_content_at_static(&content, offset);
-            let blocks = self.document.blocks_mut();
-            blocks[block_index].content = left_content;
+            // Regular paragraph split: split the block at the cursor, preserving link structure
+            let right_content = {
+                let blocks = self.document.blocks_mut();
+                let block = &mut blocks[block_index];
+                block.split_content_at(offset)
+            };
 
-            // Create new paragraph with remaining content
+            // Create new paragraph with remaining content (right side)
             let mut new_para = Block::paragraph(0);
             new_para.content = right_content;
 
@@ -367,44 +396,30 @@ impl StructuredEditor {
 
             self.cursor = DocumentPosition::new(block_index - 1, prev_len);
         } else {
-            // Delete character within block
-            let (content_idx, content_offset) = {
+            // Delete a single character within this block, respecting UTF-8 and nested links
+            let (prev_char_start, can_delete) = {
                 let blocks = self.document.blocks();
                 let block = &blocks[block_index];
-                Self::find_content_at_offset_static(&block.content, offset)
+                let text = block.to_plain_text();
+                if offset == 0 || text.is_empty() {
+                    (0usize, false)
+                } else {
+                    let prev = text[..offset]
+                        .char_indices()
+                        .next_back()
+                        .map(|(i, _)| i)
+                        .unwrap_or(0);
+                    (prev, prev < offset)
+                }
             };
 
-            let blocks = self.document.blocks_mut();
-            let block = &mut blocks[block_index];
-
-            if content_idx < block.content.len() {
-                match &mut block.content[content_idx] {
-                    InlineContent::Text(run) => {
-                        if content_offset > 0 {
-                            // Delete one character back
-                            let char_boundary = run.text[..content_offset]
-                                .char_indices()
-                                .next_back()
-                                .map(|(i, _)| i)
-                                .unwrap_or(0);
-                            run.delete_range(char_boundary, content_offset);
-                            self.cursor.offset -= content_offset - char_boundary;
-
-                            // Remove run if now empty
-                            if run.is_empty() {
-                                block.content.remove(content_idx);
-                            }
-                        }
-                    }
-                    _ => {
-                        // Remove the element
-                        block.content.remove(content_idx);
-                        self.cursor.offset -= 1;
-                    }
-                }
+            if can_delete {
+                let blocks = self.document.blocks_mut();
+                let block = &mut blocks[block_index];
+                block.delete_text_range(prev_char_start, offset);
+                self.cursor.offset = prev_char_start;
             }
         }
-
         Ok(())
     }
 
@@ -434,33 +449,25 @@ impl StructuredEditor {
             let next_block = blocks.remove(block_index + 1);
             blocks[block_index].content.extend(next_block.content);
         } else {
-            // Delete character within block
-            let (content_idx, content_offset) =
-                Self::find_content_at_offset_static(&blocks[block_index].content, offset);
-            let block = &mut blocks[block_index];
-
-            if content_idx < block.content.len() {
-                match &mut block.content[content_idx] {
-                    InlineContent::Text(run) => {
-                        // Find next character boundary
-                        let char_end = run.text[content_offset..]
-                            .char_indices()
-                            .nth(1)
-                            .map(|(i, _)| content_offset + i)
-                            .unwrap_or(run.len());
-
-                        run.delete_range(content_offset, char_end);
-
-                        // Remove run if now empty
-                        if run.is_empty() {
-                            block.content.remove(content_idx);
-                        }
-                    }
-                    _ => {
-                        // Remove the element
-                        block.content.remove(content_idx);
+            // Delete a single character forward within this block respecting UTF-8 and nested links
+            let next_char_end = {
+                let block = &blocks[block_index];
+                let text = block.to_plain_text();
+                if offset >= text.len() {
+                    text.len()
+                } else {
+                    // Find boundary of the next character after current offset
+                    let slice = &text[offset..];
+                    match slice.char_indices().nth(1) {
+                        Some((i, _)) => offset + i,
+                        None => text.len(),
                     }
                 }
+            };
+
+            if next_char_end > offset {
+                let block = &mut blocks[block_index];
+                block.delete_text_range(offset, next_char_end);
             }
         }
 
@@ -957,16 +964,23 @@ impl StructuredEditor {
         }
         let mut s = String::new();
         let (mut a, mut b) = (start, end);
-        if a.block_index > b.block_index
-            || (a.block_index == b.block_index && a.offset > b.offset)
+        if a.block_index > b.block_index || (a.block_index == b.block_index && a.offset > b.offset)
         {
             std::mem::swap(&mut a, &mut b);
         }
         for bi in a.block_index..=b.block_index {
             let block = &doc.blocks()[bi];
             let text = block.to_plain_text();
-            let from = if bi == a.block_index { a.offset.min(text.len()) } else { 0 };
-            let to = if bi == b.block_index { b.offset.min(text.len()) } else { text.len() };
+            let from = if bi == a.block_index {
+                a.offset.min(text.len())
+            } else {
+                0
+            };
+            let to = if bi == b.block_index {
+                b.offset.min(text.len())
+            } else {
+                text.len()
+            };
             if from < to {
                 if !s.is_empty() {
                     s.push_str("\n\n");
@@ -1429,7 +1443,9 @@ impl StructuredEditor {
             let (block_index, offset) = if paragraphs.len() <= 1 {
                 // Single paragraph inserted into existing block at start.offset
                 let inserted_len = paragraphs.first().map(|s| s.len()).unwrap_or(0);
-                let left_len = start.offset.min(self.document.blocks()[insert_block].text_len());
+                let left_len = start
+                    .offset
+                    .min(self.document.blocks()[insert_block].text_len());
                 (insert_block, left_len + inserted_len)
             } else {
                 // Multiple paragraphs: last inserted paragraph is placed in a new block
@@ -1597,6 +1613,108 @@ mod tests {
         assert_eq!(editor.cursor().offset, 5);
     }
 
+    #[test]
+    fn test_insert_text_inside_link() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("ab").unwrap();
+        editor.insert_link_at_cursor("dest", "XY").unwrap();
+        editor.insert_text("cd").unwrap();
+
+        // Place caret between X and Y inside the link
+        editor.set_cursor(DocumentPosition::new(0, 3));
+        editor.insert_text("!").unwrap();
+
+        assert_eq!(editor.document().to_plain_text(), "abX!Ycd");
+
+        // Ensure the exclamation mark is inside the link, not outside
+        let block = &editor.document().blocks()[0];
+        // Content should be: Text("ab"), Link("X!Y"), Text("cd")
+        assert!(matches!(block.content[0], InlineContent::Text(_)));
+        if let InlineContent::Link { content, .. } = &block.content[1] {
+            let inner_text: String = content.iter().map(|c| c.to_plain_text()).collect();
+            assert_eq!(inner_text, "X!Y");
+        } else {
+            panic!("Expected a link at index 1");
+        }
+    }
+
+    #[test]
+    fn test_backspace_inside_link() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("ab").unwrap();
+        editor.insert_link_at_cursor("dest", "XYZ").unwrap();
+        editor.insert_text("cd").unwrap();
+
+        // Caret after Y inside the link (abXY|Zcd => offset 4)
+        editor.set_cursor(DocumentPosition::new(0, 4));
+        editor.delete_backward().unwrap();
+
+        assert_eq!(editor.document().to_plain_text(), "abXZcd");
+
+        let block = &editor.document().blocks()[0];
+        if let InlineContent::Link { content, .. } = &block.content[1] {
+            let inner_text: String = content.iter().map(|c| c.to_plain_text()).collect();
+            assert_eq!(inner_text, "XZ");
+        } else {
+            panic!("Expected a link at index 1");
+        }
+    }
+
+    #[test]
+    fn test_delete_forward_inside_link() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("ab").unwrap();
+        editor.insert_link_at_cursor("dest", "XYZ").unwrap();
+        editor.insert_text("cd").unwrap();
+
+        // Caret after X inside the link (abX|YZcd => offset 3)
+        editor.set_cursor(DocumentPosition::new(0, 3));
+        editor.delete_forward().unwrap();
+
+        assert_eq!(editor.document().to_plain_text(), "abXZcd");
+
+        let block = &editor.document().blocks()[0];
+        if let InlineContent::Link { content, .. } = &block.content[1] {
+            let inner_text: String = content.iter().map(|c| c.to_plain_text()).collect();
+            assert_eq!(inner_text, "XZ");
+        } else {
+            panic!("Expected a link at index 1");
+        }
+    }
+
+    #[test]
+    fn test_enter_inside_link_splits_and_preserves_links() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("A ").unwrap();
+        editor.insert_link_at_cursor("dest", "bc").unwrap();
+        editor.insert_text(" D").unwrap();
+
+        // Place caret between b and c inside the link: "A b|c D"
+        editor.set_cursor(DocumentPosition::new(0, 3));
+        editor.insert_newline().unwrap();
+
+        // Two paragraphs now
+        assert_eq!(editor.document().block_count(), 2);
+        assert_eq!(editor.document().blocks()[0].to_plain_text(), "A b");
+        assert_eq!(editor.document().blocks()[1].to_plain_text(), "c D");
+
+        // Both sides should retain links with the same destination
+        if let InlineContent::Link { link, content } = &editor.document().blocks()[0].content[1] {
+            assert_eq!(link.destination, "dest");
+            let inner_text: String = content.iter().map(|c| c.to_plain_text()).collect();
+            assert_eq!(inner_text, "b");
+        } else {
+            panic!("Expected a link in first paragraph after split");
+        }
+
+        if let InlineContent::Link { link, content } = &editor.document().blocks()[1].content[0] {
+            assert_eq!(link.destination, "dest");
+            let inner_text: String = content.iter().map(|c| c.to_plain_text()).collect();
+            assert_eq!(inner_text, "c");
+        } else {
+            panic!("Expected a link at start of second paragraph after split");
+        }
+    }
     #[test]
     fn test_delete_selection_across_blocks() {
         let mut editor = StructuredEditor::new();
