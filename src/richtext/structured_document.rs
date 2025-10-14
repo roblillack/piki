@@ -274,13 +274,14 @@ impl Block {
                                 }
                             }
                         } else {
-                            // deletion starts at or before this item
+                            // Deletion starts at or before this item
+                            // We need to remove a prefix of this run and keep the remaining suffix.
                             let del_in_this = min(len, end.saturating_sub(pos));
                             if del_in_this >= len {
-                                // remove whole run
+                                // Entire run is deleted; push nothing
                             } else {
-                                // remove prefix
-                                let (leftover, _deleted) = run.split_at(del_in_this);
+                                // Keep the suffix after the deleted prefix
+                                let (_deleted, leftover) = run.split_at(del_in_this);
                                 if !leftover.is_empty() {
                                     new_content.push(InlineContent::Text(leftover));
                                 }

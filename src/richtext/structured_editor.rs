@@ -255,15 +255,60 @@ impl StructuredEditor {
                     run.insert_text(content_offset, text);
                 }
                 InlineContent::Link { content, .. } => {
-                    // Insert within the link's inner content so typing stays inside the link
-                    let (inner_idx, inner_off) = inner_within_link.unwrap_or((content.len(), 0));
-                    if inner_idx >= content.len() {
-                        content.push(InlineContent::Text(TextRun::plain(text)));
+                    // Special handling at link edges: if the cursor is exactly at the
+                    // start or end of the link, insert outside the link rather than
+                    // into its inner content.
+                    let link_len: usize = content.iter().map(|c| c.text_len()).sum();
+
+                    if content_offset == 0 {
+                        // Insert before the link. If there is a previous text run,
+                        // append into it; otherwise insert a fresh text run.
+                        if content_idx > 0 {
+                            if let InlineContent::Text(prev_run) =
+                                &mut block.content[content_idx - 1]
+                            {
+                                let prev_len = prev_run.len();
+                                prev_run.insert_text(prev_len, text);
+                            } else {
+                                block
+                                    .content
+                                    .insert(content_idx, InlineContent::Text(TextRun::plain(text)));
+                            }
+                        } else {
+                            block
+                                .content
+                                .insert(content_idx, InlineContent::Text(TextRun::plain(text)));
+                        }
+                    } else if content_offset >= link_len {
+                        // Insert after the link. If there is a following text run,
+                        // prepend into it; otherwise insert a fresh text run.
+                        if content_idx + 1 < block.content.len() {
+                            if let InlineContent::Text(next_run) =
+                                &mut block.content[content_idx + 1]
+                            {
+                                next_run.insert_text(0, text);
+                            } else {
+                                block.content.insert(
+                                    content_idx + 1,
+                                    InlineContent::Text(TextRun::plain(text)),
+                                );
+                            }
+                        } else {
+                            block
+                                .content
+                                .push(InlineContent::Text(TextRun::plain(text)));
+                        }
                     } else {
-                        match &mut content[inner_idx] {
-                            InlineContent::Text(run) => run.insert_text(inner_off, text),
-                            _ => {
-                                content.insert(inner_idx, InlineContent::Text(TextRun::plain(text)))
+                        // Insert within the link's inner content so typing stays inside the link
+                        let (inner_idx, inner_off) =
+                            inner_within_link.unwrap_or((content.len(), 0));
+                        if inner_idx >= content.len() {
+                            content.push(InlineContent::Text(TextRun::plain(text)));
+                        } else {
+                            match &mut content[inner_idx] {
+                                InlineContent::Text(run) => run.insert_text(inner_off, text),
+                                _ => content
+                                    .insert(inner_idx, InlineContent::Text(TextRun::plain(text))),
                             }
                         }
                     }
@@ -1639,6 +1684,52 @@ mod tests {
     }
 
     #[test]
+    fn test_insert_text_at_start_of_link_inserts_before() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("ab").unwrap();
+        editor.insert_link_at_cursor("dest", "XY").unwrap();
+        editor.insert_text("cd").unwrap();
+
+        // Caret at the very start of the link (between b and X): ab|XYcd => offset 2
+        editor.set_cursor(DocumentPosition::new(0, 2));
+        editor.insert_text("!").unwrap();
+
+        assert_eq!(editor.document().to_plain_text(), "ab!XYcd");
+        // Ensure the exclamation mark is outside the link
+        let block = &editor.document().blocks()[0];
+        assert!(matches!(block.content[0], InlineContent::Text(_)));
+        if let InlineContent::Link { content, .. } = &block.content[1] {
+            let inner_text: String = content.iter().map(|c| c.to_plain_text()).collect();
+            assert_eq!(inner_text, "XY");
+        } else {
+            panic!("Expected a link at index 1");
+        }
+    }
+
+    #[test]
+    fn test_insert_text_at_end_of_link_inserts_after() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("ab").unwrap();
+        editor.insert_link_at_cursor("dest", "XY").unwrap();
+        editor.insert_text("cd").unwrap();
+
+        // Caret at the very end of the link (between Y and c): abXY|cd => offset 4
+        editor.set_cursor(DocumentPosition::new(0, 4));
+        editor.insert_text("!").unwrap();
+
+        assert_eq!(editor.document().to_plain_text(), "abXY!cd");
+        // Ensure the exclamation mark is outside the link
+        let block = &editor.document().blocks()[0];
+        if let InlineContent::Link { content, .. } = &block.content[1] {
+            let inner_text: String = content.iter().map(|c| c.to_plain_text()).collect();
+            assert_eq!(inner_text, "XY");
+        } else {
+            panic!("Expected a link at index 1");
+        }
+        assert!(matches!(block.content[2], InlineContent::Text(_)));
+    }
+
+    #[test]
     fn test_backspace_inside_link() {
         let mut editor = StructuredEditor::new();
         editor.insert_text("ab").unwrap();
@@ -1674,6 +1765,7 @@ mod tests {
         assert_eq!(editor.document().to_plain_text(), "abXZcd");
 
         let block = &editor.document().blocks()[0];
+        assert_eq!(block.content.len(), 3);
         if let InlineContent::Link { content, .. } = &block.content[1] {
             let inner_text: String = content.iter().map(|c| c.to_plain_text()).collect();
             assert_eq!(inner_text, "XZ");
