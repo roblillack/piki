@@ -6,11 +6,11 @@ use fliki_rs::richtext::markdown_converter::{document_to_markdown, markdown_to_d
 use fliki_rs::richtext::structured_document::DocumentPosition;
 use fliki_rs::sourceedit::text_display::{style_attr, StyleTableEntry};
 use fltk::{prelude::*, *};
-use std::time::Instant;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::process;
+use std::time::Instant;
 
 const DEFAULT_FONT_SIZE: u8 = 14;
 const HIGHLIGHT_COLOR: u32 = 0xFFFF00FF; // Yellow highlight
@@ -305,17 +305,12 @@ fn main() {
         let code_shortcut = enums::Shortcut::Command | enums::Shortcut::Shift | 'c';
         #[cfg(not(target_os = "macos"))]
         let code_shortcut = enums::Shortcut::Ctrl | enums::Shortcut::Shift | 'c';
-        menu_bar.add(
-            "Format/Code\t",
-            code_shortcut,
-            menu::MenuFlag::Normal,
-            {
-                let display = display_for_menu.clone();
-                move |_| {
-                    display.borrow_mut().editor_mut().toggle_code().ok();
-                }
-            },
-        );
+        menu_bar.add("Format/Code\t", code_shortcut, menu::MenuFlag::Normal, {
+            let display = display_for_menu.clone();
+            move |_| {
+                display.borrow_mut().editor_mut().toggle_code().ok();
+            }
+        });
 
         // Edit Link (Cmd/Ctrl-K)
         #[cfg(target_os = "macos")]
@@ -334,10 +329,19 @@ fn main() {
                     if let Some((b, i)) = d.hovered_link() {
                         let doc = d.editor().document();
                         let block = &doc.blocks()[b];
-                        if let fliki_rs::richtext::structured_document::InlineContent::Link { link, content } = &block.content[i] {
-                            let text = content.iter().map(|c| c.to_plain_text()).collect::<String>();
+                        if let fliki_rs::richtext::structured_document::InlineContent::Link {
+                            link,
+                            content,
+                        } = &block.content[i]
+                        {
+                            let text = content
+                                .iter()
+                                .map(|c| c.to_plain_text())
+                                .collect::<String>();
                             (link.destination.clone(), text, true, false, Some((b, i)))
-                        } else { (String::new(), String::new(), false, false, None) }
+                        } else {
+                            (String::new(), String::new(), false, false, None)
+                        }
                     } else if let Some((a, b)) = d.editor().selection() {
                         let text = d.editor().text_in_range(a, b);
                         (String::new(), text, false, true, None)
@@ -394,7 +398,7 @@ fn main() {
                         }
                     }),
                 );
-            }
+            },
         );
 
         // Bullet list toggle (Cmd/Ctrl-Shift-8) under Paragraph Style
@@ -405,11 +409,20 @@ fn main() {
         menu_bar.add(
             "Paragraph Style/List Item\t",
             list_shortcut,
-            menu::MenuFlag::Normal,
+            menu::MenuFlag::Radio,
             {
                 let display = display.clone();
                 move |_| {
-                    display.borrow_mut().editor_mut().toggle_list().ok();
+                    display
+                        .borrow_mut()
+                        .editor_mut()
+                        .set_block_type(
+                            fliki_rs::richtext::structured_document::BlockType::ListItem {
+                                ordered: false,
+                                number: None,
+                            },
+                        )
+                        .ok();
                 }
             },
         );
@@ -439,14 +452,16 @@ fn main() {
         menu_bar.add(
             "Paragraph Style/Paragraph\t",
             para_shortcut,
-            menu::MenuFlag::Normal,
+            menu::MenuFlag::Radio,
             {
                 let display = display_for_menu.clone();
                 move |_| {
                     display
                         .borrow_mut()
                         .editor_mut()
-                        .set_block_type(fliki_rs::richtext::structured_document::BlockType::Paragraph)
+                        .set_block_type(
+                            fliki_rs::richtext::structured_document::BlockType::Paragraph,
+                        )
                         .ok();
                 }
             },
@@ -455,14 +470,18 @@ fn main() {
         menu_bar.add(
             "Paragraph Style/Heading 1\t",
             h1_shortcut,
-            menu::MenuFlag::Normal,
+            menu::MenuFlag::Radio,
             {
                 let display = display_for_menu.clone();
                 move |_| {
                     display
                         .borrow_mut()
                         .editor_mut()
-                        .set_block_type(fliki_rs::richtext::structured_document::BlockType::Heading { level: 1 })
+                        .set_block_type(
+                            fliki_rs::richtext::structured_document::BlockType::Heading {
+                                level: 1,
+                            },
+                        )
                         .ok();
                 }
             },
@@ -471,14 +490,18 @@ fn main() {
         menu_bar.add(
             "Paragraph Style/Heading 2\t",
             h2_shortcut,
-            menu::MenuFlag::Normal,
+            menu::MenuFlag::Radio,
             {
                 let display = display_for_menu.clone();
                 move |_| {
                     display
                         .borrow_mut()
                         .editor_mut()
-                        .set_block_type(fliki_rs::richtext::structured_document::BlockType::Heading { level: 2 })
+                        .set_block_type(
+                            fliki_rs::richtext::structured_document::BlockType::Heading {
+                                level: 2,
+                            },
+                        )
                         .ok();
                 }
             },
@@ -487,18 +510,61 @@ fn main() {
         menu_bar.add(
             "Paragraph Style/Heading 3\t",
             h3_shortcut,
-            menu::MenuFlag::Normal,
+            menu::MenuFlag::Radio,
             {
                 let display = display_for_menu.clone();
                 move |_| {
                     display
                         .borrow_mut()
                         .editor_mut()
-                        .set_block_type(fliki_rs::richtext::structured_document::BlockType::Heading { level: 3 })
+                        .set_block_type(
+                            fliki_rs::richtext::structured_document::BlockType::Heading {
+                                level: 3,
+                            },
+                        )
                         .ok();
                 }
             },
         );
+
+        // Keep paragraph style radio selection in sync with cursor
+        {
+            use fliki_rs::richtext::structured_document::BlockType;
+            let mut mb = menu_bar.clone();
+            let disp = display.clone();
+            app::add_timeout3(0.25, move |h| {
+                let current = {
+                    let d = disp.borrow();
+                    let ed = d.editor();
+                    let cur = ed.cursor();
+                    let doc = ed.document();
+                    let blocks = doc.blocks();
+                    if !blocks.is_empty() && (cur.block_index as usize) < blocks.len() {
+                        blocks[cur.block_index as usize].block_type.clone()
+                    } else {
+                        BlockType::Paragraph
+                    }
+                };
+
+                if let Some(selected) = match current {
+                    BlockType::Paragraph => Some("Paragraph Style/Paragraph\t"),
+                    BlockType::Heading { level } => match level {
+                        1 => Some("Paragraph Style/Heading 1\t"),
+                        2 => Some("Paragraph Style/Heading 2\t"),
+                        3 => Some("Paragraph Style/Heading 3\t"),
+                        _ => None,
+                    },
+                    BlockType::ListItem { .. } => Some("Paragraph Style/List Item\t"),
+                    _ => None,
+                } {
+                    if let Some(mut item) = mb.find_item(selected) {
+                        item.set();
+                    }
+                }
+
+                app::repeat_timeout3(0.25, h);
+            });
+        }
 
         // Clear Formatting (Cmd/Ctrl-\)
         #[cfg(target_os = "macos")]

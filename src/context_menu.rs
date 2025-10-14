@@ -1,3 +1,4 @@
+use crate::richtext::structured_document::BlockType;
 use fltk::{
     enums::Shortcut,
     menu::{MenuButton, MenuFlag},
@@ -7,6 +8,8 @@ use fltk::{
 /// Actions to be wired to context menu entries.
 pub struct MenuActions {
     pub has_selection: bool,
+    /// Current block type at cursor, for radio selection state
+    pub current_block: BlockType,
 
     // Block styles
     pub set_paragraph: Box<dyn FnMut()>,
@@ -64,36 +67,69 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
     #[cfg(not(target_os = "macos"))]
     let list_shortcut = Shortcut::Ctrl | Shortcut::Shift | '8';
 
+    // Paragraph style items as a radio group
     menu.add(
         "Paragraph Style/Paragraph\t",
         para_shortcut,
-        MenuFlag::Normal,
+        MenuFlag::Radio,
         move |_| (actions.set_paragraph)(),
     );
     menu.add(
         "Paragraph Style/Heading 1\t",
         h1_shortcut,
-        MenuFlag::Normal,
+        MenuFlag::Radio,
         move |_| (actions.set_heading1)(),
     );
     menu.add(
         "Paragraph Style/Heading 2\t",
         h2_shortcut,
-        MenuFlag::Normal,
+        MenuFlag::Radio,
         move |_| (actions.set_heading2)(),
     );
     menu.add(
         "Paragraph Style/Heading 3\t",
         h3_shortcut,
-        MenuFlag::Normal,
+        MenuFlag::Radio,
         move |_| (actions.set_heading3)(),
     );
     menu.add(
         "Paragraph Style/List Item\t",
         list_shortcut,
-        MenuFlag::Normal,
+        MenuFlag::Radio,
         move |_| (actions.toggle_list)(),
     );
+
+    // Reflect current block selection in the radio group
+    let labels = [
+        "Paragraph Style/Paragraph\t",
+        "Paragraph Style/Heading 1\t",
+        "Paragraph Style/Heading 2\t",
+        "Paragraph Style/Heading 3\t",
+        "Paragraph Style/List Item\t",
+    ];
+    // Ensure radio flag is set on all items and clear Value by default
+    for &label in &labels {
+        let idx = menu.find_index(label);
+        if idx >= 0 {
+            menu.set_mode(idx, MenuFlag::Radio);
+        }
+    }
+    // Set the selected item based on current block
+    if let Some(lbl) = match actions.current_block {
+        BlockType::Paragraph => Some("Paragraph Style/Paragraph\t"),
+        BlockType::Heading { level } => match level {
+            1 => Some("Paragraph Style/Heading 1\t"),
+            2 => Some("Paragraph Style/Heading 2\t"),
+            3 => Some("Paragraph Style/Heading 3\t"),
+            _ => None,
+        },
+        BlockType::ListItem { .. } => Some("Paragraph Style/List Item\t"),
+        _ => None,
+    } {
+        if let Some(mut item) = menu.find_item(lbl) {
+            item.set();
+        }
+    }
 
     // Inline style accelerators
     #[cfg(target_os = "macos")]
@@ -131,7 +167,12 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
     #[cfg(not(target_os = "macos"))]
     let clear_shortcut = Shortcut::Ctrl | '\\';
 
-    menu.add("Toggle Bold\t", bold_shortcut, MenuFlag::Normal, move |_| (actions.toggle_bold)());
+    menu.add(
+        "Toggle Bold\t",
+        bold_shortcut,
+        MenuFlag::Normal,
+        move |_| (actions.toggle_bold)(),
+    );
     menu.add(
         "Toggle Italic\t",
         italic_shortcut,
@@ -193,13 +234,17 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
     let cut_shortcut = Shortcut::Command | 'x';
     #[cfg(not(target_os = "macos"))]
     let cut_shortcut = Shortcut::Ctrl | 'x';
-    menu.add("Cut\t", cut_shortcut, MenuFlag::Normal, move |_| (actions.cut)());
+    menu.add("Cut\t", cut_shortcut, MenuFlag::Normal, move |_| {
+        (actions.cut)()
+    });
 
     #[cfg(target_os = "macos")]
     let copy_shortcut = Shortcut::Command | 'c';
     #[cfg(not(target_os = "macos"))]
     let copy_shortcut = Shortcut::Ctrl | 'c';
-    menu.add("Copy\t", copy_shortcut, MenuFlag::Normal, move |_| (actions.copy)());
+    menu.add("Copy\t", copy_shortcut, MenuFlag::Normal, move |_| {
+        (actions.copy)()
+    });
 
     #[cfg(target_os = "macos")]
     let paste_shortcut = Shortcut::Command | 'v';

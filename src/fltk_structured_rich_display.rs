@@ -171,10 +171,32 @@ impl FltkStructuredRichDisplay {
                             let y = fltk::app::event_y();
 
                             // Unified context menu via context_menu module
+                            // If no selection, move caret to click location first
+                            let clicked_pos = {
+                                let d = display.borrow();
+                                d.xy_to_position(x - w.x(), y - w.y())
+                            };
                             let has_selection = display.borrow().editor().selection().is_some();
+                            if !has_selection {
+                                display.borrow_mut().editor_mut().set_cursor(clicked_pos);
+                            }
+                            // Determine current block type based on caret position
+                            let current_block = {
+                                let d = display.borrow();
+                                let ed = d.editor();
+                                let cur = ed.cursor();
+                                let doc = ed.document();
+                                let blocks = doc.blocks();
+                                if !blocks.is_empty() && (cur.block_index as usize) < blocks.len() {
+                                    blocks[cur.block_index as usize].block_type.clone()
+                                } else {
+                                    BlockType::Paragraph
+                                }
+                            };
                             let mut w_for_actions = w.clone();
                             let actions = crate::context_menu::MenuActions {
                                 has_selection,
+                                current_block,
                                 set_paragraph: Box::new({
                                     let display = display.clone();
                                     let change_cb = change_cb.clone();
@@ -382,7 +404,7 @@ impl FltkStructuredRichDisplay {
                                         );
                                     }
                                 }),
-                            };
+                                };
 
                             crate::context_menu::show_context_menu(x, y, actions);
                             return true;
@@ -1174,6 +1196,18 @@ impl FltkStructuredRichDisplay {
                                 let mut w_for_actions = w.clone();
                                 let actions = crate::context_menu::MenuActions {
                                     has_selection,
+                                    current_block: {
+                                        let d = display.borrow();
+                                        let ed = d.editor();
+                                        let cur = ed.cursor();
+                                        let doc = ed.document();
+                                        let blocks = doc.blocks();
+                                        if !blocks.is_empty() && (cur.block_index as usize) < blocks.len() {
+                                            blocks[cur.block_index as usize].block_type.clone()
+                                        } else {
+                                            BlockType::Paragraph
+                                        }
+                                    },
                                     set_paragraph: Box::new({
                                         let display = display.clone();
                                         let mut w_r = w_for_actions.clone();
