@@ -420,6 +420,7 @@ fn main() {
                             fliki_rs::richtext::structured_document::BlockType::ListItem {
                                 ordered: false,
                                 number: None,
+                                checkbox: None,
                             },
                         )
                         .ok();
@@ -554,7 +555,17 @@ fn main() {
                         3 => Some("Paragraph Style/Heading 3\t"),
                         _ => None,
                     },
-                    BlockType::ListItem { .. } => Some("Paragraph Style/List Item\t"),
+                    BlockType::ListItem {
+                        ordered,
+                        checkbox,
+                        ..
+                    } => Some(if ordered {
+                        "Paragraph Style/Numbered List\t"
+                    } else if checkbox.is_some() {
+                        "Paragraph Style/List Item\t"
+                    } else {
+                        "Paragraph Style/List Item\t"
+                    }),
                     _ => None,
                 } {
                     if let Some(mut item) = mb.find_item(selected) {

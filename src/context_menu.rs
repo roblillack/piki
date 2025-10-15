@@ -19,6 +19,7 @@ pub struct MenuActions {
     pub toggle_quote: Box<dyn FnMut()>,
     pub toggle_code_block: Box<dyn FnMut()>,
     pub toggle_list: Box<dyn FnMut()>,
+    pub toggle_checklist: Box<dyn FnMut()>,
     pub toggle_ordered_list: Box<dyn FnMut()>,
 
     // Inline styles
@@ -84,9 +85,14 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
 
     // Quote (Cmd/Ctrl + Shift + 9)
     #[cfg(target_os = "macos")]
-    let quote_shortcut = Shortcut::Command | Shortcut::Shift | '9';
+    let quote_shortcut = Shortcut::Command | Shortcut::Shift | '5';
     #[cfg(not(target_os = "macos"))]
-    let quote_shortcut = Shortcut::Ctrl | Shortcut::Shift | '9';
+    let quote_shortcut = Shortcut::Ctrl | Shortcut::Shift | '5';
+
+    #[cfg(target_os = "macos")]
+    let checklist_shortcut = Shortcut::Command | Shortcut::Shift | '9';
+    #[cfg(not(target_os = "macos"))]
+    let checklist_shortcut = Shortcut::Ctrl | Shortcut::Shift | '9';
 
     // Paragraph style items as a radio group
     menu.add(
@@ -132,6 +138,12 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         move |_| (actions.toggle_list)(),
     );
     menu.add(
+        "Paragraph Style/Checklist Item\t",
+        checklist_shortcut,
+        MenuFlag::Radio,
+        move |_| (actions.toggle_checklist)(),
+    );
+    menu.add(
         "Paragraph Style/Numbered List\t",
         ordered_list_shortcut,
         MenuFlag::Radio,
@@ -147,6 +159,7 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         "Paragraph Style/Code\t",
         "Paragraph Style/Quote\t",
         "Paragraph Style/List Item\t",
+        "Paragraph Style/Checklist Item\t",
         "Paragraph Style/Numbered List\t",
     ];
     // Ensure radio flag is set on all items and clear Value by default
@@ -167,12 +180,17 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         },
         BlockType::CodeBlock { .. } => Some("Paragraph Style/Code\t"),
         BlockType::BlockQuote => Some("Paragraph Style/Quote\t"),
-        BlockType::ListItem { ordered, .. } => Some(if ordered {
+        BlockType::ListItem {
+            ordered,
+            checkbox,
+            ..
+        } => Some(if ordered {
             "Paragraph Style/Numbered List\t"
+        } else if checkbox.is_some() {
+            "Paragraph Style/Checklist Item\t"
         } else {
             "Paragraph Style/List Item\t"
         }),
-        _ => None,
     } {
         if let Some(mut item) = menu.find_item(lbl) {
             item.set();

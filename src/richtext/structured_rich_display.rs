@@ -41,6 +41,8 @@ struct VisualRun {
     char_range: (usize, usize),
     /// Inline content index (for link detection)
     inline_index: Option<usize>,
+    /// Whether this run represents a checklist marker (for hit testing)
+    is_checklist_marker: bool,
 }
 
 /// Rich Text Display for Structured Documents
@@ -618,6 +620,7 @@ impl StructuredRichDisplay {
                             block_index: block_idx,
                             char_range: (0, line_len),
                             inline_index: None,
+                            is_checklist_marker: false,
                         }],
                     });
                     current_y += self.line_height;
@@ -651,12 +654,22 @@ impl StructuredRichDisplay {
                     ctx,
                 ) + 5
             }
-            BlockType::ListItem { ordered, number } => {
+            BlockType::ListItem {
+                ordered,
+                number,
+                checkbox,
+            } => {
                 // Base indent padding before label (keeps list labels off the edge)
                 let label_left_pad = self.text_size as i32;
 
                 // Determine label text and padding width
-                let (label_text, label_pad_width, content_start_x) = if *ordered {
+                let (label_text, label_pad_width, content_start_x, is_checklist_marker) = if let Some(checked) = checkbox {
+                    let marker = if *checked { "[x] " } else { "[ ] " };
+                    let marker_width =
+                        ctx.text_width(marker, self.text_font, self.text_size) as i32;
+                    let content_start_x = start_x + label_left_pad + marker_width;
+                    (marker.to_string(), marker_width, content_start_x, true)
+                } else if *ordered {
                     // Find contiguous ordered list run (adjacent siblings)
                     let doc = self.editor.document();
                     let blocks = doc.blocks();
@@ -684,14 +697,23 @@ impl StructuredRichDisplay {
 
                     // Determine starting number (default to 1 if None)
                     let first_num = match blocks[run_start].block_type {
-                        BlockType::ListItem { ordered: true, number } => number.unwrap_or(1),
+                        BlockType::ListItem {
+                            ordered: true,
+                            number,
+                            ..
+                        } => number.unwrap_or(1),
                         _ => 1,
                     };
 
                     // Compute the maximum used number across the run
                     let mut max_num = first_num;
                     for (i, b) in blocks[run_start..=run_end].iter().enumerate() {
-                        if let BlockType::ListItem { ordered: true, number } = b.block_type {
+                        if let BlockType::ListItem {
+                            ordered: true,
+                            number,
+                            ..
+                        } = b.block_type
+                        {
                             let n = number.unwrap_or(first_num + i as u64);
                             if n > max_num {
                                 max_num = n;
@@ -710,14 +732,14 @@ impl StructuredRichDisplay {
                     let label_text = format!("{}. ", cur_num);
                     let content_start_x = start_x + label_left_pad + label_pad_width;
 
-                    (label_text, label_pad_width, content_start_x)
+                    (label_text, label_pad_width, content_start_x, false)
                 } else {
                     // Unordered bullet label and fixed width
                     let bullet_text = "• ".to_string();
                     let bullet_width =
                         ctx.text_width(&bullet_text, self.text_font, self.text_size) as i32;
                     let content_start_x = start_x + label_left_pad + bullet_width;
-                    (bullet_text, bullet_width, content_start_x)
+                    (bullet_text, bullet_width, content_start_x, false)
                 };
 
                 // Assemble label run
@@ -729,6 +751,7 @@ impl StructuredRichDisplay {
                     block_index: block_idx,
                     char_range: (0, 0),
                     inline_index: None,
+                    is_checklist_marker,
                 }];
 
                 // Layout the content with proper text indentation
@@ -945,6 +968,7 @@ impl StructuredRichDisplay {
                                     block_index: block_idx,
                                     char_range: (char_offset, char_offset + space_end),
                                     inline_index: Some(inline_idx),
+                                    is_checklist_marker: false,
                                 });
 
                                 current_x += space_width;
@@ -984,6 +1008,7 @@ impl StructuredRichDisplay {
                                 block_index: block_idx,
                                 char_range: (char_offset + word_start, char_offset + word_end),
                                 inline_index: Some(inline_idx),
+                                is_checklist_marker: false,
                             });
 
                             current_x += word_width;
@@ -1027,6 +1052,7 @@ impl StructuredRichDisplay {
                         block_index: block_idx,
                         char_range: (char_offset, char_offset + text.len()),
                         inline_index: Some(inline_idx),
+                        is_checklist_marker: false,
                     });
 
                     current_x += text_width;
@@ -1042,6 +1068,7 @@ impl StructuredRichDisplay {
                         block_index: block_idx,
                         char_range: (char_offset, char_offset + 1),
                         inline_index: Some(inline_idx),
+                        is_checklist_marker: false,
                     });
                     current_x += space_width;
                     char_offset += 1;
@@ -1402,6 +1429,45 @@ impl StructuredRichDisplay {
         }
     }
 
+    /// Determine if a point (widget coordinates) hits a checklist marker
+    pub(crate) fn checklist_marker_hit(&self, x: i32, y: i32) -> Option<usize> {
+        let adjusted_y = y + self.scroll_offset;
+        let doc = self.editor.document();
+        let blocks = doc.blocks();
+
+        for line in &self.layout_lines {
+            if adjusted_y < line.y || adjusted_y > line.y + line.height {
+                continue;
+            }
+
+            for run in &line.runs {
+                if !run.is_checklist_marker || run.width <= 0 {
+                    continue;
+                }
+
+                let marker_start_x = run.x;
+                let marker_end_x = run.x + run.width;
+                // Allow a small tolerance around the marker for easier clicking
+                let tolerance = 4;
+                if x >= marker_start_x - tolerance && x <= marker_end_x + tolerance {
+                    if let Some(block) = blocks.get(line.block_index) {
+                        if matches!(
+                            block.block_type,
+                            BlockType::ListItem {
+                                checkbox: Some(_),
+                                ..
+                            }
+                        ) {
+                            return Some(line.block_index);
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     /// Convert x,y screen coordinates to document position
     pub fn xy_to_position(&self, x: i32, y: i32) -> DocumentPosition {
         let adjusted_y = y + self.scroll_offset;
@@ -1705,6 +1771,7 @@ mod tests {
             BlockType::ListItem {
                 ordered: false,
                 number: None,
+                checkbox: None,
             },
         );
         let mut display = make_display_with_block(block);
@@ -1727,6 +1794,7 @@ mod tests {
             BlockType::ListItem {
                 ordered: true,
                 number: Some(3),
+                checkbox: None,
             },
         );
         let mut display = make_display_with_block(block);
@@ -1736,6 +1804,29 @@ mod tests {
             ctx.text_width("3. ", display.text_font, display.text_size) as i32;
         let expected_x =
             display.padding_left + display.text_size as i32 + label_width;
+
+        display.layout(&mut ctx);
+        let (x, _, _) = display.get_cursor_visual_position(&mut ctx).unwrap();
+        assert_eq!(x, expected_x);
+    }
+
+    #[test]
+    fn cursor_in_empty_checklist_respects_content_indent() {
+        let block = Block::new(
+            0,
+            BlockType::ListItem {
+                ordered: false,
+                number: None,
+                checkbox: Some(false),
+            },
+        );
+        let mut display = make_display_with_block(block);
+        let mut ctx = TestDrawContext::new_with_focus();
+
+        let checkbox_width =
+            ctx.text_width("[ ] ", display.text_font, display.text_size) as i32;
+        let expected_x =
+            display.padding_left + display.text_size as i32 + checkbox_width;
 
         display.layout(&mut ctx);
         let (x, _, _) = display.get_cursor_visual_position(&mut ctx).unwrap();

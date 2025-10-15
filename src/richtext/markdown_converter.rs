@@ -43,8 +43,16 @@ pub fn document_to_markdown(doc: &StructuredDocument) -> String {
                 output.push_str("> ");
                 output.push_str(&inline_content_to_markdown(&block.content));
             }
-            BlockType::ListItem { ordered, number } => {
-                if *ordered {
+            BlockType::ListItem {
+                ordered,
+                number,
+                checkbox,
+            } => {
+                if let Some(checked) = checkbox {
+                    let marker = if *checked { "[x] " } else { "[ ] " };
+                    output.push_str("- ");
+                    output.push_str(marker);
+                } else if *ordered {
                     if let Some(n) = number {
                         output.push_str(&format!("{}. ", n));
                     } else {
@@ -151,7 +159,7 @@ fn ast_node_to_blocks(node: &ASTNode, doc: &mut StructuredDocument) {
         NodeType::List { ordered, start } => {
             // Process each list item as a separate block
             for (idx, child) in node.children.iter().enumerate() {
-                if let NodeType::ListItem = child.node_type {
+                if let NodeType::ListItem { checkbox } = &child.node_type {
                     let number = if *ordered {
                         Some(start + idx as u64)
                     } else {
@@ -163,6 +171,7 @@ fn ast_node_to_blocks(node: &ASTNode, doc: &mut StructuredDocument) {
                         BlockType::ListItem {
                             ordered: *ordered,
                             number,
+                            checkbox: *checkbox,
                         },
                     );
                     block.content = ast_node_to_inline_content(child);
@@ -210,7 +219,7 @@ fn ast_node_to_block(node: &ASTNode, doc: &mut StructuredDocument) -> Option<Blo
             block.content = ast_node_to_inline_content(node);
             Some(block)
         }
-        NodeType::ListItem => {
+        NodeType::ListItem { checkbox } => {
             // Determine if parent is ordered or unordered
             // For now, assume unordered
             let mut block = Block::new(
@@ -218,6 +227,7 @@ fn ast_node_to_block(node: &ASTNode, doc: &mut StructuredDocument) -> Option<Blo
                 BlockType::ListItem {
                     ordered: false,
                     number: None,
+                    checkbox: *checkbox,
                 },
             );
             block.content = ast_node_to_inline_content(node);
@@ -332,6 +342,7 @@ mod tests {
                 BlockType::ListItem {
                     ordered: false,
                     number: None,
+                    checkbox: None,
                 },
             )
             .with_plain_text("Item 1"),
@@ -342,6 +353,7 @@ mod tests {
                 BlockType::ListItem {
                     ordered: false,
                     number: None,
+                    checkbox: None,
                 },
             )
             .with_plain_text("Item 2"),
@@ -360,6 +372,59 @@ mod tests {
         // Re-parse to verify structure is preserved
         let doc2 = markdown_to_document(&md);
         assert_eq!(doc.block_count(), doc2.block_count());
+    }
+
+    #[test]
+    fn test_document_to_markdown_checklist() {
+        let mut doc = StructuredDocument::new();
+        doc.add_block(
+            Block::new(
+                0,
+                BlockType::ListItem {
+                    ordered: false,
+                    number: None,
+                    checkbox: Some(false),
+                },
+            )
+            .with_plain_text("Todo"),
+        );
+        doc.add_block(
+            Block::new(
+                0,
+                BlockType::ListItem {
+                    ordered: false,
+                    number: None,
+                    checkbox: Some(true),
+                },
+            )
+            .with_plain_text("Done"),
+        );
+
+        let md = document_to_markdown(&doc);
+        assert_eq!(md, "- [ ] Todo\n\n- [x] Done");
+    }
+
+    #[test]
+    fn test_markdown_to_document_checklist() {
+        let md = "- [ ] Todo\n\n- [x] Done";
+        let doc = markdown_to_document(md);
+        assert_eq!(doc.block_count(), 2);
+        match doc.blocks()[0].block_type {
+            BlockType::ListItem {
+                ordered: false,
+                number: None,
+                checkbox: Some(state),
+            } => assert!(!state),
+            _ => panic!("expected checklist"),
+        }
+        match doc.blocks()[1].block_type {
+            BlockType::ListItem {
+                ordered: false,
+                number: None,
+                checkbox: Some(state),
+            } => assert!(state),
+            _ => panic!("expected checklist"),
+        }
     }
 
     #[test]

@@ -58,7 +58,9 @@ pub enum NodeType {
         ordered: bool,
         start: u64,
     },
-    ListItem,
+    ListItem {
+        checkbox: Option<bool>,
+    },
     ThematicBreak, // Horizontal rule
 
     /// Inline elements
@@ -103,7 +105,7 @@ impl NodeType {
                 | NodeType::CodeBlock { .. }
                 | NodeType::BlockQuote
                 | NodeType::List { .. }
-                | NodeType::ListItem
+                | NodeType::ListItem { .. }
                 | NodeType::ThematicBreak
                 | NodeType::Table
                 | NodeType::TableHead

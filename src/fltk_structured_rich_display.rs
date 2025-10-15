@@ -2,8 +2,7 @@
 
 use crate::fltk_text_display::FltkDrawContext;
 use crate::responsive_scrollbar::ResponsiveScrollbar;
-use crate::richtext::markdown_converter;
-use crate::richtext::structured_document::{BlockType, DocumentPosition, InlineContent};
+use crate::richtext::structured_document::{BlockType, InlineContent};
 use crate::richtext::structured_rich_display::StructuredRichDisplay;
 use fltk::{app::MouseWheel, enums::*, prelude::*};
 use std::cell::RefCell;
@@ -164,6 +163,30 @@ impl FltkStructuredRichDisplay {
 
                 match event {
                     Event::Push => {
+                        // Toggle checklist markers on left-click in edit mode
+                        if edit_mode && fltk::app::event_button() == 1 {
+                            let local_x = fltk::app::event_x() - w.x();
+                            let local_y = fltk::app::event_y() - w.y();
+                            let toggled = {
+                                let mut disp = display.borrow_mut();
+                                if let Some(block_idx) = disp.checklist_marker_hit(local_x, local_y) {
+                                    match disp.editor_mut().toggle_checkmark_at(block_idx) {
+                                        Ok(changed) => changed,
+                                        Err(_) => false,
+                                    }
+                                } else {
+                                    false
+                                }
+                            };
+                            if toggled {
+                                if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                    (cb)();
+                                }
+                                w.redraw();
+                                return true;
+                            }
+                        }
+
                         // Check for right-click context menu in edit mode (button 3 is right-click)
                         if edit_mode && fltk::app::event_button() == 3 {
                             let x = fltk::app::event_x();
@@ -317,6 +340,22 @@ impl FltkStructuredRichDisplay {
                                     let mut w_r = w_for_actions.clone();
                                     move || {
                                         display.borrow_mut().editor_mut().toggle_list().ok();
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                            (cb)();
+                                        }
+                                        w_r.redraw();
+                                    }
+                                }),
+                                toggle_checklist: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let mut w_r = w_for_actions.clone();
+                                    move || {
+                                        display
+                                            .borrow_mut()
+                                            .editor_mut()
+                                            .toggle_checklist()
+                                            .ok();
                                         if let Some(cb) = &mut *change_cb.borrow_mut() {
                                             (cb)();
                                         }
@@ -714,6 +753,7 @@ impl FltkStructuredRichDisplay {
                                             .set_block_type(BlockType::ListItem {
                                                 ordered: false,
                                                 number: None,
+                                                checkbox: None,
                                             })
                                             .ok();
                                         if let Some(cb) = &mut *change_cb.borrow_mut() {
@@ -1507,6 +1547,18 @@ impl FltkStructuredRichDisplay {
                                                 w_r.redraw();
                                             }
                                         }),
+                                        toggle_checklist: Box::new({
+                                            let display = display.clone();
+                                            let mut w_r = w_for_actions.clone();
+                                            move || {
+                                                display
+                                                    .borrow_mut()
+                                                    .editor_mut()
+                                                    .toggle_checklist()
+                                                    .ok();
+                                                w_r.redraw();
+                                            }
+                                        }),
                                         toggle_ordered_list: Box::new({
                                             let display = display.clone();
                                             let mut w_r = w_for_actions.clone();
@@ -1903,14 +1955,39 @@ impl FltkStructuredRichDisplay {
                                     }
                                     handled = true;
                                 }
-                                // Cmd/Ctrl-Shift-9: convert to Quote paragraph
+                                // Cmd/Ctrl-Shift-9: toggle checklist
                                 else if cmd_shift_modifier
                                     && (key == Key::from_char('9') || key == Key::from_char('('))
+                                {
+                                    let mut disp = display.borrow_mut();
+                                    disp.editor_mut().toggle_checklist().ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                        (cb)();
+                                    }
+                                    handled = true;
+                                }
+                                // Cmd/Ctrl-Shift-5: toggle quote paragraph
+                                else if cmd_shift_modifier
+                                    && (key == Key::from_char('5') || key == Key::from_char('%'))
                                 {
                                     let mut disp = display.borrow_mut();
                                     disp.editor_mut().toggle_quote().ok();
                                     if let Some(cb) = &mut *change_cb.borrow_mut() {
                                         (cb)();
+                                    }
+                                    handled = true;
+                                }
+                                // Cmd/Ctrl-Alt-Enter: toggle current checklist state
+                                else if cmd_alt_modifier && key == Key::Enter {
+                                    let mut disp = display.borrow_mut();
+                                    let changed = disp
+                                        .editor_mut()
+                                        .toggle_current_checkmark()
+                                        .unwrap_or(false);
+                                    if changed {
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                            (cb)();
+                                        }
                                     }
                                     handled = true;
                                 }

@@ -11,6 +11,7 @@ pub fn parse_markdown(text: &str) -> Document {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TABLES);
+    options.insert(Options::ENABLE_TASKLISTS);
     // Enable wikilink parsing ([[Page]]) via pulldown-cmark option
     options.insert(Options::ENABLE_WIKILINKS);
     let parser = Parser::new_ext(text, options).into_offset_iter();
@@ -174,6 +175,15 @@ pub fn parse_markdown(text: &str) -> Document {
                 }
             }
 
+            Event::TaskListMarker(checked) => {
+                for node in node_stack.iter_mut().rev() {
+                    if let NodeType::ListItem { checkbox } = &mut node.node_type {
+                        *checkbox = Some(checked);
+                        break;
+                    }
+                }
+            }
+
             _ => {
                 // Ignore other events for now (FootnoteReference, TaskListMarker, etc.)
             }
@@ -216,7 +226,7 @@ fn create_node_from_tag(doc: &mut Document, tag: Tag, start: usize, end: usize) 
             start: start_number.unwrap_or(1),
         },
 
-        Tag::Item => NodeType::ListItem,
+        Tag::Item => NodeType::ListItem { checkbox: None },
 
         Tag::Link {
             dest_url, title, ..
@@ -298,7 +308,7 @@ fn verify_tag_match(node_type: &NodeType, tag_end: &TagEnd) -> bool {
         (NodeType::BlockQuote, TagEnd::BlockQuote(_)) => true,
         (NodeType::CodeBlock { .. }, TagEnd::CodeBlock) => true,
         (NodeType::List { .. }, TagEnd::List(_)) => true,
-        (NodeType::ListItem, TagEnd::Item) => true,
+        (NodeType::ListItem { .. }, TagEnd::Item) => true,
         (NodeType::Link { .. }, TagEnd::Link) => true,
         (NodeType::Image { .. }, TagEnd::Image) => true,
         (NodeType::Table, TagEnd::Table) => true,

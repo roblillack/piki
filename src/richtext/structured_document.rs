@@ -157,7 +157,11 @@ pub enum BlockType {
     Heading { level: u8 }, // 1-6
     CodeBlock { language: Option<String> },
     BlockQuote,
-    ListItem { ordered: bool, number: Option<u64> },
+    ListItem {
+        ordered: bool,
+        number: Option<u64>,
+        checkbox: Option<bool>,
+    },
 }
 
 /// A block of content
@@ -693,12 +697,26 @@ impl fmt::Display for StructuredDocument {
                 BlockType::Heading { level } => write!(f, "Heading(h{})", level)?,
                 BlockType::CodeBlock { language } => write!(f, "CodeBlock({:?})", language)?,
                 BlockType::BlockQuote => write!(f, "BlockQuote")?,
-                BlockType::ListItem { ordered, number } => write!(
+                BlockType::ListItem {
+                    ordered,
+                    number,
+                    checkbox,
+                } => write!(
                     f,
-                    "ListItem({}{})",
+                    "ListItem({}{}{})",
                     if *ordered { "ordered" } else { "unordered" },
                     if let Some(n) = number {
                         format!(", #{}", n)
+                    } else {
+                        String::new()
+                    },
+                    if let Some(checked) = checkbox {
+                        if *checked {
+                            ", checked"
+                        } else {
+                            ", unchecked"
+                        }
+                        .to_string()
                     } else {
                         String::new()
                     }

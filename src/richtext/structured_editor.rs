@@ -39,6 +39,7 @@ impl StructuredEditor {
                     blocks[i].block_type = BlockType::ListItem {
                         ordered: true,
                         number: Some(n),
+                        checkbox: None,
                     };
                     n += 1;
                     i += 1;
@@ -381,7 +382,12 @@ impl StructuredEditor {
         };
 
         // Check if we're in a list item
-        if let BlockType::ListItem { ordered, number } = &block_type {
+        if let BlockType::ListItem {
+            ordered,
+            number,
+            checkbox,
+        } = &block_type
+        {
             // Check if list item is empty
             if is_empty || offset == 0 {
                 // Convert to paragraph to exit list
@@ -400,11 +406,17 @@ impl StructuredEditor {
 
             // Create new list item with the right-side content
             let new_number = if *ordered { number.unwrap_or(1) + 1 } else { 0 };
+            let new_checkbox = if checkbox.is_some() {
+                Some(false)
+            } else {
+                None
+            };
             let mut new_item = Block::new(
                 0,
                 BlockType::ListItem {
                     ordered: *ordered,
                     number: if *ordered { Some(new_number) } else { None },
+                    checkbox: new_checkbox,
                 },
             );
             new_item.content = right_content;
@@ -428,7 +440,11 @@ impl StructuredEditor {
                         }
                     }
                     let first = match blocks[start].block_type {
-                        BlockType::ListItem { ordered: true, number } => number.unwrap_or(1),
+                        BlockType::ListItem {
+                            ordered: true,
+                            number,
+                            ..
+                        } => number.unwrap_or(1),
                         _ => 1,
                     };
                     let idx_in_run = block_index - start;
@@ -504,6 +520,7 @@ impl StructuredEditor {
                     BlockType::ListItem {
                         ordered: true,
                         number: prev_num,
+                        ..
                     },
                     BlockType::ListItem { ordered: true, .. },
                 ) => {
@@ -516,6 +533,7 @@ impl StructuredEditor {
                     BlockType::ListItem {
                         ordered: true,
                         number: prev_num,
+                        ..
                     },
                     BlockType::Paragraph,
                 ) => {
@@ -603,6 +621,7 @@ impl StructuredEditor {
                     BlockType::ListItem {
                         ordered: true,
                         number: cur_num,
+                        ..
                     },
                     BlockType::ListItem { ordered: true, .. },
                 ) => {
@@ -622,6 +641,7 @@ impl StructuredEditor {
                     BlockType::ListItem {
                         ordered: true,
                         number: cur_num,
+                        ..
                     },
                     BlockType::Paragraph,
                 ) => {
@@ -1412,6 +1432,63 @@ impl StructuredEditor {
                 blocks[i].block_type = BlockType::ListItem {
                     ordered: false,
                     number: None,
+                    checkbox: None,
+                };
+            }
+            return Ok(());
+        }
+
+        // Special case: converting a checklist run to plain bullets
+        let convert_checklist_to_bullets = {
+            let blocks = self.document.blocks();
+            matches!(
+                blocks.get(block_index).map(|b| &b.block_type),
+                Some(BlockType::ListItem {
+                    ordered: false,
+                    checkbox: Some(_),
+                    ..
+                })
+            )
+        };
+
+        if convert_checklist_to_bullets {
+            let (start, end) = {
+                let blocks = self.document.blocks();
+                let mut start = block_index;
+                while start > 0 {
+                    if let BlockType::ListItem {
+                        ordered: false,
+                        checkbox: Some(_),
+                        ..
+                    } = blocks[start - 1].block_type
+                    {
+                        start -= 1;
+                    } else {
+                        break;
+                    }
+                }
+                let mut end = block_index;
+                while end + 1 < blocks.len() {
+                    if let BlockType::ListItem {
+                        ordered: false,
+                        checkbox: Some(_),
+                        ..
+                    } = blocks[end + 1].block_type
+                    {
+                        end += 1;
+                    } else {
+                        break;
+                    }
+                }
+                (start, end)
+            };
+
+            let blocks = self.document.blocks_mut();
+            for i in start..=end {
+                blocks[i].block_type = BlockType::ListItem {
+                    ordered: false,
+                    number: None,
+                    checkbox: None,
                 };
             }
             return Ok(());
@@ -1427,22 +1504,174 @@ impl StructuredEditor {
                 // Already handled above (convert range) but keep safe fallback
                 ordered: false,
                 number: None,
+                checkbox: None,
             },
             BlockType::Paragraph | BlockType::Heading { .. } => BlockType::ListItem {
                 ordered: false,
                 number: None,
+                checkbox: None,
             },
             BlockType::CodeBlock { .. } => BlockType::ListItem {
                 ordered: false,
                 number: None,
+                checkbox: None,
             },
             BlockType::BlockQuote => BlockType::ListItem {
                 ordered: false,
                 number: None,
+                checkbox: None,
             },
         };
 
         Ok(())
+    }
+
+    /// Toggle checklist status (on/off) for current block/run
+    /// Converts ordered runs to checklists, bullets to checklists, and removes checklist state when toggled off.
+    pub fn toggle_checklist(&mut self) -> EditResult {
+        let block_index = self.cursor.block_index;
+        if block_index >= self.document.block_count() {
+            return Err(EditError::InvalidBlockIndex);
+        }
+
+        let current_type = {
+            let blocks = self.document.blocks();
+            blocks[block_index].block_type.clone()
+        };
+
+        match current_type {
+            BlockType::ListItem {
+                ordered: true, ..
+            } => {
+                // Convert contiguous ordered run to checklist items
+                let (start, end) = {
+                    let blocks = self.document.blocks();
+                    let mut start = block_index;
+                    while start > 0 {
+                        if let BlockType::ListItem { ordered: true, .. } =
+                            blocks[start - 1].block_type
+                        {
+                            start -= 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    let mut end = block_index;
+                    while end + 1 < blocks.len() {
+                        if let BlockType::ListItem { ordered: true, .. } =
+                            blocks[end + 1].block_type
+                        {
+                            end += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    (start, end)
+                };
+
+                let blocks = self.document.blocks_mut();
+                for i in start..=end {
+                    blocks[i].block_type = BlockType::ListItem {
+                        ordered: false,
+                        number: None,
+                        checkbox: Some(false),
+                    };
+                }
+                Ok(())
+            }
+            BlockType::ListItem {
+                ordered: false,
+                checkbox: Some(_),
+                ..
+            } => {
+                // Toggling off a checklist item returns it to a paragraph
+                let blocks = self.document.blocks_mut();
+                blocks[block_index].block_type = BlockType::Paragraph;
+                Ok(())
+            }
+            BlockType::ListItem {
+                ordered: false,
+                checkbox: None,
+                ..
+            } => {
+                // Convert contiguous bullet run to checklist items
+                let (start, end) = {
+                    let blocks = self.document.blocks();
+                    let mut start = block_index;
+                    while start > 0 {
+                        if let BlockType::ListItem {
+                            ordered: false,
+                            checkbox: None,
+                            ..
+                        } = blocks[start - 1].block_type
+                        {
+                            start -= 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    let mut end = block_index;
+                    while end + 1 < blocks.len() {
+                        if let BlockType::ListItem {
+                            ordered: false,
+                            checkbox: None,
+                            ..
+                        } = blocks[end + 1].block_type
+                        {
+                            end += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    (start, end)
+                };
+
+                let blocks = self.document.blocks_mut();
+                for i in start..=end {
+                    blocks[i].block_type = BlockType::ListItem {
+                        ordered: false,
+                        number: None,
+                        checkbox: Some(false),
+                    };
+                }
+                Ok(())
+            }
+            BlockType::Paragraph
+            | BlockType::Heading { .. }
+            | BlockType::CodeBlock { .. }
+            | BlockType::BlockQuote => {
+                let blocks = self.document.blocks_mut();
+                blocks[block_index].block_type = BlockType::ListItem {
+                    ordered: false,
+                    number: None,
+                    checkbox: Some(false),
+                };
+                Ok(())
+            }
+        }
+    }
+
+    /// Toggle the checkmark state for a specific checklist block.
+    pub fn toggle_checkmark_at(&mut self, block_index: usize) -> Result<bool, EditError> {
+        if block_index >= self.document.block_count() {
+            return Err(EditError::InvalidBlockIndex);
+        }
+        let blocks = self.document.blocks_mut();
+        if let BlockType::ListItem {
+            checkbox: Some(state),
+            ..
+        } = &mut blocks[block_index].block_type
+        {
+            *state = !*state;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// Toggle the checkmark state for the block at the current cursor position.
+    pub fn toggle_current_checkmark(&mut self) -> Result<bool, EditError> {
+        let block_index = self.cursor.block_index;
+        self.toggle_checkmark_at(block_index)
     }
 
     /// Toggle ordered list (on/off) and handle conversion from bullets when applicable.
@@ -1486,7 +1715,11 @@ impl StructuredEditor {
                     }
                     // Determine starting number (default 1)
                     let first_num = match blocks[start].block_type {
-                        BlockType::ListItem { ordered: true, number } => number.unwrap_or(1),
+                        BlockType::ListItem {
+                            ordered: true,
+                            number,
+                            ..
+                        } => number.unwrap_or(1),
                         _ => 1,
                     };
                     (start, end, first_num)
@@ -1507,6 +1740,7 @@ impl StructuredEditor {
                             blocks[i].block_type = BlockType::ListItem {
                                 ordered: true,
                                 number: Some(n),
+                                checkbox: None,
                             };
                             n += 1;
                         } else {
@@ -1547,6 +1781,7 @@ impl StructuredEditor {
                     blocks[i].block_type = BlockType::ListItem {
                         ordered: true,
                         number: Some(num),
+                        checkbox: None,
                     };
                     num += 1;
                 }
@@ -1594,7 +1829,11 @@ impl StructuredEditor {
                             }
                         }
                         let first = match blocks[start].block_type {
-                            BlockType::ListItem { ordered: true, number } => number.unwrap_or(1),
+                            BlockType::ListItem {
+                                ordered: true,
+                                number,
+                                ..
+                            } => number.unwrap_or(1),
                             _ => 1,
                         };
                         (start, block_index - 1, first)
@@ -1611,6 +1850,7 @@ impl StructuredEditor {
                     blocks[block_index].block_type = BlockType::ListItem {
                         ordered: true,
                         number: current_number,
+                        checkbox: None,
                     };
                 }
 
@@ -1639,6 +1879,7 @@ impl StructuredEditor {
                         blocks[i].block_type = BlockType::ListItem {
                             ordered: true,
                             number: Some(n),
+                            checkbox: None,
                         };
                         n += 1;
                     }
@@ -2152,6 +2393,47 @@ mod tests {
             panic!("Expected a link at index 1");
         }
         assert!(matches!(block.content[2], InlineContent::Text(_)));
+    }
+
+    #[test]
+    fn test_toggle_list_clears_checklist_run() {
+        let mut editor = StructuredEditor::new();
+
+        // Prepare three checklist items
+        {
+            let mut doc = StructuredDocument::new();
+            for i in 0..3 {
+                let mut block = Block::new(
+                    0,
+                    BlockType::ListItem {
+                        ordered: false,
+                        number: None,
+                        checkbox: Some(i % 2 == 0),
+                    },
+                );
+                block
+                    .content
+                    .push(InlineContent::Text(TextRun::plain(format!("Item {i}"))));
+                doc.add_block(block);
+            }
+            *editor.document_mut() = doc;
+        }
+
+        // Trigger bullet toggle on the middle checklist item
+        editor.set_cursor(DocumentPosition::new(1, 0));
+        editor.toggle_list().unwrap();
+
+        let blocks = editor.document().blocks();
+        assert!(blocks.iter().all(|block| {
+            matches!(
+                block.block_type,
+                BlockType::ListItem {
+                    ordered: false,
+                    number: None,
+                    checkbox: None,
+                }
+            )
+        }));
     }
 
     #[test]
