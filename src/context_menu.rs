@@ -17,6 +17,7 @@ pub struct MenuActions {
     pub set_heading2: Box<dyn FnMut()>,
     pub set_heading3: Box<dyn FnMut()>,
     pub toggle_quote: Box<dyn FnMut()>,
+    pub toggle_code_block: Box<dyn FnMut()>,
     pub toggle_list: Box<dyn FnMut()>,
 
     // Inline styles
@@ -68,6 +69,12 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
     #[cfg(not(target_os = "macos"))]
     let list_shortcut = Shortcut::Ctrl | Shortcut::Shift | '8';
 
+    // Code paragraph (Cmd/Ctrl + Shift + 6)
+    #[cfg(target_os = "macos")]
+    let code_block_shortcut = Shortcut::Command | Shortcut::Shift | '6';
+    #[cfg(not(target_os = "macos"))]
+    let code_block_shortcut = Shortcut::Ctrl | Shortcut::Shift | '6';
+
     // Quote (Cmd/Ctrl + Shift + 9)
     #[cfg(target_os = "macos")]
     let quote_shortcut = Shortcut::Command | Shortcut::Shift | '9';
@@ -100,6 +107,12 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         move |_| (actions.set_heading3)(),
     );
     menu.add(
+        "Paragraph Style/Code\t",
+        code_block_shortcut,
+        MenuFlag::Radio,
+        move |_| (actions.toggle_code_block)(),
+    );
+    menu.add(
         "Paragraph Style/Quote\t",
         quote_shortcut,
         MenuFlag::Radio,
@@ -118,6 +131,7 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         "Paragraph Style/Heading 1\t",
         "Paragraph Style/Heading 2\t",
         "Paragraph Style/Heading 3\t",
+        "Paragraph Style/Code\t",
         "Paragraph Style/Quote\t",
         "Paragraph Style/List Item\t",
     ];
@@ -137,6 +151,7 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
             3 => Some("Paragraph Style/Heading 3\t"),
             _ => None,
         },
+        BlockType::CodeBlock { .. } => Some("Paragraph Style/Code\t"),
         BlockType::BlockQuote => Some("Paragraph Style/Quote\t"),
         BlockType::ListItem { .. } => Some("Paragraph Style/List Item\t"),
         _ => None,

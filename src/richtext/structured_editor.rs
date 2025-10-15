@@ -1274,6 +1274,23 @@ impl StructuredEditor {
         Ok(())
     }
 
+    /// Toggle code block status (on/off) for current block
+    /// If current block is a code block, switch to paragraph; otherwise set to code block (no language)
+    pub fn toggle_code_block(&mut self) -> EditResult {
+        let block_index = self.cursor.block_index;
+        if block_index >= self.document.block_count() {
+            return Err(EditError::InvalidBlockIndex);
+        }
+
+        let blocks = self.document.blocks_mut();
+        blocks[block_index].block_type = match &blocks[block_index].block_type {
+            BlockType::CodeBlock { .. } => BlockType::Paragraph,
+            _ => BlockType::CodeBlock { language: None },
+        };
+
+        Ok(())
+    }
+
     /// Set the block type for the current block
     pub fn set_block_type(&mut self, block_type: BlockType) -> EditResult {
         let block_index = self.cursor.block_index;

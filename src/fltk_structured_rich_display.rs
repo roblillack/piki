@@ -260,6 +260,18 @@ impl FltkStructuredRichDisplay {
                                         w_r.redraw();
                                     }
                                 }),
+                                toggle_code_block: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let mut w_r = w_for_actions.clone();
+                                    move || {
+                                        display.borrow_mut().editor_mut().toggle_code_block().ok();
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                            (cb)();
+                                        }
+                                        w_r.redraw();
+                                    }
+                                }),
                                 toggle_quote: Box::new({
                                     let display = display.clone();
                                     let change_cb = change_cb.clone();
@@ -1455,6 +1467,18 @@ impl FltkStructuredRichDisplay {
                                                 w_r.redraw();
                                             }
                                         }),
+                                        toggle_code_block: Box::new({
+                                            let display = display.clone();
+                                            let mut w_r = w_for_actions.clone();
+                                            move || {
+                                                display
+                                                    .borrow_mut()
+                                                    .editor_mut()
+                                                    .toggle_code_block()
+                                                    .ok();
+                                                w_r.redraw();
+                                            }
+                                        }),
                                         toggle_list: Box::new({
                                             let display = display.clone();
                                             let mut w_r = w_for_actions.clone();
@@ -1802,6 +1826,17 @@ impl FltkStructuredRichDisplay {
                                 else if cmd_shift_modifier && key == Key::from_char('c') {
                                     let mut disp = display.borrow_mut();
                                     disp.editor_mut().toggle_code().ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                        (cb)();
+                                    }
+                                    handled = true;
+                                }
+                                // Cmd/Ctrl-Shift-6 (toggle code paragraph)
+                                else if cmd_shift_modifier
+                                    && (key == Key::from_char('6') || key == Key::from_char('^'))
+                                {
+                                    let mut disp = display.borrow_mut();
+                                    disp.editor_mut().toggle_code_block().ok();
                                     if let Some(cb) = &mut *change_cb.borrow_mut() {
                                         (cb)();
                                     }
