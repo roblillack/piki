@@ -13,6 +13,8 @@ struct LayoutLine {
     y: i32,
     /// Height of the line
     height: i32,
+    /// Default x position for the cursor when the line has no text runs
+    base_x: i32,
     /// Block index this line belongs to
     block_index: usize,
     /// Character offset range within the block [start, end)
@@ -470,24 +472,41 @@ impl StructuredRichDisplay {
                 let style_idx = self.get_style_for_block_type(&block.block_type);
                 let (font, size) = self.get_font_for_style(style_idx);
                 let mut current_y = y + 5;
+                let code_start_x = start_x + 10;
+                let is_empty = lines.is_empty();
 
-                for line in lines {
+                for line in &lines {
                     let line_width = ctx.text_width(line, font, size) as i32;
+                    let line_len = line.len();
                     self.layout_lines.push(LayoutLine {
                         y: current_y,
                         height: self.line_height,
+                        base_x: code_start_x,
                         block_index: block_idx,
                         char_start: 0,
-                        char_end: line.len(),
+                        char_end: line_len,
                         runs: vec![VisualRun {
-                            text: line.to_string(),
-                            x: start_x + 10,
+                            text: (*line).to_string(),
+                            x: code_start_x,
                             width: line_width,
                             style_idx,
                             block_index: block_idx,
-                            char_range: (0, line.len()),
+                            char_range: (0, line_len),
                             inline_index: None,
                         }],
+                    });
+                    current_y += self.line_height;
+                }
+
+                if is_empty {
+                    self.layout_lines.push(LayoutLine {
+                        y: current_y,
+                        height: self.line_height,
+                        base_x: code_start_x,
+                        block_index: block_idx,
+                        char_start: 0,
+                        char_end: 0,
+                        runs: Vec::new(),
                     });
                     current_y += self.line_height;
                 }
@@ -588,7 +607,7 @@ impl StructuredRichDisplay {
                 }];
 
                 // Layout the content with proper text indentation
-                let (mut content_runs, y_after) = self.layout_inline_content(
+                let (mut content_runs, _y_after) = self.layout_inline_content(
                     &block.content,
                     &block.block_type,
                     block_idx,
@@ -622,6 +641,7 @@ impl StructuredRichDisplay {
                     self.layout_lines.push(LayoutLine {
                         y: current_y,
                         height: self.line_height,
+                        base_x: content_start_x,
                         block_index: block_idx,
                         char_start,
                         char_end,
@@ -637,6 +657,7 @@ impl StructuredRichDisplay {
                         self.layout_lines.push(LayoutLine {
                             y: current_y,
                             height: self.line_height,
+                            base_x: content_start_x,
                             block_index: block_idx,
                             char_start,
                             char_end,
@@ -649,6 +670,7 @@ impl StructuredRichDisplay {
                     self.layout_lines.push(LayoutLine {
                         y: current_y,
                         height: self.line_height,
+                        base_x: content_start_x,
                         block_index: block_idx,
                         char_start: 0,
                         char_end: 0,
@@ -673,7 +695,7 @@ impl StructuredRichDisplay {
         line_height: i32,
         ctx: &mut dyn DrawContext,
     ) -> i32 {
-        let (lines, y_after) = self.layout_inline_content(
+        let (lines, _y_after) = self.layout_inline_content(
             &block.content,
             &block.block_type,
             block_idx,
@@ -691,6 +713,7 @@ impl StructuredRichDisplay {
             self.layout_lines.push(LayoutLine {
                 y: current_y,
                 height: line_height,
+                base_x: start_x,
                 block_index: block_idx,
                 char_start: 0,
                 char_end: 0,
@@ -702,10 +725,17 @@ impl StructuredRichDisplay {
                 // Calculate char_start and char_end from the runs
                 let char_start = line_runs.first().map(|r| r.char_range.0).unwrap_or(0);
                 let char_end = line_runs.last().map(|r| r.char_range.1).unwrap_or(0);
+                let base_x = line_runs
+                    .iter()
+                    .filter(|r| !(r.char_range.0 == r.char_range.1 && r.inline_index.is_none()))
+                    .map(|r| r.x)
+                    .min()
+                    .unwrap_or(start_x);
 
                 self.layout_lines.push(LayoutLine {
                     y: current_y,
                     height: line_height,
+                    base_x,
                     block_index: block_idx,
                     char_start,
                     char_end,
@@ -1200,7 +1230,7 @@ impl StructuredRichDisplay {
             if line.block_index == cursor.block_index {
                 // Check if cursor falls within this line's character range
                 if cursor.offset >= line.char_start && cursor.offset <= line.char_end {
-                    let mut x = self.padding_left;
+                    let mut x = line.base_x;
 
                     for run in &line.runs {
                         // Skip non-content runs (like list bullets with char_range (0,0))
@@ -1430,11 +1460,166 @@ impl StructuredRichDisplay {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::richtext::structured_document::{Block, BlockType, DocumentPosition, StructuredDocument};
+    use crate::sourceedit::text_display::StyleTableEntry;
+
+    #[derive(Default)]
+    struct TestDrawContext {
+        focus: bool,
+    }
+
+    impl TestDrawContext {
+        fn new_with_focus() -> Self {
+            Self { focus: true }
+        }
+    }
+
+    impl DrawContext for TestDrawContext {
+        fn set_color(&mut self, _color: u32) {}
+
+        fn set_font(&mut self, _font: u8, _size: u8) {}
+
+        fn draw_text(&mut self, _text: &str, _x: i32, _y: i32) {}
+
+        fn draw_rect_filled(&mut self, _x: i32, _y: i32, _w: i32, _h: i32) {}
+
+        fn draw_line(&mut self, _x1: i32, _y1: i32, _x2: i32, _y2: i32) {}
+
+        fn text_width(&mut self, text: &str, _font: u8, size: u8) -> f64 {
+            // Simplistic width model: proportional to character count and font size
+            text.chars().count() as f64 * (size as f64) * 0.6
+        }
+
+        fn text_height(&self, _font: u8, size: u8) -> i32 {
+            size as i32
+        }
+
+        fn text_descent(&self, _font: u8, size: u8) -> i32 {
+            ((size as f32) * 0.2).round() as i32
+        }
+
+        fn push_clip(&mut self, _x: i32, _y: i32, _w: i32, _h: i32) {}
+
+        fn pop_clip(&mut self) {}
+
+        fn color_average(&self, c1: u32, _c2: u32, _weight: f32) -> u32 {
+            c1
+        }
+
+        fn color_contrast(&self, fg: u32, _bg: u32) -> u32 {
+            fg
+        }
+
+        fn color_inactive(&self, c: u32) -> u32 {
+            c
+        }
+
+        fn has_focus(&self) -> bool {
+            self.focus
+        }
+
+        fn is_active(&self) -> bool {
+            true
+        }
+    }
+
+    fn basic_style_table() -> Vec<StyleTableEntry> {
+        let mut styles = Vec::with_capacity(11);
+        for _ in 0..11 {
+            styles.push(StyleTableEntry {
+                color: 0x000000FF,
+                font: 0,
+                size: 14,
+                attr: 0,
+                bgcolor: 0,
+            });
+        }
+        styles
+    }
+
+    fn make_display_with_block(block: Block) -> StructuredRichDisplay {
+        let mut display = StructuredRichDisplay::new(0, 0, 400, 300);
+        display.set_style_table(basic_style_table());
+        {
+            let editor = display.editor_mut();
+            let mut doc = StructuredDocument::new();
+            doc.add_block(block);
+            *editor.document_mut() = doc;
+            editor.set_cursor(DocumentPosition::new(0, 0));
+        }
+        display
+    }
 
     #[test]
     fn test_display_creation() {
         let display = StructuredRichDisplay::new(0, 0, 800, 600);
         assert_eq!(display.w(), 800);
         assert_eq!(display.h(), 600);
+    }
+
+    #[test]
+    fn cursor_in_empty_blockquote_respects_indent() {
+        let block = Block::new(0, BlockType::BlockQuote);
+        let mut display = make_display_with_block(block);
+        let mut ctx = TestDrawContext::new_with_focus();
+
+        display.layout(&mut ctx);
+        let (x, _, _) = display.get_cursor_visual_position(&mut ctx).unwrap();
+        assert_eq!(x, display.padding_left + 20);
+    }
+
+    #[test]
+    fn cursor_in_empty_unordered_list_respects_content_indent() {
+        let block = Block::new(
+            0,
+            BlockType::ListItem {
+                ordered: false,
+                number: None,
+            },
+        );
+        let mut display = make_display_with_block(block);
+        let mut ctx = TestDrawContext::new_with_focus();
+
+        let bullet_width =
+            ctx.text_width("• ", display.text_font, display.text_size) as i32;
+        let expected_x =
+            display.padding_left + display.text_size as i32 + bullet_width;
+
+        display.layout(&mut ctx);
+        let (x, _, _) = display.get_cursor_visual_position(&mut ctx).unwrap();
+        assert_eq!(x, expected_x);
+    }
+
+    #[test]
+    fn cursor_in_empty_ordered_list_respects_content_indent() {
+        let block = Block::new(
+            0,
+            BlockType::ListItem {
+                ordered: true,
+                number: Some(3),
+            },
+        );
+        let mut display = make_display_with_block(block);
+        let mut ctx = TestDrawContext::new_with_focus();
+
+        let label_width =
+            ctx.text_width("3. ", display.text_font, display.text_size) as i32;
+        let expected_x =
+            display.padding_left + display.text_size as i32 + label_width;
+
+        display.layout(&mut ctx);
+        let (x, _, _) = display.get_cursor_visual_position(&mut ctx).unwrap();
+        assert_eq!(x, expected_x);
+    }
+
+    #[test]
+    fn cursor_in_empty_code_block_respects_indent() {
+        let block = Block::new(0, BlockType::CodeBlock { language: None });
+        let mut display = make_display_with_block(block);
+        let mut ctx = TestDrawContext::new_with_focus();
+
+        display.layout(&mut ctx);
+        let (x, _, _) = display.get_cursor_visual_position(&mut ctx).unwrap();
+        assert_eq!(x, display.padding_left + 10);
     }
 }
