@@ -1,6 +1,6 @@
 // FLTK integration for StructuredRichDisplay widget
 
-use crate::fltk_text_display::FltkDrawContext;
+use crate::fltk_draw_context::FltkDrawContext;
 use crate::responsive_scrollbar::ResponsiveScrollbar;
 use crate::richtext::structured_document::{BlockType, InlineContent};
 use crate::richtext::structured_rich_display::StructuredRichDisplay;
@@ -169,7 +169,8 @@ impl FltkStructuredRichDisplay {
                             let local_y = fltk::app::event_y() - w.y();
                             let toggled = {
                                 let mut disp = display.borrow_mut();
-                                if let Some(block_idx) = disp.checklist_marker_hit(local_x, local_y) {
+                                if let Some(block_idx) = disp.checklist_marker_hit(local_x, local_y)
+                                {
                                     match disp.editor_mut().toggle_checkmark_at(block_idx) {
                                         Ok(changed) => changed,
                                         Err(_) => false,
@@ -351,11 +352,7 @@ impl FltkStructuredRichDisplay {
                                     let change_cb = change_cb.clone();
                                     let mut w_r = w_for_actions.clone();
                                     move || {
-                                        display
-                                            .borrow_mut()
-                                            .editor_mut()
-                                            .toggle_checklist()
-                                            .ok();
+                                        display.borrow_mut().editor_mut().toggle_checklist().ok();
                                         if let Some(cb) = &mut *change_cb.borrow_mut() {
                                             (cb)();
                                         }
@@ -2153,8 +2150,7 @@ impl FltkStructuredRichDisplay {
                                             let mut ctx =
                                                 FltkDrawContext::new(has_focus, is_active);
                                             disp.move_cursor_visual_line_start_precise(
-                                                shift_held,
-                                                &mut ctx,
+                                                shift_held, &mut ctx,
                                             );
                                             // non-vertical action
                                             did_horizontal = true;
@@ -2169,8 +2165,7 @@ impl FltkStructuredRichDisplay {
                                             let mut ctx =
                                                 FltkDrawContext::new(has_focus, is_active);
                                             disp.move_cursor_visual_line_end_precise(
-                                                shift_held,
-                                                &mut ctx,
+                                                shift_held, &mut ctx,
                                             );
                                             // non-vertical action
                                             did_horizontal = true;

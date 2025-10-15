@@ -54,7 +54,10 @@ impl Plugin for IndexPlugin {
         all_docs.sort();
 
         let mut content = String::from("# Index\n\n");
-        content.push_str(&format!("*Dynamically generated index of all {} pages*\n\n", all_docs.len()));
+        content.push_str(&format!(
+            "*Dynamically generated index of all {} pages*\n\n",
+            all_docs.len()
+        ));
 
         if all_docs.is_empty() {
             content.push_str("No pages found.\n");
@@ -67,11 +70,13 @@ impl Plugin for IndexPlugin {
         for doc in &all_docs {
             if let Some(slash_pos) = doc.find('/') {
                 let category = &doc[..slash_pos];
-                grouped.entry(category.to_string())
+                grouped
+                    .entry(category.to_string())
                     .or_insert_with(Vec::new)
                     .push(doc.clone());
             } else {
-                grouped.entry("Root".to_string())
+                grouped
+                    .entry("Root".to_string())
                     .or_insert_with(Vec::new)
                     .push(doc.clone());
             }

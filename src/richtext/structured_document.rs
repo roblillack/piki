@@ -154,8 +154,12 @@ impl InlineContent {
 #[derive(Debug, Clone, PartialEq)]
 pub enum BlockType {
     Paragraph,
-    Heading { level: u8 }, // 1-6
-    CodeBlock { language: Option<String> },
+    Heading {
+        level: u8,
+    }, // 1-6
+    CodeBlock {
+        language: Option<String>,
+    },
     BlockQuote,
     ListItem {
         ordered: bool,
@@ -711,12 +715,7 @@ impl fmt::Display for StructuredDocument {
                         String::new()
                     },
                     if let Some(checked) = checkbox {
-                        if *checked {
-                            ", checked"
-                        } else {
-                            ", unchecked"
-                        }
-                        .to_string()
+                        if *checked { ", checked" } else { ", unchecked" }.to_string()
                     } else {
                         String::new()
                     }

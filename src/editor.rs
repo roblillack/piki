@@ -1,4 +1,4 @@
-use crate::link_handler::{extract_links, find_link_at_position, Link};
+use crate::link_handler::{Link, extract_links, find_link_at_position};
 use fltk::text::PositionType;
 use fltk::{prelude::*, *};
 use std::cell::RefCell;

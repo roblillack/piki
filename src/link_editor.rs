@@ -35,11 +35,8 @@ impl Default for LinkEditOptions {
 /// Show a link editor dialog and wire Save/Remove actions.
 /// - `on_save(dest, text)` is invoked when Save is pressed and inputs validate.
 /// - `on_remove()` is invoked when Remove is pressed (only enabled in `mode_existing_link`).
-pub fn show_link_editor<FS, FR>(
-    opts: LinkEditOptions,
-    on_save: FS,
-    on_remove: Option<FR>,
-) where
+pub fn show_link_editor<FS, FR>(opts: LinkEditOptions, on_save: FS, on_remove: Option<FR>)
+where
     FS: Fn(String, String) + 'static,
     FR: FnMut() + 'static,
 {

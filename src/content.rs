@@ -24,7 +24,9 @@ impl ContentProvider for Rc<RefCell<crate::sourceedit::text_display::TextDisplay
 }
 
 // Implementation for Rc<RefCell<StructuredRichDisplay>> using markdown conversion
-impl ContentProvider for Rc<RefCell<crate::richtext::structured_rich_display::StructuredRichDisplay>> {
+impl ContentProvider
+    for Rc<RefCell<crate::richtext::structured_rich_display::StructuredRichDisplay>>
+{
     fn get_content(&self) -> String {
         use crate::richtext::markdown_converter::document_to_markdown;
         let disp = self.borrow();

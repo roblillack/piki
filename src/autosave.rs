@@ -1,6 +1,6 @@
-use std::time::SystemTime;
 use crate::document::DocumentStore;
 use fliki_rs::content::ContentProvider;
+use std::time::SystemTime;
 
 /// State management for auto-save functionality
 pub struct AutoSaveState {

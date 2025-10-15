@@ -2,7 +2,7 @@
 // Generates SVG output from text display rendering with accurate font metrics
 
 use fliki_rs::sourceedit::text_display::DrawContext;
-use rusttype::{point, Font, Scale};
+use rusttype::{Font, Scale, point};
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::fs;

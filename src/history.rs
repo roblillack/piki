@@ -38,7 +38,8 @@ impl History {
         }
 
         // Add new entry
-        self.entries.push(HistoryEntry::new(page_name, scroll_position));
+        self.entries
+            .push(HistoryEntry::new(page_name, scroll_position));
 
         // Limit history size
         if self.entries.len() > MAX_HISTORY_SIZE {

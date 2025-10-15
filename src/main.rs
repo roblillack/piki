@@ -1,6 +1,8 @@
 mod autosave;
 mod document;
+pub mod draw_context;
 mod editor;
+pub mod fltk_draw_context;
 pub mod fltk_text_display;
 mod history;
 mod link_handler;
@@ -18,10 +20,10 @@ use fliki_rs::ui_adapters::StructuredRichUI;
 use fltk::{prelude::*, *};
 use history::History;
 use plugin::{IndexPlugin, PluginRegistry};
-use std::time::Instant;
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::Instant;
 
 #[derive(Parser, Debug)]
 #[command(name = "fliki-rs")]
@@ -276,7 +278,13 @@ fn create_menu(
                 let cur = *is_structured.borrow();
                 *is_structured.borrow_mut() = !cur;
                 // Rewire change + link callbacks
-                wire_editor_callbacks(&active_editor, &autosave_state, &app_state, &page_status, &save_status);
+                wire_editor_callbacks(
+                    &active_editor,
+                    &autosave_state,
+                    &app_state,
+                    &page_status,
+                    &save_status,
+                );
                 // Reload current page to refresh status and content
                 if let Ok(st) = app_state.try_borrow() {
                     let current = st.current_page.clone();
@@ -498,7 +506,13 @@ fn create_menu(
                 *active_editor.borrow_mut() = new_editor.clone();
                 let cur = *is_structured.borrow();
                 *is_structured.borrow_mut() = !cur;
-                wire_editor_callbacks(&active_editor, &autosave_state, &app_state, &page_status, &save_status);
+                wire_editor_callbacks(
+                    &active_editor,
+                    &autosave_state,
+                    &app_state,
+                    &page_status,
+                    &save_status,
+                );
                 if let Ok(st) = app_state.try_borrow() {
                     let current = st.current_page.clone();
                     drop(st);
@@ -827,22 +841,20 @@ fn main() {
         let page_status_for_click = page_status.clone();
         let save_status_for_click = save_status.clone();
         let wind_for_click = wind.clone();
-        page_status
-            .borrow_mut()
-            .handle(move |_, ev| match ev {
-                enums::Event::Push => {
-                    page_picker::show_page_picker(
-                        app_state.clone(),
-                        autosave_state.clone(),
-                        active_editor.clone(),
-                        page_status_for_click.clone(),
-                        save_status_for_click.clone(),
-                        &wind_for_click,
-                    );
-                    true
-                }
-                _ => false,
-            });
+        page_status.borrow_mut().handle(move |_, ev| match ev {
+            enums::Event::Push => {
+                page_picker::show_page_picker(
+                    app_state.clone(),
+                    autosave_state.clone(),
+                    active_editor.clone(),
+                    page_status_for_click.clone(),
+                    save_status_for_click.clone(),
+                    &wind_for_click,
+                );
+                true
+            }
+            _ => false,
+        });
     }
 
     // Load initial page
@@ -857,7 +869,13 @@ fn main() {
     );
 
     // Wire callbacks for active editor
-    wire_editor_callbacks(&active_editor, &autosave_state, &app_state, &page_status, &save_status);
+    wire_editor_callbacks(
+        &active_editor,
+        &autosave_state,
+        &app_state,
+        &page_status,
+        &save_status,
+    );
 
     // Set up periodic timer to update "X ago" display
     {

@@ -35,9 +35,7 @@ impl DocumentStore {
                 .map_err(|e| format!("Failed to read '{}': {}", name, e))?;
 
             // Get modification time
-            let mtime = fs::metadata(&path)
-                .ok()
-                .and_then(|m| m.modified().ok());
+            let mtime = fs::metadata(&path).ok().and_then(|m| m.modified().ok());
 
             (content, mtime)
         } else {
@@ -83,7 +81,12 @@ impl DocumentStore {
     }
 
     /// Helper function to recursively walk directories
-    fn walk_directory(&self, dir: &PathBuf, prefix: &str, docs: &mut Vec<String>) -> Result<(), String> {
+    fn walk_directory(
+        &self,
+        dir: &PathBuf,
+        prefix: &str,
+        docs: &mut Vec<String>,
+    ) -> Result<(), String> {
         let entries = fs::read_dir(dir)
             .map_err(|e| format!("Failed to read directory '{}': {}", dir.display(), e))?;
 

@@ -34,5 +34,4 @@ pub trait PageUI: ContentProvider + ContentLoader {
 
     // Optional periodic tick with ms since app start (no-op by default).
     fn tick(&mut self, _ms_since_start: u64) {}
-
 }

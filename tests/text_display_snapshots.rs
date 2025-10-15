@@ -3,7 +3,7 @@
 
 pub mod svg_draw_context;
 use fliki_rs::sourceedit::text_buffer::TextBuffer;
-use fliki_rs::sourceedit::text_display::{style_attr, StyleTableEntry, TextDisplay};
+use fliki_rs::sourceedit::text_display::{StyleTableEntry, TextDisplay, style_attr};
 use std::cell::RefCell;
 use std::rc::Rc;
 

@@ -432,7 +432,8 @@ impl StructuredEditor {
                     let blocks = self.document.blocks();
                     let mut start = block_index;
                     while start > 0 {
-                        if let BlockType::ListItem { ordered: true, .. } = blocks[start - 1].block_type
+                        if let BlockType::ListItem { ordered: true, .. } =
+                            blocks[start - 1].block_type
                         {
                             start -= 1;
                         } else {
@@ -497,7 +498,10 @@ impl StructuredEditor {
             // Capture types before mutation
             let (prev_type, cur_type) = {
                 let blocks = self.document.blocks();
-                (blocks[block_index - 1].block_type.clone(), blocks[block_index].block_type.clone())
+                (
+                    blocks[block_index - 1].block_type.clone(),
+                    blocks[block_index].block_type.clone(),
+                )
             };
 
             let mut renumber_after: Option<(usize, u64)> = None;
@@ -1417,8 +1421,7 @@ impl StructuredEditor {
                 }
                 let mut end = block_index;
                 while end + 1 < blocks.len() {
-                    if let BlockType::ListItem { ordered: true, .. } = blocks[end + 1].block_type
-                    {
+                    if let BlockType::ListItem { ordered: true, .. } = blocks[end + 1].block_type {
                         end += 1;
                     } else {
                         break;
@@ -1540,9 +1543,7 @@ impl StructuredEditor {
         };
 
         match current_type {
-            BlockType::ListItem {
-                ordered: true, ..
-            } => {
+            BlockType::ListItem { ordered: true, .. } => {
                 // Convert contiguous ordered run to checklist items
                 let (start, end) = {
                     let blocks = self.document.blocks();
@@ -1696,7 +1697,8 @@ impl StructuredEditor {
                     // Find run start
                     let mut start = block_index;
                     while start > 0 {
-                        if let BlockType::ListItem { ordered: true, .. } = blocks[start - 1].block_type
+                        if let BlockType::ListItem { ordered: true, .. } =
+                            blocks[start - 1].block_type
                         {
                             start -= 1;
                         } else {
@@ -1706,7 +1708,8 @@ impl StructuredEditor {
                     // Find run end
                     let mut end = block_index;
                     while end + 1 < blocks.len() {
-                        if let BlockType::ListItem { ordered: true, .. } = blocks[end + 1].block_type
+                        if let BlockType::ListItem { ordered: true, .. } =
+                            blocks[end + 1].block_type
                         {
                             end += 1;
                         } else {
@@ -1756,7 +1759,8 @@ impl StructuredEditor {
                     let blocks = self.document.blocks();
                     let mut start = block_index;
                     while start > 0 {
-                        if let BlockType::ListItem { ordered: false, .. } = blocks[start - 1].block_type
+                        if let BlockType::ListItem { ordered: false, .. } =
+                            blocks[start - 1].block_type
                         {
                             start -= 1;
                         } else {
@@ -1765,7 +1769,8 @@ impl StructuredEditor {
                     }
                     let mut end = block_index;
                     while end + 1 < blocks.len() {
-                        if let BlockType::ListItem { ordered: false, .. } = blocks[end + 1].block_type
+                        if let BlockType::ListItem { ordered: false, .. } =
+                            blocks[end + 1].block_type
                         {
                             end += 1;
                         } else {
@@ -1821,7 +1826,8 @@ impl StructuredEditor {
                         // prev_end is block_index - 1 and is ordered
                         let mut start = block_index - 1;
                         while start > 0 {
-                            if let BlockType::ListItem { ordered: true, .. } = blocks[start - 1].block_type
+                            if let BlockType::ListItem { ordered: true, .. } =
+                                blocks[start - 1].block_type
                             {
                                 start -= 1;
                             } else {
@@ -1862,7 +1868,8 @@ impl StructuredEditor {
                         let start = block_index + 1; // guaranteed ordered
                         let mut end = start;
                         while end + 1 < blocks.len() {
-                            if let BlockType::ListItem { ordered: true, .. } = blocks[end + 1].block_type
+                            if let BlockType::ListItem { ordered: true, .. } =
+                                blocks[end + 1].block_type
                             {
                                 end += 1;
                             } else {

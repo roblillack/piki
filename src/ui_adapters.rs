@@ -5,7 +5,7 @@ use crate::page_ui::PageUI;
 use crate::richtext::markdown_converter::{document_to_markdown, markdown_to_document};
 use crate::sourceedit::text_buffer::TextBuffer;
 use crate::sourceedit::text_display::TextDisplay;
-use crate::sourceedit::text_display::{style_attr, StyleTableEntry};
+use crate::sourceedit::text_display::{StyleTableEntry, style_attr};
 use fltk::{enums::Color, prelude::*, window};
 use std::cell::RefCell;
 use std::rc::Rc;

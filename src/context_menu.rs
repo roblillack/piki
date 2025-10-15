@@ -181,9 +181,7 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         BlockType::CodeBlock { .. } => Some("Paragraph Style/Code\t"),
         BlockType::BlockQuote => Some("Paragraph Style/Quote\t"),
         BlockType::ListItem {
-            ordered,
-            checkbox,
-            ..
+            ordered, checkbox, ..
         } => Some(if ordered {
             "Paragraph Style/Numbered List\t"
         } else if checkbox.is_some() {

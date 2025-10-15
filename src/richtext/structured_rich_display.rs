@@ -4,7 +4,8 @@
 
 use super::structured_document::*;
 use super::structured_editor::*;
-use crate::sourceedit::text_display::{DrawContext, StyleTableEntry, style_attr};
+use crate::draw_context::DrawContext;
+use crate::sourceedit::text_display::{StyleTableEntry, style_attr};
 
 /// Layout information for a rendered line
 #[derive(Debug, Clone)]
@@ -24,6 +25,15 @@ struct LayoutLine {
     runs: Vec<VisualRun>,
 }
 
+/// Checklist marker rendering metadata
+#[derive(Debug, Clone)]
+struct ChecklistVisual {
+    /// Whether the checklist item is checked
+    checked: bool,
+    /// Size of the checkbox square in pixels
+    box_size: i32,
+}
+
 /// A visual run of text with styling
 #[derive(Debug, Clone)]
 struct VisualRun {
@@ -41,8 +51,8 @@ struct VisualRun {
     char_range: (usize, usize),
     /// Inline content index (for link detection)
     inline_index: Option<usize>,
-    /// Whether this run represents a checklist marker (for hit testing)
-    is_checklist_marker: bool,
+    /// Checklist rendering info (if this run is a checklist marker)
+    checklist: Option<ChecklistVisual>,
 }
 
 /// Rich Text Display for Structured Documents
@@ -324,7 +334,8 @@ impl StructuredRichDisplay {
         let cursor = self.editor.cursor();
         // First, look for a line in the same block whose char range contains the offset
         for (i, line) in self.layout_lines.iter().enumerate() {
-            if line.block_index == cursor.block_index && self.offset_belongs_to_line(i, cursor.offset)
+            if line.block_index == cursor.block_index
+                && self.offset_belongs_to_line(i, cursor.offset)
             {
                 return Some(i);
             }
@@ -461,7 +472,11 @@ impl StructuredRichDisplay {
     }
 
     /// Move cursor to the beginning of the current visual line.
-    pub fn move_cursor_visual_line_start_precise(&mut self, extend: bool, ctx: &mut dyn DrawContext) {
+    pub fn move_cursor_visual_line_start_precise(
+        &mut self,
+        extend: bool,
+        ctx: &mut dyn DrawContext,
+    ) {
         self.layout(ctx);
         if self.layout_lines.is_empty() {
             if extend {
@@ -620,7 +635,7 @@ impl StructuredRichDisplay {
                             block_index: block_idx,
                             char_range: (0, line_len),
                             inline_index: None,
-                            is_checklist_marker: false,
+                            checklist: None,
                         }],
                     });
                     current_y += self.line_height;
@@ -662,13 +677,34 @@ impl StructuredRichDisplay {
                 // Base indent padding before label (keeps list labels off the edge)
                 let label_left_pad = self.text_size as i32;
 
+                let mut checklist_visual: Option<ChecklistVisual> = None;
+
                 // Determine label text and padding width
-                let (label_text, label_pad_width, content_start_x, is_checklist_marker) = if let Some(checked) = checkbox {
-                    let marker = if *checked { "[x] " } else { "[ ] " };
-                    let marker_width =
-                        ctx.text_width(marker, self.text_font, self.text_size) as i32;
-                    let content_start_x = start_x + label_left_pad + marker_width;
-                    (marker.to_string(), marker_width, content_start_x, true)
+                let (label_text, label_pad_width, content_start_x) = if let Some(checked) = checkbox
+                {
+                    let mut marker_box_size = (self.text_size as i32).saturating_sub(4);
+                    if marker_box_size < 8 {
+                        marker_box_size = 8;
+                    }
+                    if marker_box_size > self.line_height {
+                        marker_box_size = self.line_height;
+                    }
+
+                    let mut space_width =
+                        ctx.text_width(" ", self.text_font, self.text_size) as i32;
+                    if space_width < 4 {
+                        space_width = 4;
+                    }
+
+                    let label_pad_width = marker_box_size + space_width;
+                    let content_start_x = start_x + label_left_pad + label_pad_width;
+
+                    checklist_visual = Some(ChecklistVisual {
+                        checked: *checked,
+                        box_size: marker_box_size,
+                    });
+
+                    (String::new(), label_pad_width, content_start_x)
                 } else if *ordered {
                     // Find contiguous ordered list run (adjacent siblings)
                     let doc = self.editor.document();
@@ -677,7 +713,8 @@ impl StructuredRichDisplay {
                     // Find run start
                     let mut run_start = block_idx;
                     while run_start > 0 {
-                        if let BlockType::ListItem { ordered: true, .. } = blocks[run_start - 1].block_type
+                        if let BlockType::ListItem { ordered: true, .. } =
+                            blocks[run_start - 1].block_type
                         {
                             run_start -= 1;
                         } else {
@@ -687,7 +724,8 @@ impl StructuredRichDisplay {
                     // Find run end
                     let mut run_end = block_idx;
                     while run_end + 1 < blocks.len() {
-                        if let BlockType::ListItem { ordered: true, .. } = blocks[run_end + 1].block_type
+                        if let BlockType::ListItem { ordered: true, .. } =
+                            blocks[run_end + 1].block_type
                         {
                             run_end += 1;
                         } else {
@@ -732,14 +770,14 @@ impl StructuredRichDisplay {
                     let label_text = format!("{}. ", cur_num);
                     let content_start_x = start_x + label_left_pad + label_pad_width;
 
-                    (label_text, label_pad_width, content_start_x, false)
+                    (label_text, label_pad_width, content_start_x)
                 } else {
                     // Unordered bullet label and fixed width
                     let bullet_text = "• ".to_string();
                     let bullet_width =
                         ctx.text_width(&bullet_text, self.text_font, self.text_size) as i32;
                     let content_start_x = start_x + label_left_pad + bullet_width;
-                    (bullet_text, bullet_width, content_start_x, false)
+                    (bullet_text, bullet_width, content_start_x)
                 };
 
                 // Assemble label run
@@ -751,7 +789,7 @@ impl StructuredRichDisplay {
                     block_index: block_idx,
                     char_range: (0, 0),
                     inline_index: None,
-                    is_checklist_marker,
+                    checklist: checklist_visual,
                 }];
 
                 // Layout the content with proper text indentation
@@ -968,7 +1006,7 @@ impl StructuredRichDisplay {
                                     block_index: block_idx,
                                     char_range: (char_offset, char_offset + space_end),
                                     inline_index: Some(inline_idx),
-                                    is_checklist_marker: false,
+                                    checklist: None,
                                 });
 
                                 current_x += space_width;
@@ -1008,7 +1046,7 @@ impl StructuredRichDisplay {
                                 block_index: block_idx,
                                 char_range: (char_offset + word_start, char_offset + word_end),
                                 inline_index: Some(inline_idx),
-                                is_checklist_marker: false,
+                                checklist: None,
                             });
 
                             current_x += word_width;
@@ -1052,7 +1090,7 @@ impl StructuredRichDisplay {
                         block_index: block_idx,
                         char_range: (char_offset, char_offset + text.len()),
                         inline_index: Some(inline_idx),
-                        is_checklist_marker: false,
+                        checklist: None,
                     });
 
                     current_x += text_width;
@@ -1068,7 +1106,7 @@ impl StructuredRichDisplay {
                         block_index: block_idx,
                         char_range: (char_offset, char_offset + 1),
                         inline_index: Some(inline_idx),
-                        is_checklist_marker: false,
+                        checklist: None,
                     });
                     current_x += space_width;
                     char_offset += 1;
@@ -1264,11 +1302,51 @@ impl StructuredRichDisplay {
                     continue;
                 };
 
+                let descent = ctx.text_descent(style.font, style.size);
                 ctx.set_font(style.font, style.size);
                 ctx.set_color(style.color);
 
-                let draw_y = self.y + line.y - self.scroll_offset + style.size as i32;
+                let line_top = self.y + line.y - self.scroll_offset;
                 let draw_x = self.x + run.x;
+
+                if let Some(checklist) = &run.checklist {
+                    let mut box_size = checklist.box_size;
+                    if box_size > line.height {
+                        box_size = line.height;
+                    }
+                    if box_size <= 0 {
+                        continue;
+                    }
+
+                    let box_y = line_top + (line.height - box_size) / 2 + descent / 2;
+                    let box_right = draw_x + box_size;
+                    let box_bottom = box_y + box_size;
+
+                    ctx.draw_line(draw_x, box_y, box_right, box_y);
+                    ctx.draw_line(draw_x, box_y, draw_x, box_bottom);
+                    ctx.draw_line(draw_x, box_bottom, box_right, box_bottom);
+                    ctx.draw_line(box_right, box_y, box_right, box_bottom);
+
+                    if checklist.checked {
+                        let mut inset = ((box_size as f32) * 0.2).round() as i32;
+                        if inset < 2 {
+                            inset = 2;
+                        }
+                        if inset * 2 >= box_size {
+                            inset = box_size / 2;
+                        }
+                        let x1 = draw_x + inset;
+                        let y1 = box_y + inset;
+                        let x2 = box_right - inset;
+                        let y2 = box_bottom - inset;
+                        ctx.draw_line(x1, y1, x2, y2);
+                        ctx.draw_line(x1, y2, x2, y1);
+                    }
+
+                    continue;
+                }
+
+                let draw_y = line_top + style.size as i32;
 
                 // Draw inline highlight background for styles that specify a bgcolor
                 // (e.g., text highlight). Draw this first so selection can paint over it.
@@ -1276,12 +1354,7 @@ impl StructuredRichDisplay {
                     let text_width = ctx.text_width(&run.text, style.font, style.size) as i32;
                     if (style.attr & style_attr::BGCOLOR) != 0 {
                         ctx.set_color(style.bgcolor);
-                        ctx.draw_rect_filled(
-                            draw_x,
-                            self.y + line.y - self.scroll_offset,
-                            text_width,
-                            line.height,
-                        );
+                        ctx.draw_rect_filled(draw_x, line_top, text_width, line.height);
                         ctx.set_color(style.color); // Restore text color for text drawing
                     }
                 }
@@ -1291,12 +1364,7 @@ impl StructuredRichDisplay {
                 if is_hovered {
                     let text_width = ctx.text_width(&run.text, style.font, style.size) as i32;
                     ctx.set_color(style.bgcolor);
-                    ctx.draw_rect_filled(
-                        draw_x,
-                        self.y + line.y - self.scroll_offset,
-                        text_width,
-                        line.height,
-                    );
+                    ctx.draw_rect_filled(draw_x, line_top, text_width, line.height);
                     ctx.set_color(style.color); // Restore text color
                 }
 
@@ -1326,7 +1394,7 @@ impl StructuredRichDisplay {
                         ctx.set_color(self.selection_color);
                         ctx.draw_rect_filled(
                             draw_x + before_width,
-                            self.y + line.y - self.scroll_offset,
+                            line_top,
                             sel_width,
                             line.height,
                         );
@@ -1441,24 +1509,26 @@ impl StructuredRichDisplay {
             }
 
             for run in &line.runs {
-                if !run.is_checklist_marker || run.width <= 0 {
-                    continue;
-                }
+                if let Some(checklist) = &run.checklist {
+                    if checklist.box_size <= 0 {
+                        continue;
+                    }
 
-                let marker_start_x = run.x;
-                let marker_end_x = run.x + run.width;
-                // Allow a small tolerance around the marker for easier clicking
-                let tolerance = 4;
-                if x >= marker_start_x - tolerance && x <= marker_end_x + tolerance {
-                    if let Some(block) = blocks.get(line.block_index) {
-                        if matches!(
-                            block.block_type,
-                            BlockType::ListItem {
-                                checkbox: Some(_),
-                                ..
+                    let marker_start_x = run.x;
+                    let marker_end_x = run.x + checklist.box_size;
+                    // Allow a small tolerance around the marker for easier clicking
+                    let tolerance = 2;
+                    if x >= marker_start_x - tolerance && x <= marker_end_x + tolerance {
+                        if let Some(block) = blocks.get(line.block_index) {
+                            if matches!(
+                                block.block_type,
+                                BlockType::ListItem {
+                                    checkbox: Some(_),
+                                    ..
+                                }
+                            ) {
+                                return Some(line.block_index);
                             }
-                        ) {
-                            return Some(line.block_index);
                         }
                     }
                 }
@@ -1656,7 +1726,9 @@ impl StructuredRichDisplay {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::richtext::structured_document::{Block, BlockType, DocumentPosition, StructuredDocument};
+    use crate::richtext::structured_document::{
+        Block, BlockType, DocumentPosition, StructuredDocument,
+    };
     use crate::sourceedit::text_display::StyleTableEntry;
 
     #[derive(Default)]
@@ -1777,10 +1849,8 @@ mod tests {
         let mut display = make_display_with_block(block);
         let mut ctx = TestDrawContext::new_with_focus();
 
-        let bullet_width =
-            ctx.text_width("• ", display.text_font, display.text_size) as i32;
-        let expected_x =
-            display.padding_left + display.text_size as i32 + bullet_width;
+        let bullet_width = ctx.text_width("• ", display.text_font, display.text_size) as i32;
+        let expected_x = display.padding_left + display.text_size as i32 + bullet_width;
 
         display.layout(&mut ctx);
         let (x, _, _) = display.get_cursor_visual_position(&mut ctx).unwrap();
@@ -1800,10 +1870,8 @@ mod tests {
         let mut display = make_display_with_block(block);
         let mut ctx = TestDrawContext::new_with_focus();
 
-        let label_width =
-            ctx.text_width("3. ", display.text_font, display.text_size) as i32;
-        let expected_x =
-            display.padding_left + display.text_size as i32 + label_width;
+        let label_width = ctx.text_width("3. ", display.text_font, display.text_size) as i32;
+        let expected_x = display.padding_left + display.text_size as i32 + label_width;
 
         display.layout(&mut ctx);
         let (x, _, _) = display.get_cursor_visual_position(&mut ctx).unwrap();
@@ -1823,10 +1891,21 @@ mod tests {
         let mut display = make_display_with_block(block);
         let mut ctx = TestDrawContext::new_with_focus();
 
-        let checkbox_width =
-            ctx.text_width("[ ] ", display.text_font, display.text_size) as i32;
+        let mut checkbox_size = (display.text_size as i32).saturating_sub(4);
+        if checkbox_size < 8 {
+            checkbox_size = 8;
+        }
+        if checkbox_size > display.line_height {
+            checkbox_size = display.line_height;
+        }
+
+        let mut space_width = ctx.text_width(" ", display.text_font, display.text_size) as i32;
+        if space_width < 4 {
+            space_width = 4;
+        }
+
         let expected_x =
-            display.padding_left + display.text_size as i32 + checkbox_width;
+            display.padding_left + display.text_size as i32 + checkbox_size + space_width;
 
         display.layout(&mut ctx);
         let (x, _, _) = display.get_cursor_visual_position(&mut ctx).unwrap();

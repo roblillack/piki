@@ -161,13 +161,15 @@ impl TextBuffer {
         if pos < self.gap_start {
             // Move gap backward
             let distance = self.gap_start - pos;
-            self.buffer.copy_within(pos..self.gap_start, self.gap_end - distance);
+            self.buffer
+                .copy_within(pos..self.gap_start, self.gap_end - distance);
             self.gap_start = pos;
             self.gap_end -= distance;
         } else {
             // Move gap forward
             let distance = pos - self.gap_start;
-            self.buffer.copy_within(self.gap_end..self.gap_end + distance, self.gap_start);
+            self.buffer
+                .copy_within(self.gap_end..self.gap_end + distance, self.gap_start);
             self.gap_start = pos;
             self.gap_end += distance;
         }
@@ -282,8 +284,7 @@ impl TextBuffer {
         self.expand_gap(insert_len);
 
         // Insert text into gap
-        self.buffer[self.gap_start..self.gap_start + insert_len]
-            .copy_from_slice(text.as_bytes());
+        self.buffer[self.gap_start..self.gap_start + insert_len].copy_from_slice(text.as_bytes());
         self.gap_start += insert_len;
 
         // Update selections
@@ -675,8 +676,8 @@ impl TextBuffer {
 
         // Special Unicode separators
         match ch {
-            0xA0 => true,  // NO-BREAK SPACE
-            0x3000..=0x301F => true,  // CJK/IDEOGRAPHIC punctuation
+            0xA0 => true,            // NO-BREAK SPACE
+            0x3000..=0x301F => true, // CJK/IDEOGRAPHIC punctuation
             _ => false,
         }
     }
@@ -1075,11 +1076,11 @@ mod tests {
     fn test_line_start_multiple_lines() {
         let mut buf = TextBuffer::new();
         buf.insert(0, "Line 1\nLine 2\nLine 3");
-        assert_eq!(buf.line_start(0), 0);   // Start of line 1
-        assert_eq!(buf.line_start(3), 0);   // Middle of line 1
-        assert_eq!(buf.line_start(6), 0);   // At newline of line 1
-        assert_eq!(buf.line_start(7), 7);   // Start of line 2
-        assert_eq!(buf.line_start(10), 7);  // Middle of line 2
+        assert_eq!(buf.line_start(0), 0); // Start of line 1
+        assert_eq!(buf.line_start(3), 0); // Middle of line 1
+        assert_eq!(buf.line_start(6), 0); // At newline of line 1
+        assert_eq!(buf.line_start(7), 7); // Start of line 2
+        assert_eq!(buf.line_start(10), 7); // Middle of line 2
         assert_eq!(buf.line_start(14), 14); // Start of line 3
     }
 
@@ -1096,9 +1097,9 @@ mod tests {
     fn test_line_end_multiple_lines() {
         let mut buf = TextBuffer::new();
         buf.insert(0, "Line 1\nLine 2\nLine 3");
-        assert_eq!(buf.line_end(0), 6);   // End of line 1 (at \n)
-        assert_eq!(buf.line_end(3), 6);   // Middle of line 1
-        assert_eq!(buf.line_end(7), 13);  // Start of line 2
+        assert_eq!(buf.line_end(0), 6); // End of line 1 (at \n)
+        assert_eq!(buf.line_end(3), 6); // Middle of line 1
+        assert_eq!(buf.line_end(7), 13); // Start of line 2
         assert_eq!(buf.line_end(14), 20); // Line 3 (no newline at end)
     }
 
@@ -1117,7 +1118,7 @@ mod tests {
         let mut buf = TextBuffer::new();
         buf.insert(0, "Line 1\n\nLine 3");
         assert_eq!(buf.line_text(0), "Line 1");
-        assert_eq!(buf.line_text(7), "");  // Empty line
+        assert_eq!(buf.line_text(7), ""); // Empty line
         assert_eq!(buf.line_text(8), "Line 3");
     }
 
@@ -1126,8 +1127,8 @@ mod tests {
         let mut buf = TextBuffer::new();
         buf.insert(0, "Line 1\nLine 2\nLine 3\nLine 4");
         assert_eq!(buf.count_lines(0, buf.length()), 3); // 3 newlines
-        assert_eq!(buf.count_lines(0, 6), 0);  // Before first newline
-        assert_eq!(buf.count_lines(0, 7), 1);  // Just after first newline
+        assert_eq!(buf.count_lines(0, 6), 0); // Before first newline
+        assert_eq!(buf.count_lines(0, 7), 1); // Just after first newline
         assert_eq!(buf.count_lines(7, 14), 1); // Between line 2 and 3
     }
 
@@ -1141,10 +1142,10 @@ mod tests {
     fn test_skip_lines() {
         let mut buf = TextBuffer::new();
         buf.insert(0, "Line 1\nLine 2\nLine 3\nLine 4");
-        assert_eq!(buf.skip_lines(0, 0), 0);   // Skip 0 lines
-        assert_eq!(buf.skip_lines(0, 1), 7);   // Skip to line 2
-        assert_eq!(buf.skip_lines(0, 2), 14);  // Skip to line 3
-        assert_eq!(buf.skip_lines(0, 3), 21);  // Skip to line 4
+        assert_eq!(buf.skip_lines(0, 0), 0); // Skip 0 lines
+        assert_eq!(buf.skip_lines(0, 1), 7); // Skip to line 2
+        assert_eq!(buf.skip_lines(0, 2), 14); // Skip to line 3
+        assert_eq!(buf.skip_lines(0, 3), 21); // Skip to line 4
         assert_eq!(buf.skip_lines(0, 10), buf.length()); // Skip past end
     }
 
@@ -1152,7 +1153,7 @@ mod tests {
     fn test_skip_lines_from_middle() {
         let mut buf = TextBuffer::new();
         buf.insert(0, "Line 1\nLine 2\nLine 3");
-        assert_eq!(buf.skip_lines(3, 1), 7);  // From middle of line 1
+        assert_eq!(buf.skip_lines(3, 1), 7); // From middle of line 1
         assert_eq!(buf.skip_lines(7, 1), 14); // From start of line 2
     }
 
@@ -1163,8 +1164,8 @@ mod tests {
         // From end of buffer
         assert_eq!(buf.rewind_lines(buf.length(), 0), 21); // Beginning of current line
         assert_eq!(buf.rewind_lines(buf.length(), 1), 14); // Back 1 line
-        assert_eq!(buf.rewind_lines(buf.length(), 2), 7);  // Back 2 lines
-        assert_eq!(buf.rewind_lines(buf.length(), 3), 0);  // Back 3 lines
+        assert_eq!(buf.rewind_lines(buf.length(), 2), 7); // Back 2 lines
+        assert_eq!(buf.rewind_lines(buf.length(), 3), 0); // Back 3 lines
         assert_eq!(buf.rewind_lines(buf.length(), 10), 0); // Back past start
     }
 
@@ -1172,8 +1173,8 @@ mod tests {
     fn test_rewind_lines_from_middle() {
         let mut buf = TextBuffer::new();
         buf.insert(0, "Line 1\nLine 2\nLine 3");
-        assert_eq!(buf.rewind_lines(10, 0), 7);  // Beginning of current line
-        assert_eq!(buf.rewind_lines(10, 1), 0);  // Back 1 line
+        assert_eq!(buf.rewind_lines(10, 0), 7); // Beginning of current line
+        assert_eq!(buf.rewind_lines(10, 1), 0); // Back 1 line
     }
 
     // ========================================================================
@@ -1184,18 +1185,18 @@ mod tests {
     fn test_is_word_separator_ascii() {
         let mut buf = TextBuffer::new();
         buf.insert(0, "hello_world test-case");
-        assert!(!buf.is_word_separator(0));  // 'h'
-        assert!(!buf.is_word_separator(5));  // '_'
-        assert!(!buf.is_word_separator(6));  // 'w'
-        assert!(buf.is_word_separator(11));  // ' '
+        assert!(!buf.is_word_separator(0)); // 'h'
+        assert!(!buf.is_word_separator(5)); // '_'
+        assert!(!buf.is_word_separator(6)); // 'w'
+        assert!(buf.is_word_separator(11)); // ' '
         assert!(!buf.is_word_separator(12)); // 't'
-        assert!(buf.is_word_separator(16));  // '-'
+        assert!(buf.is_word_separator(16)); // '-'
     }
 
     #[test]
     fn test_is_word_separator_unicode() {
         let mut buf = TextBuffer::new();
-        buf.insert(0, "hello\u{00A0}world");  // NO-BREAK SPACE
+        buf.insert(0, "hello\u{00A0}world"); // NO-BREAK SPACE
         let nbsp_pos = "hello".len();
         assert!(buf.is_word_separator(nbsp_pos));
     }
@@ -1204,31 +1205,31 @@ mod tests {
     fn test_word_start() {
         let mut buf = TextBuffer::new();
         buf.insert(0, "hello world test");
-        assert_eq!(buf.word_start(0), 0);   // At 'h'
-        assert_eq!(buf.word_start(3), 0);   // At 'l' in hello
-        assert_eq!(buf.word_start(5), 6);   // At space after hello -> start of next word
-        assert_eq!(buf.word_start(6), 6);   // At 'w'
-        assert_eq!(buf.word_start(9), 6);   // At 'l' in world
+        assert_eq!(buf.word_start(0), 0); // At 'h'
+        assert_eq!(buf.word_start(3), 0); // At 'l' in hello
+        assert_eq!(buf.word_start(5), 6); // At space after hello -> start of next word
+        assert_eq!(buf.word_start(6), 6); // At 'w'
+        assert_eq!(buf.word_start(9), 6); // At 'l' in world
         assert_eq!(buf.word_start(12), 12); // At 't' in test
     }
 
     #[test]
     fn test_word_start_at_separator() {
         let mut buf = TextBuffer::new();
-        buf.insert(0, "one  two");  // Double space at positions 3 and 4
+        buf.insert(0, "one  two"); // Double space at positions 3 and 4
         // FLTK behavior: at a separator, move forward one char
-        assert_eq!(buf.word_start(3), 4);  // At first space (3) -> move to next char (4)
-        assert_eq!(buf.word_start(4), 5);  // At second space (4) -> move to next char (5, start of "two")
+        assert_eq!(buf.word_start(3), 4); // At first space (3) -> move to next char (4)
+        assert_eq!(buf.word_start(4), 5); // At second space (4) -> move to next char (5, start of "two")
     }
 
     #[test]
     fn test_word_end() {
         let mut buf = TextBuffer::new();
         buf.insert(0, "hello world test");
-        assert_eq!(buf.word_end(0), 5);   // From 'h' -> end of hello
-        assert_eq!(buf.word_end(3), 5);   // From 'l' -> end of hello
-        assert_eq!(buf.word_end(5), 5);   // At space
-        assert_eq!(buf.word_end(6), 11);  // From 'w' -> end of world
+        assert_eq!(buf.word_end(0), 5); // From 'h' -> end of hello
+        assert_eq!(buf.word_end(3), 5); // From 'l' -> end of hello
+        assert_eq!(buf.word_end(5), 5); // At space
+        assert_eq!(buf.word_end(6), 11); // From 'w' -> end of world
         assert_eq!(buf.word_end(12), 16); // From 't' -> end of test
     }
 
@@ -1236,7 +1237,7 @@ mod tests {
     fn test_word_navigation() {
         let mut buf = TextBuffer::new();
         buf.insert(0, "The quick brown fox");
-        let word_start = buf.word_start(5);  // 'q' in quick
+        let word_start = buf.word_start(5); // 'q' in quick
         let word_end = buf.word_end(5);
         assert_eq!(buf.text_range(word_start, word_end), "quick");
     }
@@ -1247,7 +1248,10 @@ mod tests {
         buf.insert(0, "foo_bar_baz");
         assert_eq!(buf.word_start(0), 0);
         assert_eq!(buf.word_end(0), 11); // Underscore is not a separator
-        assert_eq!(buf.text_range(buf.word_start(5), buf.word_end(5)), "foo_bar_baz");
+        assert_eq!(
+            buf.text_range(buf.word_start(5), buf.word_end(5)),
+            "foo_bar_baz"
+        );
     }
 
     // ========================================================================
@@ -1267,8 +1271,8 @@ mod tests {
     fn test_char_at_utf8() {
         let mut buf = TextBuffer::new();
         buf.insert(0, "Hello 世界");
-        assert_eq!(buf.char_at(6), '世' as u32);   // 3-byte UTF-8
-        assert_eq!(buf.char_at(9), '界' as u32);   // 3-byte UTF-8
+        assert_eq!(buf.char_at(6), '世' as u32); // 3-byte UTF-8
+        assert_eq!(buf.char_at(9), '界' as u32); // 3-byte UTF-8
     }
 
     #[test]
@@ -1297,9 +1301,9 @@ mod tests {
 
         // UTF-8 multi-byte character alignment
         let world_pos = "Hello 世".len();
-        assert_eq!(buf.utf8_align(6), 6);     // Start of 世
-        assert_eq!(buf.utf8_align(7), 6);     // Middle of 世 -> aligns to start
-        assert_eq!(buf.utf8_align(8), 6);     // End of 世 -> aligns to start
+        assert_eq!(buf.utf8_align(6), 6); // Start of 世
+        assert_eq!(buf.utf8_align(7), 6); // Middle of 世 -> aligns to start
+        assert_eq!(buf.utf8_align(8), 6); // End of 世 -> aligns to start
         assert_eq!(buf.utf8_align(world_pos), world_pos); // Start of 界
     }
 
@@ -1359,9 +1363,9 @@ mod tests {
     fn test_count_displayed_characters_ascii() {
         let mut buf = TextBuffer::new();
         buf.insert(0, "Hello World");
-        assert_eq!(buf.count_displayed_characters(0, 5), 5);  // "Hello"
+        assert_eq!(buf.count_displayed_characters(0, 5), 5); // "Hello"
         assert_eq!(buf.count_displayed_characters(0, 11), 11); // "Hello World"
-        assert_eq!(buf.count_displayed_characters(6, 11), 5);  // "World"
+        assert_eq!(buf.count_displayed_characters(6, 11), 5); // "World"
     }
 
     #[test]
@@ -1371,9 +1375,9 @@ mod tests {
         // "Hello " = 6 bytes, but 6 characters
         // "世" = 3 bytes, 1 character
         // "界" = 3 bytes, 1 character
-        assert_eq!(buf.count_displayed_characters(0, 6), 6);   // "Hello "
-        assert_eq!(buf.count_displayed_characters(6, 9), 1);   // "世"
-        assert_eq!(buf.count_displayed_characters(0, 12), 8);  // "Hello 世界" = 8 chars
+        assert_eq!(buf.count_displayed_characters(0, 6), 6); // "Hello "
+        assert_eq!(buf.count_displayed_characters(6, 9), 1); // "世"
+        assert_eq!(buf.count_displayed_characters(0, 12), 8); // "Hello 世界" = 8 chars
     }
 
     #[test]
@@ -1386,9 +1390,9 @@ mod tests {
     fn test_skip_displayed_characters_ascii() {
         let mut buf = TextBuffer::new();
         buf.insert(0, "Hello World");
-        assert_eq!(buf.skip_displayed_characters(0, 5), 5);  // Skip 5 chars
+        assert_eq!(buf.skip_displayed_characters(0, 5), 5); // Skip 5 chars
         assert_eq!(buf.skip_displayed_characters(0, 11), 11); // Skip to end
-        assert_eq!(buf.skip_displayed_characters(6, 3), 9);   // Skip 3 from pos 6
+        assert_eq!(buf.skip_displayed_characters(6, 3), 9); // Skip 3 from pos 6
     }
 
     #[test]
@@ -1396,17 +1400,17 @@ mod tests {
         let mut buf = TextBuffer::new();
         buf.insert(0, "Hello\nWorld");
         // Should stop at newline
-        assert_eq!(buf.skip_displayed_characters(0, 10), 5);  // Stops at \n
-        assert_eq!(buf.skip_displayed_characters(6, 5), 11);  // After \n, skips 5
+        assert_eq!(buf.skip_displayed_characters(0, 10), 5); // Stops at \n
+        assert_eq!(buf.skip_displayed_characters(6, 5), 11); // After \n, skips 5
     }
 
     #[test]
     fn test_skip_displayed_characters_utf8() {
         let mut buf = TextBuffer::new();
         buf.insert(0, "Hello 世界");
-        assert_eq!(buf.skip_displayed_characters(0, 6), 6);   // "Hello "
-        assert_eq!(buf.skip_displayed_characters(0, 7), 9);   // "Hello 世"
-        assert_eq!(buf.skip_displayed_characters(0, 8), 12);  // "Hello 世界"
+        assert_eq!(buf.skip_displayed_characters(0, 6), 6); // "Hello "
+        assert_eq!(buf.skip_displayed_characters(0, 7), 9); // "Hello 世"
+        assert_eq!(buf.skip_displayed_characters(0, 8), 12); // "Hello 世界"
     }
 
     #[test]
@@ -1563,7 +1567,7 @@ mod tests {
     fn test_prev_char_clipped() {
         let mut buf = TextBuffer::new();
         buf.insert(0, "Hello");
-        assert_eq!(buf.prev_char_clipped(0), 0);  // Already at start
+        assert_eq!(buf.prev_char_clipped(0), 0); // Already at start
         assert_eq!(buf.prev_char_clipped(5), 4);
         assert_eq!(buf.prev_char_clipped(1), 0);
     }
@@ -1574,7 +1578,7 @@ mod tests {
         buf.insert(0, "Hello");
         assert_eq!(buf.next_char_clipped(0), 1);
         assert_eq!(buf.next_char_clipped(4), 5);
-        assert_eq!(buf.next_char_clipped(5), 5);  // At end, stays at end
+        assert_eq!(buf.next_char_clipped(5), 5); // At end, stays at end
     }
 
     #[test]

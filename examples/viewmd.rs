@@ -4,7 +4,7 @@
 use fliki_rs::fltk_structured_rich_display::FltkStructuredRichDisplay;
 use fliki_rs::richtext::markdown_converter::{document_to_markdown, markdown_to_document};
 use fliki_rs::richtext::structured_document::DocumentPosition;
-use fliki_rs::sourceedit::text_display::{style_attr, StyleTableEntry};
+use fliki_rs::sourceedit::text_display::{StyleTableEntry, style_attr};
 use fltk::{prelude::*, *};
 use std::env;
 use std::fs;
@@ -556,9 +556,7 @@ fn main() {
                         _ => None,
                     },
                     BlockType::ListItem {
-                        ordered,
-                        checkbox,
-                        ..
+                        ordered, checkbox, ..
                     } => Some(if ordered {
                         "Paragraph Style/Numbered List\t"
                     } else if checkbox.is_some() {
