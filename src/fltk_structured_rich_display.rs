@@ -2068,27 +2068,33 @@ impl FltkStructuredRichDisplay {
                                             handled = true;
                                         }
                                         Key::Home => {
-                                            {
-                                                let editor = disp.editor_mut();
-                                                if shift_held {
-                                                    editor.move_cursor_to_line_start_extend();
-                                                } else {
-                                                    editor.move_cursor_to_line_start();
-                                                }
-                                            }
+                                            let has_focus = fltk::app::focus()
+                                                .map(|f| f.as_base_widget())
+                                                .as_ref()
+                                                == Some(&w.as_base_widget());
+                                            let is_active = w.active();
+                                            let mut ctx =
+                                                FltkDrawContext::new(has_focus, is_active);
+                                            disp.move_cursor_visual_line_start_precise(
+                                                shift_held,
+                                                &mut ctx,
+                                            );
                                             // non-vertical action
                                             did_horizontal = true;
                                             handled = true;
                                         }
                                         Key::End => {
-                                            {
-                                                let editor = disp.editor_mut();
-                                                if shift_held {
-                                                    editor.move_cursor_to_line_end_extend();
-                                                } else {
-                                                    editor.move_cursor_to_line_end();
-                                                }
-                                            }
+                                            let has_focus = fltk::app::focus()
+                                                .map(|f| f.as_base_widget())
+                                                .as_ref()
+                                                == Some(&w.as_base_widget());
+                                            let is_active = w.active();
+                                            let mut ctx =
+                                                FltkDrawContext::new(has_focus, is_active);
+                                            disp.move_cursor_visual_line_end_precise(
+                                                shift_held,
+                                                &mut ctx,
+                                            );
                                             // non-vertical action
                                             did_horizontal = true;
                                             handled = true;

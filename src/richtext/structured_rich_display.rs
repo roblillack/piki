@@ -291,13 +291,38 @@ impl StructuredRichDisplay {
 
     /// Find the index of the visual line containing the current cursor. If no exact match,
     /// returns the nearest line within the same block, otherwise None.
+    fn is_last_visual_line_in_block(&self, line_index: usize) -> bool {
+        if line_index >= self.layout_lines.len() {
+            return true;
+        }
+        let block_idx = self.layout_lines[line_index].block_index;
+        !self.layout_lines[line_index + 1..]
+            .iter()
+            .any(|line| line.block_index == block_idx)
+    }
+
+    fn offset_belongs_to_line(&self, line_index: usize, offset: usize) -> bool {
+        if line_index >= self.layout_lines.len() {
+            return false;
+        }
+        let line = &self.layout_lines[line_index];
+        if line.char_start == line.char_end {
+            return offset == line.char_start;
+        }
+        if offset < line.char_start {
+            return false;
+        }
+        if offset < line.char_end {
+            return true;
+        }
+        self.is_last_visual_line_in_block(line_index) && offset == line.char_end
+    }
+
     fn current_line_index_for_cursor(&self) -> Option<usize> {
         let cursor = self.editor.cursor();
         // First, look for a line in the same block whose char range contains the offset
         for (i, line) in self.layout_lines.iter().enumerate() {
-            if line.block_index == cursor.block_index
-                && cursor.offset >= line.char_start
-                && cursor.offset <= line.char_end
+            if line.block_index == cursor.block_index && self.offset_belongs_to_line(i, cursor.offset)
             {
                 return Some(i);
             }
@@ -308,7 +333,7 @@ impl StructuredRichDisplay {
             if line.block_index == cursor.block_index {
                 let dist = if cursor.offset < line.char_start {
                     line.char_start - cursor.offset
-                } else if cursor.offset > line.char_end {
+                } else if cursor.offset >= line.char_end {
                     cursor.offset - line.char_end
                 } else {
                     0
@@ -427,6 +452,106 @@ impl StructuredRichDisplay {
             self.editor.extend_selection_to(new_pos);
         } else {
             self.editor.set_cursor(new_pos);
+        }
+        if let Some((cx, _, _)) = self.get_cursor_visual_position(ctx) {
+            self.cursor_preferred_x = Some(cx);
+        }
+    }
+
+    /// Move cursor to the beginning of the current visual line.
+    pub fn move_cursor_visual_line_start_precise(&mut self, extend: bool, ctx: &mut dyn DrawContext) {
+        self.layout(ctx);
+        if self.layout_lines.is_empty() {
+            if extend {
+                self.editor.move_cursor_to_line_start_extend();
+            } else {
+                self.editor.move_cursor_to_line_start();
+            }
+            return;
+        }
+
+        let cursor_block = self.editor.cursor().block_index;
+        let line_idx = match self.current_line_index_for_cursor() {
+            Some(idx) => idx,
+            None => {
+                if extend {
+                    self.editor.move_cursor_to_line_start_extend();
+                } else {
+                    self.editor.move_cursor_to_line_start();
+                }
+                return;
+            }
+        };
+        let line = &self.layout_lines[line_idx];
+        if line.block_index != cursor_block {
+            if extend {
+                self.editor.move_cursor_to_line_start_extend();
+            } else {
+                self.editor.move_cursor_to_line_start();
+            }
+            return;
+        }
+
+        let new_pos = DocumentPosition::new(line.block_index, line.char_start);
+        if extend {
+            self.editor.extend_selection_to(new_pos);
+        } else {
+            self.editor.set_cursor(new_pos);
+        }
+        if let Some((cx, _, _)) = self.get_cursor_visual_position(ctx) {
+            self.cursor_preferred_x = Some(cx);
+        }
+    }
+
+    /// Move cursor to the end of the current visual line.
+    pub fn move_cursor_visual_line_end_precise(&mut self, extend: bool, ctx: &mut dyn DrawContext) {
+        self.layout(ctx);
+        if self.layout_lines.is_empty() {
+            if extend {
+                self.editor.move_cursor_to_line_end_extend();
+            } else {
+                self.editor.move_cursor_to_line_end();
+            }
+            return;
+        }
+
+        let cursor_block = self.editor.cursor().block_index;
+        let line_idx = match self.current_line_index_for_cursor() {
+            Some(idx) => idx,
+            None => {
+                if extend {
+                    self.editor.move_cursor_to_line_end_extend();
+                } else {
+                    self.editor.move_cursor_to_line_end();
+                }
+                return;
+            }
+        };
+        let line = &self.layout_lines[line_idx];
+        if line.block_index != cursor_block {
+            if extend {
+                self.editor.move_cursor_to_line_end_extend();
+            } else {
+                self.editor.move_cursor_to_line_end();
+            }
+            return;
+        }
+
+        let mut target_offset = line.char_end;
+        while target_offset > line.char_start
+            && !self.offset_belongs_to_line(line_idx, target_offset)
+        {
+            target_offset -= 1;
+        }
+
+        let new_pos = DocumentPosition::new(line.block_index, target_offset);
+        if extend {
+            self.editor.extend_selection_to(new_pos);
+        } else {
+            self.editor.set_cursor(new_pos);
+        }
+        if let Some((cx, _, _)) = self.get_cursor_visual_position(ctx) {
+            self.cursor_preferred_x = Some(cx);
         }
     }
 
@@ -1226,50 +1351,55 @@ impl StructuredRichDisplay {
         }
 
         // Find the layout line containing the cursor
-        for line in &self.layout_lines {
-            if line.block_index == cursor.block_index {
-                // Check if cursor falls within this line's character range
-                if cursor.offset >= line.char_start && cursor.offset <= line.char_end {
-                    let mut x = line.base_x;
+        for (idx, line) in self.layout_lines.iter().enumerate() {
+            if line.block_index != cursor.block_index {
+                continue;
+            }
+            if !self.offset_belongs_to_line(idx, cursor.offset) {
+                continue;
+            }
 
-                    for run in &line.runs {
-                        // Skip non-content runs (like list bullets with char_range (0,0))
-                        if run.char_range.0 == run.char_range.1 && run.inline_index.is_none() {
-                            continue;
-                        }
+            let mut x = line.base_x;
 
-                        if cursor.offset >= run.char_range.0 && cursor.offset <= run.char_range.1 {
-                            // Cursor is in this run - measure actual text width
-                            let offset_in_run = cursor.offset - run.char_range.0;
-                            let (font, size) = self.get_font_for_style(run.style_idx);
+            for run in &line.runs {
+                // Skip non-content runs (like list bullets with char_range (0,0))
+                if run.char_range.0 == run.char_range.1 && run.inline_index.is_none() {
+                    continue;
+                }
 
-                            // Measure the text up to the cursor position
-                            let text_before_cursor = if offset_in_run < run.text.len() {
-                                &run.text[..offset_in_run]
-                            } else {
-                                &run.text
-                            };
+                if cursor.offset >= run.char_range.0 && cursor.offset <= run.char_range.1 {
+                    // Cursor is in this run - measure actual text width
+                    let offset_in_run = cursor.offset - run.char_range.0;
+                    let (font, size) = self.get_font_for_style(run.style_idx);
 
-                            let width_before =
-                                ctx.text_width(text_before_cursor, font, size) as i32;
-                            x = run.x + width_before;
-                            return Some((x, line.y, line.height));
-                        }
+                    // Measure the text up to the cursor position
+                    let text_before_cursor = if offset_in_run < run.text.len() {
+                        &run.text[..offset_in_run]
+                    } else {
+                        &run.text
+                    };
 
-                        if cursor.offset > run.char_range.1 {
-                            // Cursor is after this run - measure full run width
-                            let (font, size) = self.get_font_for_style(run.style_idx);
-                            x = run.x + ctx.text_width(&run.text, font, size) as i32;
-                        }
-                    }
-
+                    let width_before = ctx.text_width(text_before_cursor, font, size) as i32;
+                    x = run.x + width_before;
                     return Some((x, line.y, line.height));
                 }
+
+                if cursor.offset > run.char_range.1 {
+                    // Cursor is after this run - measure full run width
+                    let (font, size) = self.get_font_for_style(run.style_idx);
+                    x = run.x + ctx.text_width(&run.text, font, size) as i32;
+                }
             }
+
+            return Some((x, line.y, line.height));
         }
 
         // Default: top-left
-        Some((self.padding_left, self.padding_top, self.line_height))
+        if let Some(first_line) = self.layout_lines.first() {
+            Some((first_line.base_x, first_line.y, first_line.height))
+        } else {
+            Some((self.padding_left, self.padding_top, self.line_height))
+        }
     }
 
     /// Convert x,y screen coordinates to document position
@@ -1621,5 +1751,71 @@ mod tests {
         display.layout(&mut ctx);
         let (x, _, _) = display.get_cursor_visual_position(&mut ctx).unwrap();
         assert_eq!(x, display.padding_left + 10);
+    }
+
+    #[test]
+    fn cursor_home_end_respect_visual_lines() {
+        let block = Block::paragraph(0).with_plain_text(
+            "This visual line wrapping test ensures Home and End stay within wraps.",
+        );
+        let mut display = make_display_with_block(block);
+        display.resize(0, 0, 160, 200);
+
+        let mut layout_ctx = TestDrawContext::new_with_focus();
+        display.layout(&mut layout_ctx);
+
+        assert!(
+            display.layout_lines.len() >= 2,
+            "Expected wrapped layout to produce multiple visual lines"
+        );
+
+        let first_line_start = display.layout_lines[0].char_start;
+        let first_line_end = display.layout_lines[0].char_end;
+        let second_line_start = display.layout_lines[1].char_start;
+        let first_line_base_x = display.layout_lines[0].base_x;
+        let first_line_y = display.layout_lines[0].y;
+        let second_line_y = display.layout_lines[1].y;
+        let second_line_base_x = display.layout_lines[1].base_x;
+
+        {
+            let editor = display.editor_mut();
+            editor.set_cursor(DocumentPosition::new(0, first_line_start));
+        }
+
+        let mut ctx = TestDrawContext::new_with_focus();
+        let mut expected_end_offset = first_line_end;
+        while expected_end_offset > first_line_start
+            && !display.offset_belongs_to_line(0, expected_end_offset)
+        {
+            expected_end_offset -= 1;
+        }
+
+        display.move_cursor_visual_line_end_precise(false, &mut ctx);
+        assert_eq!(display.editor().cursor().offset, expected_end_offset);
+        let (end_x, end_y, _) = display.get_cursor_visual_position(&mut ctx).unwrap();
+        assert_eq!(end_y, first_line_y);
+        assert!(end_x > first_line_base_x);
+
+        {
+            let editor = display.editor_mut();
+            editor.move_cursor_right();
+        }
+        let (wrapped_x, wrapped_y, _) = display.get_cursor_visual_position(&mut ctx).unwrap();
+        assert_eq!(display.editor().cursor().offset, second_line_start);
+        assert_eq!(wrapped_y, second_line_y);
+        assert_eq!(wrapped_x, second_line_base_x);
+
+        let second_line_end = display.layout_lines[1].char_end;
+        let sample_offset = (second_line_start + 3).min(second_line_end);
+        {
+            let editor = display.editor_mut();
+            editor.set_cursor(DocumentPosition::new(0, sample_offset));
+        }
+
+        display.move_cursor_visual_line_start_precise(false, &mut ctx);
+        assert_eq!(display.editor().cursor().offset, second_line_start);
+        let (start_x, start_y, _) = display.get_cursor_visual_position(&mut ctx).unwrap();
+        assert_eq!(start_y, second_line_y);
+        assert_eq!(start_x, second_line_base_x);
     }
 }
