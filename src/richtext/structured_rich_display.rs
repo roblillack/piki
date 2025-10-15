@@ -4,7 +4,7 @@
 
 use super::structured_document::*;
 use super::structured_editor::*;
-use crate::sourceedit::text_display::{style_attr, DrawContext, StyleTableEntry};
+use crate::sourceedit::text_display::{DrawContext, StyleTableEntry, style_attr};
 
 /// Layout information for a rendered line
 #[derive(Debug, Clone)]
@@ -92,8 +92,6 @@ pub struct StructuredRichDisplay {
 
     // Sticky horizontal position for vertical navigation across proportional fonts
     cursor_preferred_x: Option<i32>,
-    // Track whether we are in a vertical-only navigation sequence
-    in_vertical_sequence: bool,
 }
 
 impl StructuredRichDisplay {
@@ -124,7 +122,6 @@ impl StructuredRichDisplay {
             selection_color: 0xB4D5FEFF, // Light blue selection color
             hovered_link: None,
             cursor_preferred_x: None,
-            in_vertical_sequence: false,
         }
     }
 
@@ -252,61 +249,6 @@ impl StructuredRichDisplay {
         self.layout_valid = true;
     }
 
-    /// Compute an approximate x position within a line for the current cursor, using run widths
-    /// and character counts. This avoids needing a DrawContext for precise font measurement.
-    pub fn approx_cursor_x_in_line(&self, line: &LayoutLine, cursor: DocumentPosition) -> i32 {
-        // Default to the start padding if we can't compute a better value
-        let mut x = self.padding_left;
-
-        // Walk the runs to find where the cursor falls
-        for run in &line.runs {
-            // Skip non-content runs like list bullets
-            if run.char_range.0 == run.char_range.1 && run.inline_index.is_none() {
-                continue;
-            }
-
-            if cursor.offset >= run.char_range.0 && cursor.offset <= run.char_range.1 {
-                let chars_in_run = run.char_range.1.saturating_sub(run.char_range.0);
-                if chars_in_run == 0 || run.width == 0 {
-                    x = run.x;
-                } else {
-                    let offset_in_run = cursor.offset.saturating_sub(run.char_range.0) as i32;
-                    x = run.x + (run.width * offset_in_run) / (chars_in_run as i32);
-                }
-                return x;
-            }
-
-            if cursor.offset > run.char_range.1 {
-                x = run.x + run.width;
-            }
-        }
-
-        x
-    }
-
-    /// Compute an approximate character offset within a given line for a desired x position.
-    pub fn approx_offset_in_line(&self, line: &LayoutLine, x: i32) -> usize {
-        let mut offset = line.char_start;
-        for run in &line.runs {
-            let run_end_x = run.x + run.width;
-            if x >= run.x && x < run_end_x {
-                let click_offset_in_run = x - run.x;
-                let chars_in_run = run.char_range.1.saturating_sub(run.char_range.0);
-                if run.width > 0 && chars_in_run > 0 {
-                    let char_pos = ((click_offset_in_run * chars_in_run as i32) / run.width)
-                        .clamp(0, chars_in_run as i32 - 1) as usize;
-                    return run.char_range.0 + char_pos;
-                } else {
-                    return run.char_range.0;
-                }
-            }
-            if x >= run_end_x {
-                offset = run.char_range.1;
-            }
-        }
-        offset
-    }
-
     /// Compute a precise character offset within a given line for a desired x position using font metrics.
     pub fn precise_offset_in_line(
         &self,
@@ -324,16 +266,18 @@ impl StructuredRichDisplay {
             if x >= run.x && x < run_end_x {
                 // Within this run: walk characters and measure
                 let (font, size) = self.get_font_for_style(run.style_idx);
-                let mut accum = 0i32;
                 let mut last_offset = run.char_range.0;
                 // Iterate char boundaries in the run's text
-                for (i, _) in run.text.char_indices().chain(std::iter::once((run.text.len(), ' '))) {
+                for (i, _) in run
+                    .text
+                    .char_indices()
+                    .chain(std::iter::once((run.text.len(), ' ')))
+                {
                     let w = ctx.text_width(&run.text[..i], font, size) as i32;
-                    if run.x + w >= x {
+                    if run.x + w > x {
                         return last_offset;
                     }
                     last_offset = run.char_range.0 + i;
-                    accum = w;
                 }
                 return run.char_range.1;
             }
@@ -383,24 +327,7 @@ impl StructuredRichDisplay {
         self.layout(ctx);
         if let Some((cx, _cy, _ch)) = self.get_cursor_visual_position(ctx) {
             self.cursor_preferred_x = Some(cx);
-            self.in_vertical_sequence = false;
         }
-    }
-
-    /// Record the preferred X approximately using layout data (no DrawContext required).
-    pub fn record_preferred_x_from_layout(&mut self) {
-        if let Some(i) = self.current_line_index_for_cursor() {
-            let line = &self.layout_lines[i];
-            let cursor = self.editor.cursor();
-            let x = self.approx_cursor_x_in_line(line, cursor);
-            self.cursor_preferred_x = Some(x);
-            self.in_vertical_sequence = false;
-        }
-    }
-
-    /// Clear the preferred X (e.g., when resetting state). Not strictly required but provided for completeness.
-    pub fn clear_preferred_x(&mut self) {
-        self.cursor_preferred_x = None;
     }
 
     /// Move cursor one visual line up, using wrapped lines when applicable.
@@ -433,22 +360,18 @@ impl StructuredRichDisplay {
             // Already at the first line
             return;
         }
-        let cur_line = &self.layout_lines[cur_idx];
         let target_line = &self.layout_lines[cur_idx - 1];
-        // Start a vertical sequence if not already active and anchor the current x (precise)
-        if !self.in_vertical_sequence || self.cursor_preferred_x.is_none() {
-            if let Some((cx, _cy, _ch)) = self.get_cursor_visual_position(ctx) {
-                self.cursor_preferred_x = Some(cx);
-            } else {
-                let cur_x = self.approx_cursor_x_in_line(cur_line, cursor);
-                self.cursor_preferred_x = Some(cur_x);
-            }
-            self.in_vertical_sequence = true;
-        }
+
         let x = self
             .cursor_preferred_x
-            .unwrap_or_else(|| self.approx_cursor_x_in_line(cur_line, cursor));
+            .unwrap_or_else(|| self.get_cursor_visual_position(ctx).unwrap_or((0, 0, 0)).0);
         let new_offset = self.precise_offset_in_line(target_line, x, ctx);
+        println!(
+            "Moving to line {}, x={}, offset={}",
+            cur_idx - 1,
+            x,
+            new_offset
+        );
         let new_pos = DocumentPosition::new(target_line.block_index, new_offset);
         if extend {
             self.editor.extend_selection_to(new_pos);
@@ -486,73 +409,23 @@ impl StructuredRichDisplay {
             // Already at the last line
             return;
         }
-        let cur_line = &self.layout_lines[cur_idx];
         let target_line = &self.layout_lines[cur_idx + 1];
-        // Start a vertical sequence if not already active and anchor the current x (precise)
-        if !self.in_vertical_sequence || self.cursor_preferred_x.is_none() {
-            if let Some((cx, _cy, _ch)) = self.get_cursor_visual_position(ctx) {
-                self.cursor_preferred_x = Some(cx);
-            } else {
-                let cur_x = self.approx_cursor_x_in_line(cur_line, cursor);
-                self.cursor_preferred_x = Some(cur_x);
-            }
-            self.in_vertical_sequence = true;
-        }
         let x = self
             .cursor_preferred_x
-            .unwrap_or_else(|| self.approx_cursor_x_in_line(cur_line, cursor));
+            .unwrap_or_else(|| self.get_cursor_visual_position(ctx).unwrap_or((0, 0, 0)).0);
         let new_offset = self.precise_offset_in_line(target_line, x, ctx);
+        println!(
+            "Moving to line {}, x={}, offset={}",
+            cur_idx + 1,
+            x,
+            new_offset
+        );
         let new_pos = DocumentPosition::new(target_line.block_index, new_offset);
         if extend {
             self.editor.extend_selection_to(new_pos);
         } else {
             self.editor.set_cursor(new_pos);
         }
-    }
-
-    /// Move cursor one visual line up using approximate widths (no DrawContext).
-    /// Initializes sticky X on first vertical move of a sequence, and reuses it thereafter.
-    pub fn move_cursor_visual_up(&mut self, extend: bool) {
-        if self.layout_lines.is_empty() {
-            if extend { self.editor.move_cursor_up_extend(); } else { self.editor.move_cursor_up(); }
-            return;
-        }
-        let cursor = self.editor.cursor();
-        let cur_idx = match self.current_line_index_for_cursor() { Some(i) => i, None => { if extend { self.editor.move_cursor_up_extend(); } else { self.editor.move_cursor_up(); } return; } };
-        if cur_idx == 0 { return; }
-        let cur_line = &self.layout_lines[cur_idx];
-        let target_line = &self.layout_lines[cur_idx - 1];
-        if !self.in_vertical_sequence || self.cursor_preferred_x.is_none() {
-            let cur_x = self.approx_cursor_x_in_line(cur_line, cursor);
-            self.cursor_preferred_x = Some(cur_x);
-            self.in_vertical_sequence = true;
-        }
-        let x = self.cursor_preferred_x.unwrap_or_else(|| self.approx_cursor_x_in_line(cur_line, cursor));
-        let new_offset = self.approx_offset_in_line(target_line, x);
-        let new_pos = DocumentPosition::new(target_line.block_index, new_offset);
-        if extend { self.editor.extend_selection_to(new_pos); } else { self.editor.set_cursor(new_pos); }
-    }
-
-    /// Move cursor one visual line down using approximate widths (no DrawContext).
-    pub fn move_cursor_visual_down(&mut self, extend: bool) {
-        if self.layout_lines.is_empty() {
-            if extend { self.editor.move_cursor_down_extend(); } else { self.editor.move_cursor_down(); }
-            return;
-        }
-        let cursor = self.editor.cursor();
-        let cur_idx = match self.current_line_index_for_cursor() { Some(i) => i, None => { if extend { self.editor.move_cursor_down_extend(); } else { self.editor.move_cursor_down(); } return; } };
-        if cur_idx + 1 >= self.layout_lines.len() { return; }
-        let cur_line = &self.layout_lines[cur_idx];
-        let target_line = &self.layout_lines[cur_idx + 1];
-        if !self.in_vertical_sequence || self.cursor_preferred_x.is_none() {
-            let cur_x = self.approx_cursor_x_in_line(cur_line, cursor);
-            self.cursor_preferred_x = Some(cur_x);
-            self.in_vertical_sequence = true;
-        }
-        let x = self.cursor_preferred_x.unwrap_or_else(|| self.approx_cursor_x_in_line(cur_line, cursor));
-        let new_offset = self.approx_offset_in_line(target_line, x);
-        let new_pos = DocumentPosition::new(target_line.block_index, new_offset);
-        if extend { self.editor.extend_selection_to(new_pos); } else { self.editor.set_cursor(new_pos); }
     }
 
     /// Layout a single block
@@ -1357,11 +1230,7 @@ impl StructuredRichDisplay {
                 // Distance to bottom of previous vs top of next
                 let prev_dist = adjusted_y - (self.layout_lines[p].y + self.layout_lines[p].height);
                 let next_dist = self.layout_lines[n].y - adjusted_y;
-                if prev_dist <= next_dist {
-                    p
-                } else {
-                    n
-                }
+                if prev_dist <= next_dist { p } else { n }
             }
             (Some(p), None) => p,
             (None, Some(n)) => n,
