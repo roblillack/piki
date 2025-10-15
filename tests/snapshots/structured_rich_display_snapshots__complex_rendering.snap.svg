@@ -96,203 +96,203 @@
   <text x="83" y="196" fill="#000000" font-family="SnapshotSans" font-size="18" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-400-700)">Styles</text>
   <rect x="39" y="216" width="9" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
   <text x="39" y="230" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">• </text>
-  <rect x="53" y="216" width="29" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="230" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">The </text>
-  <rect x="82" y="216" width="40" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="82" y="230" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">show </text>
-  <rect x="122" y="216" width="27" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="122" y="230" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">our </text>
-  <rect x="149" y="216" width="57" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="149" y="230" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">support </text>
-  <rect x="206" y="216" width="23" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="206" y="230" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">for </text>
-  <rect x="229" y="216" width="47" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="229" y="230" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">classic </text>
-  <rect x="276" y="216" width="41" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="276" y="230" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">inline </text>
-  <rect x="317" y="216" width="46" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="317" y="230" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">styles, </text>
-  <rect x="53" y="233" width="31" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-400-700)">bold</text>
-  <rect x="84" y="233" width="3" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="84" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)"> </text>
-  <rect x="87" y="233" width="29" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="87" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">and </text>
-  <rect x="116" y="233" width="31" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="116" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="italic" clip-path="url(#clip-0-0-400-700)">italic</text>
-  <rect x="147" y="233" width="3" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="147" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)"> </text>
-  <rect x="150" y="233" width="30" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="150" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">text </text>
-  <rect x="180" y="233" width="26" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="180" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">are </text>
-  <rect x="206" y="233" width="67" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="206" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">rendered </text>
-  <rect x="273" y="233" width="18" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="273" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">as </text>
-  <rect x="291" y="233" width="63" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="291" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">expected</text>
+  <rect x="48" y="216" width="20" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="48" y="230" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">To </text>
+  <rect x="68" y="216" width="40" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="68" y="230" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">show </text>
+  <rect x="108" y="216" width="27" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="108" y="230" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">our </text>
+  <rect x="135" y="216" width="57" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="135" y="230" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">support </text>
+  <rect x="192" y="216" width="23" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="192" y="230" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">for </text>
+  <rect x="215" y="216" width="47" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="215" y="230" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">classic </text>
+  <rect x="262" y="216" width="41" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="262" y="230" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">inline </text>
+  <rect x="303" y="216" width="46" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="303" y="230" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">styles, </text>
+  <rect x="48" y="233" width="31" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="48" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-400-700)">bold</text>
+  <rect x="79" y="233" width="3" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="79" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)"> </text>
+  <rect x="82" y="233" width="29" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="82" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">and </text>
+  <rect x="111" y="233" width="31" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="111" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="italic" clip-path="url(#clip-0-0-400-700)">italic</text>
+  <rect x="142" y="233" width="3" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="142" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)"> </text>
+  <rect x="145" y="233" width="30" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="145" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">text </text>
+  <rect x="175" y="233" width="26" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="175" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">are </text>
+  <rect x="201" y="233" width="67" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="201" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">rendered </text>
+  <rect x="268" y="233" width="18" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="268" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">as </text>
+  <rect x="286" y="233" width="63" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="286" y="247" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">expected</text>
   <rect x="39" y="252" width="9" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
   <text x="39" y="266" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">• </text>
-  <rect x="53" y="252" width="20" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="266" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">Of </text>
-  <rect x="73" y="252" width="53" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="73" y="266" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">course, </text>
-  <rect x="126" y="252" width="23" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="126" y="266" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">we </text>
-  <rect x="149" y="252" width="21" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="149" y="266" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">do </text>
-  <rect x="170" y="252" width="31" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="170" y="266" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">also </text>
-  <rect x="201" y="252" width="57" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="201" y="266" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">support </text>
-  <rect x="258" y="252" width="26" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="258" y="266" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">the </text>
-  <rect x="284" y="252" width="40" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="284" y="266" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">more </text>
-  <rect x="53" y="269" width="58" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="283" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">modern </text>
-  <rect x="111" y="269" width="41" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="111" y="283" fill="#0064c8" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">inline </text>
-  <rect x="152" y="269" width="33" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="152" y="283" fill="#0064c8" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">code</text>
-  <rect x="185" y="269" width="3" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="185" y="283" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)"> </text>
-  <rect x="188" y="269" width="49" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="188" y="283" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">styling </text>
-  <rect x="237" y="269" width="33" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="237" y="283" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">with </text>
-  <rect x="270" y="269" width="11" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="270" y="283" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">a </text>
-  <rect x="281" y="269" width="83" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="281" y="283" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">monospace </text>
-  <rect x="53" y="286" width="28" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="300" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">font</text>
+  <rect x="48" y="252" width="20" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="48" y="266" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">Of </text>
+  <rect x="68" y="252" width="53" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="68" y="266" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">course, </text>
+  <rect x="121" y="252" width="23" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="121" y="266" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">we </text>
+  <rect x="144" y="252" width="21" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="144" y="266" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">do </text>
+  <rect x="165" y="252" width="31" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="165" y="266" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">also </text>
+  <rect x="196" y="252" width="57" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="196" y="266" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">support </text>
+  <rect x="253" y="252" width="26" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="253" y="266" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">the </text>
+  <rect x="279" y="252" width="40" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="279" y="266" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">more </text>
+  <rect x="48" y="269" width="58" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="48" y="283" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">modern </text>
+  <rect x="106" y="269" width="41" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="106" y="283" fill="#0064c8" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">inline </text>
+  <rect x="147" y="269" width="33" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="147" y="283" fill="#0064c8" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">code</text>
+  <rect x="180" y="269" width="3" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="180" y="283" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)"> </text>
+  <rect x="183" y="269" width="49" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="183" y="283" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">styling </text>
+  <rect x="232" y="269" width="33" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="232" y="283" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">with </text>
+  <rect x="265" y="269" width="11" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="265" y="283" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">a </text>
+  <rect x="276" y="269" width="83" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="276" y="283" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">monospace </text>
+  <rect x="48" y="286" width="28" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="48" y="300" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">font</text>
   <rect x="39" y="305" width="9" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
   <text x="39" y="319" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">• </text>
-  <rect x="53" y="305" width="59" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="319" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">Another </text>
-  <rect x="112" y="305" width="44" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="112" y="319" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">thing, </text>
-  <rect x="156" y="305" width="29" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="156" y="319" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">you </text>
-  <rect x="185" y="305" width="28" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="185" y="319" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">can </text>
-  <rect x="213" y="305" width="27" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="213" y="319" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">see </text>
-  <rect x="240" y="305" width="39" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="240" y="319" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">quite </text>
-  <rect x="279" y="305" width="40" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="279" y="319" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">often </text>
-  <rect x="319" y="305" width="14" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="319" y="319" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">is </text>
-  <rect x="53" y="322" width="57" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="336" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">support </text>
-  <rect x="110" y="322" width="23" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="110" y="336" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">for </text>
-  <rect x="133" y="322" width="95" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="133" y="336" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">strikethrough</text>
-  <line x1="133" y1="329" x2="228" y2="329" stroke="#000000" stroke-width="1"/>
-  <rect x="228" y="322" width="3" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="228" y="336" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)"> </text>
-  <rect x="231" y="322" width="30" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="231" y="336" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">text </text>
-  <rect x="261" y="322" width="18" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="261" y="336" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">to </text>
-  <rect x="279" y="322" width="65" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="279" y="336" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">highlight </text>
-  <rect x="53" y="339" width="63" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="353" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">deletions</text>
+  <rect x="48" y="305" width="59" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="48" y="319" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">Another </text>
+  <rect x="107" y="305" width="44" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="107" y="319" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">thing, </text>
+  <rect x="151" y="305" width="29" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="151" y="319" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">you </text>
+  <rect x="180" y="305" width="28" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="180" y="319" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">can </text>
+  <rect x="208" y="305" width="27" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="208" y="319" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">see </text>
+  <rect x="235" y="305" width="39" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="235" y="319" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">quite </text>
+  <rect x="274" y="305" width="40" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="274" y="319" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">often </text>
+  <rect x="314" y="305" width="14" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="314" y="319" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">is </text>
+  <rect x="48" y="322" width="57" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="48" y="336" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">support </text>
+  <rect x="105" y="322" width="23" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="105" y="336" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">for </text>
+  <rect x="128" y="322" width="95" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="128" y="336" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">strikethrough</text>
+  <line x1="128" y1="329" x2="223" y2="329" stroke="#000000" stroke-width="1"/>
+  <rect x="223" y="322" width="3" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="223" y="336" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)"> </text>
+  <rect x="226" y="322" width="30" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="226" y="336" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">text </text>
+  <rect x="256" y="322" width="18" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="256" y="336" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">to </text>
+  <rect x="274" y="322" width="65" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="274" y="336" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">highlight </text>
+  <rect x="48" y="339" width="63" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="48" y="353" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">deletions</text>
   <rect x="39" y="358" width="9" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
   <text x="39" y="372" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">• </text>
-  <rect x="53" y="358" width="41" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="372" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">Apart </text>
-  <rect x="94" y="358" width="37" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="94" y="372" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">from </text>
-  <rect x="131" y="358" width="35" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="131" y="372" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">that, </text>
-  <rect x="166" y="358" width="23" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="166" y="372" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">we </text>
-  <rect x="189" y="358" width="31" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="189" y="372" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">also </text>
-  <rect x="220" y="358" width="57" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="220" y="372" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">support </text>
-  <rect x="277" y="358" width="75" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="277" y="372" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">underlined</text>
-  <line x1="277" y1="374" x2="352" y2="374" stroke="#000000" stroke-width="1"/>
-  <rect x="352" y="358" width="3" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="352" y="372" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)"> </text>
-  <rect x="53" y="375" width="34" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="389" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">text, </text>
-  <rect x="87" y="375" width="36" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="87" y="389" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">even </text>
-  <rect x="123" y="375" width="54" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="123" y="389" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">though </text>
-  <rect x="177" y="375" width="23" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="177" y="389" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">it&apos;s </text>
-  <rect x="200" y="375" width="27" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="200" y="389" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">not </text>
-  <rect x="227" y="375" width="32" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="227" y="389" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">part </text>
-  <rect x="259" y="375" width="17" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="259" y="389" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">of </text>
-  <rect x="276" y="375" width="65" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="276" y="389" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">standard </text>
-  <rect x="53" y="392" width="73" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="406" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">Markdown</text>
+  <rect x="48" y="358" width="41" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="48" y="372" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">Apart </text>
+  <rect x="89" y="358" width="37" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="89" y="372" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">from </text>
+  <rect x="126" y="358" width="35" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="126" y="372" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">that, </text>
+  <rect x="161" y="358" width="23" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="161" y="372" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">we </text>
+  <rect x="184" y="358" width="31" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="184" y="372" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">also </text>
+  <rect x="215" y="358" width="57" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="215" y="372" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">support </text>
+  <rect x="272" y="358" width="75" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="272" y="372" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">underlined</text>
+  <line x1="272" y1="374" x2="347" y2="374" stroke="#000000" stroke-width="1"/>
+  <rect x="347" y="358" width="3" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="347" y="372" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)"> </text>
+  <rect x="48" y="375" width="34" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="48" y="389" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">text, </text>
+  <rect x="82" y="375" width="36" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="82" y="389" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">even </text>
+  <rect x="118" y="375" width="54" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="118" y="389" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">though </text>
+  <rect x="172" y="375" width="23" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="172" y="389" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">it&apos;s </text>
+  <rect x="195" y="375" width="27" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="195" y="389" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">not </text>
+  <rect x="222" y="375" width="32" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="222" y="389" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">part </text>
+  <rect x="254" y="375" width="17" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="254" y="389" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">of </text>
+  <rect x="271" y="375" width="65" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="271" y="389" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">standard </text>
+  <rect x="48" y="392" width="73" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="48" y="406" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">Markdown</text>
   <rect x="39" y="411" width="9" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
   <text x="39" y="425" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">• </text>
-  <rect x="53" y="411" width="24" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="425" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">My </text>
-  <rect x="77" y="411" width="63" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="77" y="425" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">personal </text>
-  <rect x="140" y="411" width="61" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="140" y="425" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">favorite, </text>
-  <rect x="201" y="411" width="57" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="201" y="425" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">though, </text>
-  <rect x="258" y="411" width="14" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="258" y="425" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">is </text>
-  <rect x="272" y="411" width="79" height="17" fill="#ffff00" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="272" y="425" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">highlighted</text>
-  <rect x="351" y="411" width="3" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="351" y="425" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)"> </text>
-  <rect x="53" y="428" width="41" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="442" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">using </text>
-  <rect x="94" y="428" width="26" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="94" y="442" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">the </text>
-  <rect x="120" y="428" width="52" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="120" y="442" fill="#0064c8" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">&lt;mark&gt;</text>
-  <rect x="172" y="428" width="3" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="172" y="442" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)"> </text>
-  <rect x="175" y="428" width="43" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="175" y="442" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">HTML </text>
-  <rect x="218" y="428" width="22" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="218" y="442" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">tag</text>
+  <rect x="48" y="411" width="24" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="48" y="425" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">My </text>
+  <rect x="72" y="411" width="63" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="72" y="425" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">personal </text>
+  <rect x="135" y="411" width="61" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="135" y="425" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">favorite, </text>
+  <rect x="196" y="411" width="57" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="196" y="425" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">though, </text>
+  <rect x="253" y="411" width="14" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="253" y="425" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">is </text>
+  <rect x="267" y="411" width="79" height="17" fill="#ffff00" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="267" y="425" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">highlighted</text>
+  <rect x="346" y="411" width="3" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="346" y="425" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)"> </text>
+  <rect x="48" y="428" width="41" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="48" y="442" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">using </text>
+  <rect x="89" y="428" width="26" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="89" y="442" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">the </text>
+  <rect x="115" y="428" width="52" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="115" y="442" fill="#0064c8" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">&lt;mark&gt;</text>
+  <rect x="167" y="428" width="3" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="167" y="442" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)"> </text>
+  <rect x="170" y="428" width="43" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="170" y="442" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">HTML </text>
+  <rect x="213" y="428" width="22" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="213" y="442" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">tag</text>
   <rect x="39" y="447" width="9" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
   <text x="39" y="461" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">• </text>
-  <rect x="53" y="447" width="47" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="461" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">Lastly, </text>
-  <rect x="100" y="447" width="23" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="100" y="461" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">we </text>
-  <rect x="123" y="447" width="36" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="123" y="461" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">have </text>
-  <rect x="159" y="447" width="31" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="159" y="461" fill="#0000ff" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">links</text>
-  <line x1="159" y1="463" x2="190" y2="463" stroke="#0000ff" stroke-width="1"/>
-  <rect x="190" y="447" width="3" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="190" y="461" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)"> </text>
-  <rect x="193" y="447" width="49" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="193" y="461" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">shown </text>
-  <rect x="242" y="447" width="16" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="242" y="461" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">in </text>
-  <rect x="258" y="447" width="47" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="258" y="461" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">classic </text>
-  <rect x="305" y="447" width="33" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="305" y="461" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">blue </text>
-  <rect x="338" y="447" width="33" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="338" y="461" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">with </text>
-  <rect x="53" y="464" width="66" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="478" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">underline</text>
+  <rect x="48" y="447" width="47" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="48" y="461" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">Lastly, </text>
+  <rect x="95" y="447" width="23" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="95" y="461" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">we </text>
+  <rect x="118" y="447" width="36" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="118" y="461" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">have </text>
+  <rect x="154" y="447" width="31" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="154" y="461" fill="#0000ff" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">links</text>
+  <line x1="154" y1="463" x2="185" y2="463" stroke="#0000ff" stroke-width="1"/>
+  <rect x="185" y="447" width="3" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="185" y="461" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)"> </text>
+  <rect x="188" y="447" width="49" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="188" y="461" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">shown </text>
+  <rect x="237" y="447" width="16" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="237" y="461" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">in </text>
+  <rect x="253" y="447" width="47" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="253" y="461" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">classic </text>
+  <rect x="300" y="447" width="33" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="300" y="461" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">blue </text>
+  <rect x="333" y="447" width="33" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="333" y="461" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">with </text>
+  <rect x="48" y="464" width="66" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="48" y="478" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">underline</text>
   <rect x="25" y="498" width="101" height="23" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
   <text x="25" y="516" fill="#000000" font-family="SnapshotSans" font-size="18" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-400-700)">Paragraph </text>
   <rect x="126" y="498" width="54" height="23" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
@@ -301,71 +301,71 @@
   <text x="25" y="567" fill="#000000" font-family="SnapshotSans" font-size="16" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-400-700)">The </text>
   <rect x="59" y="551" width="50" height="20" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
   <text x="59" y="567" fill="#000000" font-family="SnapshotSans" font-size="16" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-400-700)">basics</text>
-  <rect x="39" y="586" width="9" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="39" y="600" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">• </text>
-  <rect x="53" y="586" width="83" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="600" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">Paragraphs </text>
-  <rect x="136" y="586" width="26" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="136" y="600" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">are </text>
-  <rect x="162" y="586" width="73" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="162" y="600" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">separated </text>
-  <rect x="235" y="586" width="20" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="235" y="600" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">by </text>
-  <rect x="255" y="586" width="11" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="255" y="600" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">a </text>
-  <rect x="266" y="586" width="41" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="266" y="600" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">blank </text>
-  <rect x="307" y="586" width="25" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="307" y="600" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">line</text>
-  <rect x="39" y="605" width="9" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="39" y="619" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">• </text>
-  <rect x="53" y="605" width="33" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="619" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">First </text>
-  <rect x="86" y="605" width="28" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="86" y="619" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">line </text>
-  <rect x="114" y="605" width="17" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="114" y="619" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">of </text>
-  <rect x="131" y="605" width="36" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="131" y="619" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">each </text>
-  <rect x="167" y="605" width="76" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="167" y="619" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">paragraph </text>
-  <rect x="243" y="605" width="14" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="243" y="619" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">is </text>
-  <rect x="257" y="605" width="61" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="257" y="619" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">indented</text>
-  <rect x="39" y="624" width="9" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="39" y="638" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">• </text>
-  <rect x="53" y="624" width="88" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="638" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">Blockquotes </text>
-  <rect x="141" y="624" width="26" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="141" y="638" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">are </text>
-  <rect x="167" y="624" width="67" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="167" y="638" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">rendered </text>
-  <rect x="234" y="624" width="33" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="234" y="638" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">with </text>
-  <rect x="267" y="624" width="11" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="267" y="638" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">a </text>
-  <rect x="278" y="624" width="34" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="278" y="638" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">gray </text>
-  <rect x="53" y="641" width="83" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="655" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">background</text>
-  <rect x="39" y="660" width="9" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="39" y="674" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">• </text>
-  <rect x="53" y="660" width="38" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="674" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">Code </text>
-  <rect x="91" y="660" width="47" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="91" y="674" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">blocks </text>
-  <rect x="138" y="660" width="26" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="138" y="674" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">are </text>
-  <rect x="164" y="660" width="67" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="164" y="674" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">rendered </text>
-  <rect x="231" y="660" width="33" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="231" y="674" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">with </text>
-  <rect x="264" y="660" width="11" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="264" y="674" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">a </text>
-  <rect x="275" y="660" width="83" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="275" y="674" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">monospace </text>
-  <rect x="53" y="677" width="28" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
-  <text x="53" y="691" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">font</text>
+  <rect x="39" y="586" width="15" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="39" y="600" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">1. </text>
+  <rect x="54" y="586" width="83" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="54" y="600" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">Paragraphs </text>
+  <rect x="137" y="586" width="26" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="137" y="600" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">are </text>
+  <rect x="163" y="586" width="73" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="163" y="600" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">separated </text>
+  <rect x="236" y="586" width="20" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="236" y="600" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">by </text>
+  <rect x="256" y="586" width="11" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="256" y="600" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">a </text>
+  <rect x="267" y="586" width="41" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="267" y="600" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">blank </text>
+  <rect x="308" y="586" width="25" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="308" y="600" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">line</text>
+  <rect x="39" y="605" width="15" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="39" y="619" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">2. </text>
+  <rect x="54" y="605" width="33" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="54" y="619" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">First </text>
+  <rect x="87" y="605" width="28" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="87" y="619" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">line </text>
+  <rect x="115" y="605" width="17" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="115" y="619" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">of </text>
+  <rect x="132" y="605" width="36" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="132" y="619" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">each </text>
+  <rect x="168" y="605" width="76" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="168" y="619" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">paragraph </text>
+  <rect x="244" y="605" width="14" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="244" y="619" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">is </text>
+  <rect x="258" y="605" width="61" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="258" y="619" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">indented</text>
+  <rect x="39" y="624" width="15" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="39" y="638" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">3. </text>
+  <rect x="54" y="624" width="88" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="54" y="638" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">Blockquotes </text>
+  <rect x="142" y="624" width="26" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="142" y="638" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">are </text>
+  <rect x="168" y="624" width="67" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="168" y="638" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">rendered </text>
+  <rect x="235" y="624" width="33" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="235" y="638" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">with </text>
+  <rect x="268" y="624" width="11" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="268" y="638" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">a </text>
+  <rect x="279" y="624" width="34" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="279" y="638" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">gray </text>
+  <rect x="54" y="641" width="83" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="54" y="655" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">background</text>
+  <rect x="39" y="660" width="15" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="39" y="674" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">4. </text>
+  <rect x="54" y="660" width="38" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="54" y="674" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">Code </text>
+  <rect x="92" y="660" width="47" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="92" y="674" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">blocks </text>
+  <rect x="139" y="660" width="26" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="139" y="674" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">are </text>
+  <rect x="165" y="660" width="67" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="165" y="674" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">rendered </text>
+  <rect x="232" y="660" width="33" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="232" y="674" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">with </text>
+  <rect x="265" y="660" width="11" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="265" y="674" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">a </text>
+  <rect x="276" y="660" width="83" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="276" y="674" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">monospace </text>
+  <rect x="54" y="677" width="28" height="17" fill="#fffff5" clip-path="url(#clip-0-0-400-700)"/>
+  <text x="54" y="691" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-400-700)">font</text>
   <line x1="25" y1="10" x2="25" y2="36" stroke="#000000" stroke-width="1"/>
 </svg>

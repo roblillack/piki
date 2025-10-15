@@ -2,6 +2,7 @@
 // Uses SVG rendering for visual verification
 
 pub mod svg_draw_context;
+use fliki_rs::draw_context::{FontStyle, FontType};
 use fliki_rs::sourceedit::text_buffer::TextBuffer;
 use fliki_rs::sourceedit::text_display::{StyleTableEntry, TextDisplay, style_attr};
 use std::cell::RefCell;
@@ -33,7 +34,7 @@ fn render_to_svg(
     display.set_highlight_data(style_table);
 
     // Configure display
-    display.set_textfont(4); // Courier
+    display.set_textfont(FontType::Code, FontStyle::Regular);
     display.set_textsize(14);
     display.set_textcolor(0x000000FF); // Black
 
@@ -92,7 +93,8 @@ fn create_test_style_table() -> Vec<StyleTableEntry> {
         // Style A - Normal text (black)
         StyleTableEntry {
             color: 0x000000FF,
-            font: 4, // Courier
+            font: FontType::Code,
+            style: FontStyle::Regular,
             size: 14,
             attr: 0,
             bgcolor: 0xFFFFFFFF,
@@ -100,7 +102,8 @@ fn create_test_style_table() -> Vec<StyleTableEntry> {
         // Style B - Emphasis (green, italic)
         StyleTableEntry {
             color: 0x00AA00FF,
-            font: 4,
+            font: FontType::Code,
+            style: FontStyle::Italic,
             size: 14,
             attr: 0,
             bgcolor: 0xFFFFFFFF,
@@ -108,7 +111,8 @@ fn create_test_style_table() -> Vec<StyleTableEntry> {
         // Style C - Comments (blue, underlined)
         StyleTableEntry {
             color: 0x0000FFFF,
-            font: 4,
+            font: FontType::Code,
+            style: FontStyle::Regular,
             size: 14,
             attr: style_attr::UNDERLINE,
             bgcolor: 0xFFFFFFFF,
@@ -116,7 +120,8 @@ fn create_test_style_table() -> Vec<StyleTableEntry> {
         // Style D - Code (magenta)
         StyleTableEntry {
             color: 0xFF00FFFF,
-            font: 4,
+            font: FontType::Code,
+            style: FontStyle::Regular,
             size: 14,
             attr: 0,
             bgcolor: 0xF0F0F0FF, // Light gray background
@@ -124,7 +129,8 @@ fn create_test_style_table() -> Vec<StyleTableEntry> {
         // Style E - Headers (cyan, bold)
         StyleTableEntry {
             color: 0x00AAAAFF,
-            font: 5, // Courier Bold
+            font: FontType::Code,
+            style: FontStyle::Bold,
             size: 16,
             attr: 0,
             bgcolor: 0xFFFFFFFF,

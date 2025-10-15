@@ -1,7 +1,7 @@
 // Text Display widget implementation
 // Based on FLTK's Fl_Text_Display
 
-use crate::draw_context::DrawContext;
+use crate::draw_context::{DrawContext, FontStyle, FontType};
 
 use super::text_buffer::TextBuffer;
 use std::cell::RefCell;
@@ -48,11 +48,12 @@ pub enum WrapMode {
 /// Style table entry for syntax highlighting
 #[derive(Debug, Clone, Copy)]
 pub struct StyleTableEntry {
-    pub color: u32,   // Text color (RGB)
-    pub font: u8,     // Font face
-    pub size: u8,     // Font size
-    pub attr: u32,    // Attributes (underline, etc.)
-    pub bgcolor: u32, // Background color
+    pub color: u32,       // Text color (RGB)
+    pub font: FontType,   // Font face
+    pub style: FontStyle, // Font style
+    pub size: u8,         // Font size
+    pub attr: u32,        // Attributes (underline, etc.)
+    pub bgcolor: u32,     // Background color
 }
 
 /// Style attribute flags
@@ -130,7 +131,8 @@ pub struct TextDisplay {
     n_styles: usize,
 
     // Font settings
-    text_font: u8,
+    text_font: FontType,
+    text_style: FontStyle,
     text_size: u8,
     text_color: u32,
 
@@ -141,7 +143,8 @@ pub struct TextDisplay {
 
     // Line numbers
     linenumber_width: i32,
-    linenumber_font: u8,
+    linenumber_font: FontType,
+    linenumber_style: FontStyle,
     linenumber_size: u8,
     linenumber_fgcolor: u32,
     linenumber_bgcolor: u32,
@@ -213,14 +216,16 @@ impl TextDisplay {
             wrap_margin: 0,
             style_table: Vec::new(),
             n_styles: 0,
-            text_font: 0,
+            text_font: FontType::Code,
+            text_style: FontStyle::Regular,
             text_size: 14,
             text_color: 0x000000FF,
             grammar_underline_color: 0x0000FFFF,   // Blue
             spelling_underline_color: 0xFF0000FF,  // Red
             secondary_selection_color: 0xD3D3D3FF, // Light gray
             linenumber_width: 0,
-            linenumber_font: 0,
+            linenumber_font: FontType::Content,
+            linenumber_style: FontStyle::Regular,
             linenumber_size: 14,
             linenumber_fgcolor: 0x000000FF,
             linenumber_bgcolor: 0xE0E0E0FF,
@@ -278,17 +283,17 @@ impl TextDisplay {
     /// This should be called during draw to get precise measurements
     fn update_font_metrics_from_context(&mut self, ctx: &mut dyn DrawContext) {
         // Get actual height from default font
-        self.max_font_height = ctx.text_height(self.text_font, self.text_size);
+        self.max_font_height = ctx.text_height(self.text_font, self.text_style, self.text_size);
 
         // Check all style fonts to find maximum height
         for style in &self.style_table {
-            let style_height = ctx.text_height(style.font, style.size);
+            let style_height = ctx.text_height(style.font, style.style, style.size);
             self.max_font_height = max(self.max_font_height, style_height);
         }
 
         // Update width measurement using actual font metrics
         let sample = "Mitg";
-        let sample_width = ctx.text_width(sample, self.text_font, self.text_size);
+        let sample_width = ctx.text_width(sample, self.text_font, self.text_style, self.text_size);
         self.max_font_width = (sample_width / 4.0) as i32;
         self.column_scale = self.max_font_width as f64;
     }
@@ -671,16 +676,17 @@ impl TextDisplay {
     // ========================================================================
 
     /// Set text font
-    pub fn set_textfont(&mut self, font: u8) {
+    pub fn set_textfont(&mut self, font: FontType, style: FontStyle) {
         self.text_font = font;
+        self.text_style = style;
         self.font_metrics_calculated = false; // Need to recalculate with new font
         self.calculate_font_metrics();
         self.display_needs_recalc();
     }
 
     /// Get text font
-    pub fn textfont(&self) -> u8 {
-        self.text_font
+    pub fn textfont(&self) -> (FontType, FontStyle) {
+        (self.text_font, self.text_style)
     }
 
     /// Set text size
@@ -768,12 +774,12 @@ impl TextDisplay {
     }
 
     /// Set line number font
-    pub fn set_linenumber_font(&mut self, font: u8) {
+    pub fn set_linenumber_font(&mut self, font: FontType) {
         self.linenumber_font = font;
     }
 
     /// Get line number font
-    pub fn linenumber_font(&self) -> u8 {
+    pub fn linenumber_font(&self) -> FontType {
         self.linenumber_font
     }
 
@@ -895,7 +901,7 @@ impl TextDisplay {
     ) -> f64 {
         // If no style buffer, use default font
         let Some(ref style_buffer) = self.style_buffer else {
-            return ctx.text_width(text, self.text_font, self.text_size);
+            return ctx.text_width(text, self.text_font, self.text_style, self.text_size);
         };
 
         let style_buf = style_buffer.borrow();
@@ -905,7 +911,7 @@ impl TextDisplay {
 
         while let Some(ch) = chars.next() {
             // Get style for this character
-            let (font, size) = if current_pos < style_buf.length() {
+            let (font, font_style, size) = if current_pos < style_buf.length() {
                 let style_char = style_buf.byte_at(current_pos);
                 let style_index = ((style_char as i32 - b'A' as i32)
                     .max(0)
@@ -913,17 +919,17 @@ impl TextDisplay {
 
                 if style_index < self.style_table.len() {
                     let style = &self.style_table[style_index];
-                    (style.font, style.size)
+                    (style.font, style.style, style.size)
                 } else {
-                    (self.text_font, self.text_size)
+                    (self.text_font, self.text_style, self.text_size)
                 }
             } else {
-                (self.text_font, self.text_size)
+                (self.text_font, self.text_style, self.text_size)
             };
 
             // Measure this character with its style
             let char_str = ch.to_string();
-            total_width += ctx.text_width(&char_str, font, size);
+            total_width += ctx.text_width(&char_str, font, font_style, size);
 
             current_pos += ch.len_utf8();
         }
@@ -1628,17 +1634,21 @@ impl TextDisplay {
         style: i32,
         ctx: &mut dyn DrawContext,
     ) -> f64 {
-        let (font, fsize) = if self.n_styles > 0 && (style & STYLE_LOOKUP_MASK) != 0 {
+        let (font, font_style, fsize) = if self.n_styles > 0 && (style & STYLE_LOOKUP_MASK) != 0 {
             let si = ((style & STYLE_LOOKUP_MASK) - b'A' as i32)
                 .max(0)
                 .min((self.n_styles - 1) as i32) as usize;
             if si < self.style_table.len() {
-                (self.style_table[si].font, self.style_table[si].size)
+                (
+                    self.style_table[si].font,
+                    self.style_table[si].style,
+                    self.style_table[si].size,
+                )
             } else {
-                (self.text_font, self.text_size)
+                (self.text_font, self.text_style, self.text_size)
             }
         } else {
-            (self.text_font, self.text_size)
+            (self.text_font, self.text_style, self.text_size)
         };
 
         let text = if length < string.len() {
@@ -1647,7 +1657,7 @@ impl TextDisplay {
             string
         };
 
-        ctx.text_width(text, font, fsize)
+        ctx.text_width(text, font, font_style, fsize)
     }
 
     /// Find the character index at a given pixel position within a string
@@ -2062,7 +2072,7 @@ impl TextDisplay {
         }
 
         // Determine font and colors from style
-        let (font, fsize, foreground, background) = self.get_style_colors(style, ctx);
+        let (font, fstyle, fsize, foreground, background) = self.get_style_colors(style, ctx);
 
         // Draw background
         if (style & TEXT_ONLY_MASK) == 0 {
@@ -2073,9 +2083,9 @@ impl TextDisplay {
         // Draw text
         if (style & BG_ONLY_MASK) == 0 && !string.is_empty() && n_chars > 0 {
             ctx.set_color(foreground);
-            ctx.set_font(font, fsize);
+            ctx.set_font(font, fstyle, fsize);
 
-            let baseline = y + self.max_font_height - ctx.text_descent(font, fsize);
+            let baseline = y + self.max_font_height - ctx.text_descent(font, fstyle, fsize);
             let text = if n_chars < string.len() {
                 &string[..n_chars]
             } else {
@@ -2098,30 +2108,31 @@ impl TextDisplay {
                             ctx.set_color(foreground);
                             ctx.draw_line(
                                 x,
-                                baseline + ctx.text_descent(font, fsize) / 2,
+                                baseline + ctx.text_descent(font, fstyle, fsize) / 2,
                                 to_x,
-                                baseline + ctx.text_descent(font, fsize) / 2,
+                                baseline + ctx.text_descent(font, fstyle, fsize) / 2,
                             );
                         } else if attr == style_attr::GRAMMAR {
                             ctx.set_color(self.grammar_underline_color);
                             ctx.draw_line(
                                 x,
-                                baseline + ctx.text_descent(font, fsize) / 2,
+                                baseline + ctx.text_descent(font, fstyle, fsize) / 2,
                                 to_x,
-                                baseline + ctx.text_descent(font, fsize) / 2,
+                                baseline + ctx.text_descent(font, fstyle, fsize) / 2,
                             );
                         } else if attr == style_attr::SPELLING {
                             ctx.set_color(self.spelling_underline_color);
                             ctx.draw_line(
                                 x,
-                                baseline + ctx.text_descent(font, fsize) / 2,
+                                baseline + ctx.text_descent(font, fstyle, fsize) / 2,
                                 to_x,
-                                baseline + ctx.text_descent(font, fsize) / 2,
+                                baseline + ctx.text_descent(font, fstyle, fsize) / 2,
                             );
                         } else if attr == style_attr::STRIKE_THROUGH {
                             ctx.set_color(foreground);
                             let strike_y = baseline
-                                - (ctx.text_height(font, fsize) - ctx.text_descent(font, fsize))
+                                - (ctx.text_height(font, fstyle, fsize)
+                                    - ctx.text_descent(font, fstyle, fsize))
                                     / 3;
                             ctx.draw_line(x, strike_y, to_x, strike_y);
                         }
@@ -2132,9 +2143,14 @@ impl TextDisplay {
     }
 
     /// Get foreground and background colors for a style
-    fn get_style_colors(&self, style: i32, ctx: &dyn DrawContext) -> (u8, u8, u32, u32) {
+    fn get_style_colors(
+        &self,
+        style: i32,
+        ctx: &dyn DrawContext,
+    ) -> (FontType, FontStyle, u8, u32, u32) {
         let mut font = self.text_font;
         let mut fsize = self.text_size;
+        let mut fstyle = self.text_style;
         let mut foreground = self.text_color;
         let mut background;
         let mut bgbasecolor = 0xFFFFFFFF; // Default white background
@@ -2217,7 +2233,7 @@ impl TextDisplay {
             background = ctx.color_inactive(background);
         }
 
-        (font, fsize, foreground, background)
+        (font, fstyle, fsize, foreground, background)
     }
 
     /// Clear a rectangle with appropriate background color
@@ -2460,7 +2476,11 @@ impl TextDisplay {
 
         // Draw line numbers
         ctx.set_color(self.linenumber_fgcolor);
-        ctx.set_font(self.linenumber_font, self.linenumber_size);
+        ctx.set_font(
+            self.linenumber_font,
+            self.linenumber_style,
+            self.linenumber_size,
+        );
 
         let font_height = self.max_font_height;
 
@@ -2479,14 +2499,23 @@ impl TextDisplay {
             };
 
             let y = ln_y + (vis_line as i32 * font_height);
-            let baseline =
-                y + font_height - ctx.text_descent(self.linenumber_font, self.linenumber_size);
+            let baseline = y + font_height
+                - ctx.text_descent(
+                    self.linenumber_font,
+                    self.linenumber_style,
+                    self.linenumber_size,
+                );
 
             // Format line number
             let line_text = format!("{}", line_num);
 
             // Calculate x position based on alignment
-            let text_width = ctx.text_width(&line_text, self.linenumber_font, self.linenumber_size);
+            let text_width = ctx.text_width(
+                &line_text,
+                self.linenumber_font,
+                self.linenumber_style,
+                self.linenumber_size,
+            );
             let text_x = match self.linenumber_align {
                 // FL_ALIGN_LEFT = 1, FL_ALIGN_RIGHT = 2, FL_ALIGN_CENTER = 0
                 1 => ln_x + 2, // Left align with small margin
@@ -2606,8 +2635,8 @@ mod tests {
     fn test_font_settings() {
         let mut display = TextDisplay::new(0, 0, 100, 100);
 
-        display.set_textfont(1);
-        assert_eq!(display.textfont(), 1);
+        display.set_textfont(FontType::Heading, FontStyle::Bold);
+        assert_eq!(display.textfont(), (FontType::Heading, FontStyle::Bold));
 
         display.set_textsize(16);
         assert_eq!(display.textsize(), 16);
@@ -2623,8 +2652,8 @@ mod tests {
         display.set_linenumber_width(50);
         assert_eq!(display.linenumber_width(), 50);
 
-        display.set_linenumber_font(2);
-        assert_eq!(display.linenumber_font(), 2);
+        display.set_linenumber_font(FontType::Content);
+        assert_eq!(display.linenumber_font(), FontType::Content);
 
         display.set_linenumber_size(12);
         assert_eq!(display.linenumber_size(), 12);
@@ -2890,7 +2919,8 @@ mod tests {
         let mut styles = Vec::new();
         styles.push(StyleTableEntry {
             color: 0xFF0000FF,
-            font: 0,
+            font: FontType::Code,
+            style: FontStyle::Regular,
             size: 24, // Larger size
             attr: 0,
             bgcolor: 0xFFFFFFFF,

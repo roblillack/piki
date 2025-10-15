@@ -1,4 +1,5 @@
 use crate::content::{ContentLoader, ContentProvider};
+use crate::draw_context::{FontStyle, FontType};
 use crate::fltk_structured_rich_display::FltkStructuredRichDisplay;
 use crate::fltk_text_display::create_text_display_widget;
 use crate::page_ui::PageUI;
@@ -107,7 +108,8 @@ impl StructuredRichUI {
                 // 0 Plain
                 StyleTableEntry {
                     color: 0x000000FF,
-                    font: 0,
+                    font: FontType::Content,
+                    style: FontStyle::Regular,
                     size: DEFAULT_FONT_SIZE,
                     attr: style_attr::BGCOLOR,
                     bgcolor: 0xFFFFF5FF,
@@ -115,7 +117,8 @@ impl StructuredRichUI {
                 // 1 Bold
                 StyleTableEntry {
                     color: 0x000000FF,
-                    font: 1,
+                    font: FontType::Content,
+                    style: FontStyle::Bold,
                     size: DEFAULT_FONT_SIZE,
                     attr: style_attr::BGCOLOR,
                     bgcolor: 0xFFFFF5FF,
@@ -123,7 +126,8 @@ impl StructuredRichUI {
                 // 2 Italic
                 StyleTableEntry {
                     color: 0x000000FF,
-                    font: 2,
+                    font: FontType::Content,
+                    style: FontStyle::Italic,
                     size: DEFAULT_FONT_SIZE,
                     attr: style_attr::BGCOLOR,
                     bgcolor: 0xFFFFF5FF,
@@ -131,7 +135,8 @@ impl StructuredRichUI {
                 // 3 Bold+Italic
                 StyleTableEntry {
                     color: 0x000000FF,
-                    font: 3,
+                    font: FontType::Content,
+                    style: FontStyle::BoldItalic,
                     size: DEFAULT_FONT_SIZE,
                     attr: style_attr::BGCOLOR,
                     bgcolor: 0xFFFFF5FF,
@@ -139,7 +144,8 @@ impl StructuredRichUI {
                 // 4 Code
                 StyleTableEntry {
                     color: 0x0064C8FF,
-                    font: 4,
+                    font: FontType::Content,
+                    style: FontStyle::Regular,
                     size: DEFAULT_FONT_SIZE,
                     attr: style_attr::BGCOLOR,
                     bgcolor: 0xFFFFF5FF,
@@ -147,7 +153,8 @@ impl StructuredRichUI {
                 // 5 Link
                 StyleTableEntry {
                     color: 0x0000FFFF,
-                    font: 0,
+                    font: FontType::Content,
+                    style: FontStyle::Regular,
                     size: DEFAULT_FONT_SIZE,
                     attr: style_attr::UNDERLINE | style_attr::BGCOLOR,
                     bgcolor: 0xFFFFF5FF,
@@ -155,7 +162,8 @@ impl StructuredRichUI {
                 // 6 Header1
                 StyleTableEntry {
                     color: 0x000000FF,
-                    font: 1,
+                    font: FontType::Heading,
+                    style: FontStyle::Bold,
                     size: DEFAULT_FONT_SIZE + 6,
                     attr: style_attr::BGCOLOR,
                     bgcolor: 0xFFFFF5FF,
@@ -163,7 +171,8 @@ impl StructuredRichUI {
                 // 7 Header2
                 StyleTableEntry {
                     color: 0x000000FF,
-                    font: 1,
+                    font: FontType::Heading,
+                    style: FontStyle::Bold,
                     size: DEFAULT_FONT_SIZE + 4,
                     attr: style_attr::BGCOLOR,
                     bgcolor: 0xFFFFF5FF,
@@ -171,7 +180,8 @@ impl StructuredRichUI {
                 // 8 Header3
                 StyleTableEntry {
                     color: 0x000000FF,
-                    font: 1,
+                    font: FontType::Heading,
+                    style: FontStyle::Bold,
                     size: DEFAULT_FONT_SIZE + 2,
                     attr: style_attr::BGCOLOR,
                     bgcolor: 0xFFFFF5FF,
@@ -179,7 +189,8 @@ impl StructuredRichUI {
                 // 9 Quote
                 StyleTableEntry {
                     color: 0x640000FF,
-                    font: 10,
+                    font: FontType::Content,
+                    style: FontStyle::Italic,
                     size: DEFAULT_FONT_SIZE,
                     attr: style_attr::BGCOLOR,
                     bgcolor: 0xFFFFF5FF,
@@ -187,7 +198,8 @@ impl StructuredRichUI {
                 // 10 Link hover
                 StyleTableEntry {
                     color: 0x0000FFFF,
-                    font: 0,
+                    font: FontType::Content,
+                    style: FontStyle::Regular,
                     size: DEFAULT_FONT_SIZE,
                     attr: style_attr::UNDERLINE | style_attr::BGCOLOR,
                     bgcolor: 0xD3D3D3FF,
@@ -195,7 +207,12 @@ impl StructuredRichUI {
             ];
 
             // Decorated variants 11..42 like in example
-            let base_fonts = [0, 1, 2, 3];
+            let base_fonts = [
+                (FontType::Content, FontStyle::Regular),    // plain
+                (FontType::Content, FontStyle::Bold),       // bold
+                (FontType::Content, FontStyle::Italic),     // italic
+                (FontType::Content, FontStyle::BoldItalic), // bold italic
+            ];
             for base in 0..4 {
                 for decoration in 1..8 {
                     let underline = (decoration & 1) != 0;
@@ -216,7 +233,8 @@ impl StructuredRichUI {
                     };
                     styles.push(StyleTableEntry {
                         color: 0x000000FF,
-                        font: base_fonts[base],
+                        font: base_fonts[base].0,
+                        style: base_fonts[base].1,
                         size: DEFAULT_FONT_SIZE,
                         attr,
                         bgcolor,

@@ -1,7 +1,7 @@
 // SVG-based DrawContext implementation for testing and visualization
 // Generates SVG output from text display rendering with accurate font metrics
 
-use fliki_rs::sourceedit::text_display::DrawContext;
+use fliki_rs::draw_context::{DrawContext, FontStyle, FontType};
 use rusttype::{Font, Scale, point};
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -11,7 +11,8 @@ use std::fs;
 pub struct SvgDrawContext {
     svg_content: String,
     current_color: u32,
-    current_font: u8,
+    current_font: FontType,
+    current_style: FontStyle,
     current_size: u8,
     has_focus: bool,
     is_active: bool,
@@ -27,7 +28,8 @@ impl SvgDrawContext {
         let mut ctx = SvgDrawContext {
             svg_content: String::new(),
             current_color: 0x000000FF,
-            current_font: 0,
+            current_font: FontType::Content,
+            current_style: FontStyle::Regular,
             current_size: 14,
             has_focus: true,
             is_active: true,
@@ -99,23 +101,23 @@ impl SvgDrawContext {
     }
 
     /// Get font family name for SVG text; we register these via the style tag.
-    fn font_family(&self, _font: u8) -> &str {
+    fn font_family(&self, _font: FontType) -> &str {
         // Use a single logical family name with different weight/style faces provided.
         "SnapshotSans"
     }
 
     /// Get font weight for a font ID
-    fn font_weight(&self, font: u8) -> &str {
-        match font {
-            1 | 3 | 5 => "bold",
+    fn font_weight(&self, style: FontStyle) -> &str {
+        match style {
+            FontStyle::Bold | FontStyle::BoldItalic => "bold",
             _ => "normal",
         }
     }
 
     /// Get font style for a font ID
-    fn font_style(&self, font: u8) -> &str {
-        match font {
-            2 | 3 => "italic",
+    fn font_style(&self, style: FontStyle) -> &str {
+        match style {
+            FontStyle::Italic | FontStyle::BoldItalic => "italic",
             _ => "normal",
         }
     }
@@ -135,8 +137,9 @@ impl DrawContext for SvgDrawContext {
         self.current_color = color;
     }
 
-    fn set_font(&mut self, font: u8, size: u8) {
+    fn set_font(&mut self, font: FontType, style: FontStyle, size: u8) {
         self.current_font = font;
+        self.current_style = style;
         self.current_size = size;
     }
 
@@ -147,8 +150,8 @@ impl DrawContext for SvgDrawContext {
 
         let color = self.color_to_svg(self.current_color);
         let family = self.font_family(self.current_font).to_string();
-        let weight = self.font_weight(self.current_font).to_string();
-        let style = self.font_style(self.current_font).to_string();
+        let weight = self.font_weight(self.current_style).to_string();
+        let style = self.font_style(self.current_style).to_string();
         let size = self.current_size;
         let escaped_text = Self::escape_xml(text);
 
@@ -196,8 +199,8 @@ impl DrawContext for SvgDrawContext {
         .unwrap();
     }
 
-    fn text_width(&mut self, text: &str, font: u8, size: u8) -> f64 {
-        let font_ref = self.fonts.font_for_id(font);
+    fn text_width(&mut self, text: &str, font: FontType, style: FontStyle, size: u8) -> f64 {
+        let font_ref = self.fonts.load_font(font, style);
         let scale = Scale::uniform(size as f32);
         // Determine width using laid-out glyph positions including kerning
         let mut max_x: f32 = 0.0;
@@ -214,16 +217,16 @@ impl DrawContext for SvgDrawContext {
         max_x as f64 * 1.4
     }
 
-    fn text_height(&self, font: u8, size: u8) -> i32 {
-        let font_ref = self.fonts.font_for_id(font);
+    fn text_height(&self, font: FontType, style: FontStyle, size: u8) -> i32 {
+        let font_ref = self.fonts.load_font(font, style);
         let scale = Scale::uniform(size as f32);
         let v = font_ref.v_metrics(scale);
         // Total recommended line height
         (v.ascent - v.descent + v.line_gap).ceil() as i32
     }
 
-    fn text_descent(&self, font: u8, size: u8) -> i32 {
-        let font_ref = self.fonts.font_for_id(font);
+    fn text_descent(&self, font: FontType, style: FontStyle, size: u8) -> i32 {
+        let font_ref = self.fonts.load_font(font, style);
         let scale = Scale::uniform(size as f32);
         let v = font_ref.v_metrics(scale);
         (-v.descent).ceil() as i32
@@ -326,19 +329,16 @@ impl DrawContext for SvgDrawContext {
     }
 }
 
-/// Holds loaded fonts and maps font IDs used by the style tables to the correct face.
 struct FontSet {
-    // Key: (weight, italic)
-    faces: HashMap<(u16, bool), Font<'static>>,
-    // Fallback face key present in `faces`
-    fallback_key: (u16, bool),
+    faces: HashMap<FontStyle, Font<'static>>,
+    fallback_key: FontStyle,
 }
 
 impl FontSet {
     fn load_default() -> Self {
         // Attempt to load the four NotoSans variants placed under tests/
         // If any load fails, fall back to Medium for all.
-        let mut faces: HashMap<(u16, bool), Font<'static>> = HashMap::new();
+        let mut faces: HashMap<FontStyle, Font<'static>> = HashMap::new();
 
         let load_font = |path: &str| -> Option<Font<'static>> {
             match fs::read(path) {
@@ -354,27 +354,27 @@ impl FontSet {
         let bold_it = load_font("tests/NotoSans-BoldItalic.ttf");
 
         if let Some(f) = medium {
-            faces.insert((500, false), f);
+            faces.insert(FontStyle::Regular, f);
         }
         if let Some(f) = bold {
-            faces.insert((700, false), f);
+            faces.insert(FontStyle::Bold, f);
         }
         if let Some(f) = medium_it {
-            faces.insert((500, true), f);
+            faces.insert(FontStyle::Italic, f);
         }
         if let Some(f) = bold_it {
-            faces.insert((700, true), f);
+            faces.insert(FontStyle::BoldItalic, f);
         }
 
         // Determine fallback key based on what we actually loaded
-        let fallback_key = if faces.contains_key(&(500, false)) {
-            (500, false)
-        } else if faces.contains_key(&(700, false)) {
-            (700, false)
-        } else if faces.contains_key(&(500, true)) {
-            (500, true)
-        } else if faces.contains_key(&(700, true)) {
-            (700, true)
+        let fallback_key = if faces.contains_key(&FontStyle::Regular) {
+            FontStyle::Regular
+        } else if faces.contains_key(&FontStyle::Bold) {
+            FontStyle::Bold
+        } else if faces.contains_key(&FontStyle::Italic) {
+            FontStyle::Italic
+        } else if faces.contains_key(&FontStyle::BoldItalic) {
+            FontStyle::BoldItalic
         } else {
             panic!("No test fonts found under tests/ (NotoSans-*.ttf)");
         };
@@ -385,17 +385,8 @@ impl FontSet {
         }
     }
 
-    /// Map style-table font IDs to weight/italic and return a font face.
-    fn font_for_id(&self, font_id: u8) -> &Font<'static> {
-        let (weight, italic) = match font_id {
-            1 => (700, false), // Bold
-            2 => (500, true),  // Italic
-            3 => (700, true),  // Bold Italic
-            5 => (700, false), // Bold (legacy mapping from sourceedit tests)
-            // 4 (code) and everything else -> Medium normal
-            _ => (500, false),
-        };
-        if let Some(f) = self.faces.get(&(weight, italic)) {
+    fn load_font(&self, _font: FontType, style: FontStyle) -> &Font<'static> {
+        if let Some(f) = self.faces.get(&style) {
             f
         } else {
             &self.faces[&self.fallback_key]
@@ -427,7 +418,7 @@ mod tests {
     fn test_draw_text() {
         let mut ctx = SvgDrawContext::new(200, 100);
         ctx.set_color(0x000000FF);
-        ctx.set_font(4, 14);
+        ctx.set_font(FontType::Code, FontStyle::Regular, 14);
         ctx.draw_text("Hello World", 10, 20);
         let svg = ctx.finish();
         assert!(svg.contains("Hello World"));

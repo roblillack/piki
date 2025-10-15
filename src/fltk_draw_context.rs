@@ -1,4 +1,4 @@
-use crate::draw_context::DrawContext;
+use crate::draw_context::{DrawContext, FontStyle, FontType};
 use fltk::{draw as fltk_draw, enums::*};
 
 /// FLTK implementation of DrawContext
@@ -16,6 +16,34 @@ impl FltkDrawContext {
     }
 }
 
+impl FltkDrawContext {
+    fn inner_set_font(&self, font: FontType, style: FontStyle, size: u8) {
+        fltk_draw::set_font(
+            match font {
+                FontType::Content => match style {
+                    FontStyle::Regular => Font::Helvetica,
+                    FontStyle::Bold => Font::HelveticaBold,
+                    FontStyle::Italic => Font::HelveticaItalic,
+                    FontStyle::BoldItalic => Font::HelveticaBoldItalic,
+                },
+                FontType::Code => match style {
+                    FontStyle::Regular => Font::Courier,
+                    FontStyle::Bold => Font::CourierBold,
+                    FontStyle::Italic => Font::CourierItalic,
+                    FontStyle::BoldItalic => Font::CourierBoldItalic,
+                },
+                FontType::Heading => match style {
+                    FontStyle::Regular => Font::Helvetica,
+                    FontStyle::Bold => Font::HelveticaBold,
+                    FontStyle::Italic => Font::HelveticaItalic,
+                    FontStyle::BoldItalic => Font::HelveticaBoldItalic,
+                },
+            },
+            size as i32,
+        );
+    }
+}
+
 impl DrawContext for FltkDrawContext {
     fn set_color(&mut self, color: u32) {
         let r = ((color >> 24) & 0xFF) as u8;
@@ -24,8 +52,8 @@ impl DrawContext for FltkDrawContext {
         fltk_draw::set_draw_color(Color::from_rgb(r, g, b));
     }
 
-    fn set_font(&mut self, font: u8, size: u8) {
-        fltk_draw::set_font(Font::by_index(font as usize), size as i32);
+    fn set_font(&mut self, font: FontType, style: FontStyle, size: u8) {
+        self.inner_set_font(font, style, size);
     }
 
     fn draw_text(&mut self, text: &str, x: i32, y: i32) {
@@ -40,18 +68,18 @@ impl DrawContext for FltkDrawContext {
         fltk_draw::draw_line(x1, y1, x2, y2);
     }
 
-    fn text_width(&mut self, text: &str, font: u8, size: u8) -> f64 {
-        fltk_draw::set_font(Font::by_index(font as usize), size as i32);
+    fn text_width(&mut self, text: &str, font: FontType, style: FontStyle, size: u8) -> f64 {
+        self.set_font(font, style, size);
         fltk_draw::width(text) as f64
     }
 
-    fn text_height(&self, font: u8, size: u8) -> i32 {
-        fltk_draw::set_font(Font::by_index(font as usize), size as i32);
+    fn text_height(&self, font: FontType, style: FontStyle, size: u8) -> i32 {
+        self.inner_set_font(font, style, size);
         fltk_draw::height()
     }
 
-    fn text_descent(&self, font: u8, size: u8) -> i32 {
-        fltk_draw::set_font(Font::by_index(font as usize), size as i32);
+    fn text_descent(&self, font: FontType, style: FontStyle, size: u8) -> i32 {
+        self.inner_set_font(font, style, size);
         fltk_draw::descent()
     }
 

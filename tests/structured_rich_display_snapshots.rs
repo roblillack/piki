@@ -2,6 +2,7 @@
 
 pub mod svg_draw_context;
 
+use fliki_rs::draw_context::{FontStyle, FontType};
 use fliki_rs::richtext::markdown_converter::markdown_to_document;
 use fliki_rs::richtext::structured_document::DocumentPosition;
 use fliki_rs::richtext::structured_rich_display::StructuredRichDisplay;
@@ -20,7 +21,8 @@ fn create_rich_style_table() -> Vec<StyleTableEntry> {
         // 0 Plain
         StyleTableEntry {
             color: 0x000000FF,
-            font: 0,
+            font: FontType::Content,
+            style: FontStyle::Regular,
             size: DEFAULT_FONT_SIZE,
             attr: style_attr::BGCOLOR,
             bgcolor: BG,
@@ -28,7 +30,8 @@ fn create_rich_style_table() -> Vec<StyleTableEntry> {
         // 1 Bold
         StyleTableEntry {
             color: 0x000000FF,
-            font: 1,
+            font: FontType::Content,
+            style: FontStyle::Bold,
             size: DEFAULT_FONT_SIZE,
             attr: style_attr::BGCOLOR,
             bgcolor: BG,
@@ -36,7 +39,8 @@ fn create_rich_style_table() -> Vec<StyleTableEntry> {
         // 2 Italic
         StyleTableEntry {
             color: 0x000000FF,
-            font: 2,
+            font: FontType::Content,
+            style: FontStyle::Italic,
             size: DEFAULT_FONT_SIZE,
             attr: style_attr::BGCOLOR,
             bgcolor: BG,
@@ -44,7 +48,8 @@ fn create_rich_style_table() -> Vec<StyleTableEntry> {
         // 3 Bold+Italic
         StyleTableEntry {
             color: 0x000000FF,
-            font: 3,
+            font: FontType::Content,
+            style: FontStyle::BoldItalic,
             size: DEFAULT_FONT_SIZE,
             attr: style_attr::BGCOLOR,
             bgcolor: BG,
@@ -52,7 +57,8 @@ fn create_rich_style_table() -> Vec<StyleTableEntry> {
         // 4 Code
         StyleTableEntry {
             color: 0x0064C8FF,
-            font: 4,
+            font: FontType::Code,
+            style: FontStyle::Regular,
             size: DEFAULT_FONT_SIZE,
             attr: style_attr::BGCOLOR,
             bgcolor: BG,
@@ -60,7 +66,8 @@ fn create_rich_style_table() -> Vec<StyleTableEntry> {
         // 5 Link
         StyleTableEntry {
             color: 0x0000FFFF,
-            font: 0,
+            font: FontType::Content,
+            style: FontStyle::Regular,
             size: DEFAULT_FONT_SIZE,
             attr: style_attr::UNDERLINE | style_attr::BGCOLOR,
             bgcolor: BG,
@@ -68,7 +75,8 @@ fn create_rich_style_table() -> Vec<StyleTableEntry> {
         // 6 Header1
         StyleTableEntry {
             color: 0x000000FF,
-            font: 1,
+            font: FontType::Heading,
+            style: FontStyle::Bold,
             size: DEFAULT_FONT_SIZE + 6,
             attr: style_attr::BGCOLOR,
             bgcolor: BG,
@@ -76,7 +84,8 @@ fn create_rich_style_table() -> Vec<StyleTableEntry> {
         // 7 Header2
         StyleTableEntry {
             color: 0x000000FF,
-            font: 1,
+            font: FontType::Heading,
+            style: FontStyle::Bold,
             size: DEFAULT_FONT_SIZE + 4,
             attr: style_attr::BGCOLOR,
             bgcolor: BG,
@@ -84,7 +93,8 @@ fn create_rich_style_table() -> Vec<StyleTableEntry> {
         // 8 Header3
         StyleTableEntry {
             color: 0x000000FF,
-            font: 1,
+            font: FontType::Heading,
+            style: FontStyle::Bold,
             size: DEFAULT_FONT_SIZE + 2,
             attr: style_attr::BGCOLOR,
             bgcolor: BG,
@@ -92,7 +102,8 @@ fn create_rich_style_table() -> Vec<StyleTableEntry> {
         // 9 Quote
         StyleTableEntry {
             color: 0x640000FF,
-            font: 10,
+            font: FontType::Content,
+            style: FontStyle::Italic,
             size: DEFAULT_FONT_SIZE,
             attr: style_attr::BGCOLOR,
             bgcolor: BG,
@@ -100,7 +111,8 @@ fn create_rich_style_table() -> Vec<StyleTableEntry> {
         // 10 Link hover
         StyleTableEntry {
             color: 0x0000FFFF,
-            font: 0,
+            font: FontType::Content,
+            style: FontStyle::Regular,
             size: DEFAULT_FONT_SIZE,
             attr: style_attr::UNDERLINE | style_attr::BGCOLOR,
             bgcolor: 0xD3D3D3FF,
@@ -108,7 +120,12 @@ fn create_rich_style_table() -> Vec<StyleTableEntry> {
     ];
 
     // Decorated variants 11.. for underline/strike/highlight combinations on base 0..3
-    let base_fonts = [0, 1, 2, 3];
+    let base_fonts = [
+        (FontType::Content, FontStyle::Regular),    // plain
+        (FontType::Content, FontStyle::Bold),       // bold
+        (FontType::Content, FontStyle::Italic),     // italic
+        (FontType::Content, FontStyle::BoldItalic), // bold italic
+    ];
     for base in 0..4 {
         for decoration in 1..8 {
             let underline = (decoration & 1) != 0;
@@ -125,7 +142,8 @@ fn create_rich_style_table() -> Vec<StyleTableEntry> {
             let bgcolor = if highlight { HIGHLIGHT_COLOR } else { BG };
             styles.push(StyleTableEntry {
                 color: 0x000000FF,
-                font: base_fonts[base],
+                font: base_fonts[base].0,
+                style: base_fonts[base].1,
                 size: DEFAULT_FONT_SIZE,
                 attr,
                 bgcolor,

@@ -1,6 +1,8 @@
 // viewtxt - Simple text file viewer using custom TextDisplay
 // Usage: cargo run --example viewtxt <filename>
 
+use fliki_rs::draw_context::FontStyle;
+use fliki_rs::draw_context::FontType;
 use fliki_rs::fltk_text_display::create_text_display_widget;
 use fliki_rs::sourceedit::text_buffer::TextBuffer;
 use fliki_rs::sourceedit::text_display::WrapMode;
@@ -54,7 +56,9 @@ fn main() {
     text_display.borrow_mut().set_buffer(buffer.clone());
 
     // Configure the text display
-    text_display.borrow_mut().set_textfont(4); // Courier font
+    text_display
+        .borrow_mut()
+        .set_textfont(FontType::Code, FontStyle::Regular); // Courier font
     text_display.borrow_mut().set_textsize(14);
     text_display.borrow_mut().set_textcolor(0x000000FF); // Black text
     text_display.borrow_mut().set_cursor_color(0x000000FF); // Black cursor
