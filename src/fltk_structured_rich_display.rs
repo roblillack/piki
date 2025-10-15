@@ -260,6 +260,45 @@ impl FltkStructuredRichDisplay {
                                         w_r.redraw();
                                     }
                                 }),
+                                toggle_quote: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let mut w_r = w_for_actions.clone();
+                                    move || {
+                                        // Toggle: if current is quote -> paragraph, else -> quote
+                                        let set_to_quote = {
+                                            let d = display.borrow();
+                                            let ed = d.editor();
+                                            let cur = ed.cursor();
+                                            let doc = ed.document();
+                                            let blocks = doc.blocks();
+                                            if !blocks.is_empty()
+                                                && (cur.block_index as usize) < blocks.len()
+                                            {
+                                                !matches!(
+                                                    blocks[cur.block_index as usize].block_type,
+                                                    BlockType::BlockQuote
+                                                )
+                                            } else {
+                                                true
+                                            }
+                                        };
+                                        let mut ed = display.borrow_mut();
+                                        if set_to_quote {
+                                            ed.editor_mut()
+                                                .set_block_type(BlockType::BlockQuote)
+                                                .ok();
+                                        } else {
+                                            ed.editor_mut()
+                                                .set_block_type(BlockType::Paragraph)
+                                                .ok();
+                                        }
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                            (cb)();
+                                        }
+                                        w_r.redraw();
+                                    }
+                                }),
                                 toggle_list: Box::new({
                                     let display = display.clone();
                                     let change_cb = change_cb.clone();
@@ -1368,6 +1407,18 @@ impl FltkStructuredRichDisplay {
                                                 w_r.redraw();
                                             }
                                         }),
+                                        toggle_quote: Box::new({
+                                            let display = display.clone();
+                                            let mut w_r = w_for_actions.clone();
+                                            move || {
+                                                display
+                                                    .borrow_mut()
+                                                    .editor_mut()
+                                                    .toggle_quote()
+                                                    .ok();
+                                                w_r.redraw();
+                                            }
+                                        }),
                                         set_heading1: Box::new({
                                             let display = display.clone();
                                             let mut w_r = w_for_actions.clone();
@@ -1772,6 +1823,17 @@ impl FltkStructuredRichDisplay {
                                 {
                                     let mut disp = display.borrow_mut();
                                     disp.editor_mut().toggle_list().ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                        (cb)();
+                                    }
+                                    handled = true;
+                                }
+                                // Cmd/Ctrl-Shift-9: convert to Quote paragraph
+                                else if cmd_shift_modifier
+                                    && (key == Key::from_char('9') || key == Key::from_char('('))
+                                {
+                                    let mut disp = display.borrow_mut();
+                                    disp.editor_mut().toggle_quote().ok();
                                     if let Some(cb) = &mut *change_cb.borrow_mut() {
                                         (cb)();
                                     }

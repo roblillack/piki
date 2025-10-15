@@ -495,6 +495,8 @@ impl StructuredRichDisplay {
                 current_y + 10
             }
             BlockType::BlockQuote => {
+                // Layout quote content with left padding; drawing of the vertical bar
+                // happens during draw() per line based on block type.
                 self.layout_inline_block(
                     block,
                     block_idx,
@@ -982,6 +984,20 @@ impl StructuredRichDisplay {
         for line in &self.layout_lines {
             if line.y + line.height < viewport_top || line.y > viewport_bottom {
                 continue;
+            }
+
+            // If this line belongs to a BlockQuote, draw a vertical bar to the left.
+            // We draw a short segment per line to keep implementation simple.
+            if let Some(block) = self.editor.document().blocks().get(line.block_index) {
+                if let BlockType::BlockQuote = block.block_type {
+                    // Position the bar slightly left of the quote text indent (start_x + 20)
+                    let bar_x = self.x + self.padding_left + 12;
+                    let bar_y1 = self.y + line.y - self.scroll_offset;
+                    let bar_y2 = bar_y1 + line.height;
+                    // Light gray bar color
+                    ctx.set_color(0xCCCCCCFF);
+                    ctx.draw_line(bar_x, bar_y1, bar_x, bar_y2);
+                }
             }
 
             for run in &line.runs {
