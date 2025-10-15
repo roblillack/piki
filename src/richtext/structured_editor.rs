@@ -24,6 +24,29 @@ pub struct StructuredEditor {
 }
 
 impl StructuredEditor {
+    /// Renumber a contiguous run of ordered list items starting at `start_index` with `start_number`.
+    fn renumber_ordered_from(&mut self, start_index: usize, start_number: u64) {
+        let mut n = start_number;
+        let blocks_len = self.document.block_count();
+        if start_index >= blocks_len {
+            return;
+        }
+        let blocks = self.document.blocks_mut();
+        let mut i = start_index;
+        while i < blocks.len() {
+            match blocks[i].block_type {
+                BlockType::ListItem { ordered: true, .. } => {
+                    blocks[i].block_type = BlockType::ListItem {
+                        ordered: true,
+                        number: Some(n),
+                    };
+                    n += 1;
+                    i += 1;
+                }
+                _ => break,
+            }
+        }
+    }
     /// Create a new editor with an empty document
     pub fn new() -> Self {
         StructuredEditor {
@@ -376,22 +399,46 @@ impl StructuredEditor {
             };
 
             // Create new list item with the right-side content
-            let new_number = if *ordered {
-                number.map(|n| n + 1)
-            } else {
-                None
-            };
+            let new_number = if *ordered { number.unwrap_or(1) + 1 } else { 0 };
             let mut new_item = Block::new(
                 0,
                 BlockType::ListItem {
                     ordered: *ordered,
-                    number: new_number,
+                    number: if *ordered { Some(new_number) } else { None },
                 },
             );
             new_item.content = right_content;
 
             self.document.insert_block(block_index + 1, new_item);
             self.cursor = DocumentPosition::new(block_index + 1, 0);
+
+            // If ordered, renumber the new item and all following ordered items to continue the sequence
+            if *ordered {
+                // Determine the correct number for the current (left) item if missing
+                let cur_left_num = number.unwrap_or_else(|| {
+                    // Walk backwards to find start of run and compute index
+                    let blocks = self.document.blocks();
+                    let mut start = block_index;
+                    while start > 0 {
+                        if let BlockType::ListItem { ordered: true, .. } = blocks[start - 1].block_type
+                        {
+                            start -= 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    let first = match blocks[start].block_type {
+                        BlockType::ListItem { ordered: true, number } => number.unwrap_or(1),
+                        _ => 1,
+                    };
+                    let idx_in_run = block_index - start;
+                    first + idx_in_run as u64
+                });
+
+                // Renumber from the newly inserted block onward
+                let start_n = cur_left_num + 1;
+                self.renumber_ordered_from(block_index + 1, start_n);
+            }
         } else {
             // Regular paragraph split: split the block at the cursor, preserving link structure
             let right_content = {
@@ -431,15 +478,62 @@ impl StructuredEditor {
                 return Ok(()); // At start of document, nothing to delete
             }
 
-            let blocks = self.document.blocks_mut();
-            let current_block = blocks.remove(block_index);
-            let prev_block = &mut blocks[block_index - 1];
-            let prev_len = prev_block.text_len();
+            // Capture types before mutation
+            let (prev_type, cur_type) = {
+                let blocks = self.document.blocks();
+                (blocks[block_index - 1].block_type.clone(), blocks[block_index].block_type.clone())
+            };
 
-            // Merge content
-            prev_block.content.extend(current_block.content);
+            let mut renumber_after: Option<(usize, u64)> = None;
 
-            self.cursor = DocumentPosition::new(block_index - 1, prev_len);
+            // Perform merge
+            {
+                let blocks = self.document.blocks_mut();
+                let current_block = blocks.remove(block_index);
+                let prev_block = &mut blocks[block_index - 1];
+                let prev_len = prev_block.text_len();
+                // Merge content
+                prev_block.content.extend(current_block.content);
+                self.cursor = DocumentPosition::new(block_index - 1, prev_len);
+            }
+
+            // Post-merge renumbering rules for ordered lists
+            match (prev_type, cur_type) {
+                // Merged two ordered list items: renumber following items to close the gap
+                (
+                    BlockType::ListItem {
+                        ordered: true,
+                        number: prev_num,
+                    },
+                    BlockType::ListItem { ordered: true, .. },
+                ) => {
+                    let start_index = block_index; // after removal, this is the first following block
+                    let start_n = prev_num.unwrap_or(1) + 1;
+                    renumber_after = Some((start_index, start_n));
+                }
+                // Merged paragraph into previous ordered item: if next is ordered run, renumber it to continue
+                (
+                    BlockType::ListItem {
+                        ordered: true,
+                        number: prev_num,
+                    },
+                    BlockType::Paragraph,
+                ) => {
+                    let start_index = block_index; // next block after prev
+                    let start_n = prev_num.unwrap_or(1) + 1;
+                    renumber_after = Some((start_index, start_n));
+                }
+                // Merged ordered item into previous paragraph: following ordered run should reset to start at 1
+                (BlockType::Paragraph, BlockType::ListItem { ordered: true, .. }) => {
+                    let start_index = block_index - 0; // after removal, next block index is same value
+                    renumber_after = Some((start_index, 1));
+                }
+                _ => {}
+            }
+
+            if let Some((start_idx, start_n)) = renumber_after {
+                self.renumber_ordered_from(start_idx, start_n);
+            }
         } else {
             // Delete a single character within this block, respecting UTF-8 and nested links
             let (prev_char_start, can_delete) = {
@@ -491,8 +585,52 @@ impl StructuredEditor {
                 return Ok(()); // At end of document, nothing to delete
             }
 
+            // Capture types before mutation
+            let (cur_type, next_type) = {
+                let cur = blocks[block_index].block_type.clone();
+                let nxt = blocks[block_index + 1].block_type.clone();
+                (cur, nxt)
+            };
+
+            // Perform merge
             let next_block = blocks.remove(block_index + 1);
             blocks[block_index].content.extend(next_block.content);
+
+            // Post-merge renumbering for ordered lists
+            match (cur_type, next_type) {
+                // Current and next were ordered: renumber following items to close the gap
+                (
+                    BlockType::ListItem {
+                        ordered: true,
+                        number: cur_num,
+                    },
+                    BlockType::ListItem { ordered: true, .. },
+                ) => {
+                    let start_index = block_index + 1;
+                    let start_n = cur_num.unwrap_or(1) + 1;
+                    drop(blocks);
+                    self.renumber_ordered_from(start_index, start_n);
+                }
+                // Current paragraph merged with next ordered: following ordered run should reset numbering from 1
+                (BlockType::Paragraph, BlockType::ListItem { ordered: true, .. }) => {
+                    let start_index = block_index + 1;
+                    drop(blocks);
+                    self.renumber_ordered_from(start_index, 1);
+                }
+                // Current ordered merged with next paragraph: if there is an ordered run after, continue numbering
+                (
+                    BlockType::ListItem {
+                        ordered: true,
+                        number: cur_num,
+                    },
+                    BlockType::Paragraph,
+                ) => {
+                    let start_index = block_index + 1;
+                    drop(blocks);
+                    self.renumber_ordered_from(start_index, cur_num.unwrap_or(1) + 1);
+                }
+                _ => {}
+            }
         } else {
             // Delete a single character forward within this block respecting UTF-8 and nested links
             let next_char_end = {
@@ -1234,12 +1372,62 @@ impl StructuredEditor {
             return Err(EditError::InvalidBlockIndex);
         }
 
+        // Special case: If currently in an ordered list, convert the entire adjacent
+        // ordered list run to unordered bullets (switching list types).
+        let convert_ordered_to_bullets = {
+            let blocks = self.document.blocks();
+            matches!(
+                blocks.get(block_index).map(|b| &b.block_type),
+                Some(BlockType::ListItem { ordered: true, .. })
+            )
+        };
+
+        if convert_ordered_to_bullets {
+            // Find contiguous ordered list run around the current block
+            let (start, end) = {
+                let blocks = self.document.blocks();
+                let mut start = block_index;
+                while start > 0 {
+                    if let BlockType::ListItem { ordered: true, .. } = blocks[start - 1].block_type
+                    {
+                        start -= 1;
+                    } else {
+                        break;
+                    }
+                }
+                let mut end = block_index;
+                while end + 1 < blocks.len() {
+                    if let BlockType::ListItem { ordered: true, .. } = blocks[end + 1].block_type
+                    {
+                        end += 1;
+                    } else {
+                        break;
+                    }
+                }
+                (start, end)
+            };
+
+            let blocks = self.document.blocks_mut();
+            for i in start..=end {
+                blocks[i].block_type = BlockType::ListItem {
+                    ordered: false,
+                    number: None,
+                };
+            }
+            return Ok(());
+        }
+
         let blocks = self.document.blocks_mut();
         let block = &mut blocks[block_index];
 
-        // Toggle list status
+        // Toggle bullet list on/off for non-ordered contexts
         block.block_type = match &block.block_type {
-            BlockType::ListItem { .. } => BlockType::Paragraph,
+            BlockType::ListItem { ordered: false, .. } => BlockType::Paragraph,
+            BlockType::ListItem { ordered: true, .. } => BlockType::ListItem {
+                // Already handled above (convert range) but keep safe fallback
+                ordered: false,
+                number: None,
+            },
             BlockType::Paragraph | BlockType::Heading { .. } => BlockType::ListItem {
                 ordered: false,
                 number: None,
@@ -1255,6 +1443,209 @@ impl StructuredEditor {
         };
 
         Ok(())
+    }
+
+    /// Toggle ordered list (on/off) and handle conversion from bullets when applicable.
+    /// Special case: If currently in an unordered list, convert all adjacent bullet
+    /// list items into ordered list items with sequential numbering starting at 1.
+    pub fn toggle_ordered_list(&mut self) -> EditResult {
+        let block_index = self.cursor.block_index;
+        if block_index >= self.document.block_count() {
+            return Err(EditError::InvalidBlockIndex);
+        }
+
+        let current_type = {
+            let blocks = self.document.blocks();
+            blocks[block_index].block_type.clone()
+        };
+
+        match current_type {
+            BlockType::ListItem { ordered: true, .. } => {
+                // We are inside an ordered run. Capture run bounds first.
+                let (run_start, run_end, _first_num) = {
+                    let blocks = self.document.blocks();
+                    // Find run start
+                    let mut start = block_index;
+                    while start > 0 {
+                        if let BlockType::ListItem { ordered: true, .. } = blocks[start - 1].block_type
+                        {
+                            start -= 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    // Find run end
+                    let mut end = block_index;
+                    while end + 1 < blocks.len() {
+                        if let BlockType::ListItem { ordered: true, .. } = blocks[end + 1].block_type
+                        {
+                            end += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    // Determine starting number (default 1)
+                    let first_num = match blocks[start].block_type {
+                        BlockType::ListItem { ordered: true, number } => number.unwrap_or(1),
+                        _ => 1,
+                    };
+                    (start, end, first_num)
+                };
+
+                // Turn off ordered list for current block (becomes paragraph)
+                {
+                    let blocks = self.document.blocks_mut();
+                    blocks[block_index].block_type = BlockType::Paragraph;
+                }
+
+                // Renumber the following part of the run to start from 1 (new list)
+                if block_index + 1 <= run_end {
+                    let mut n: u64 = 1;
+                    let blocks = self.document.blocks_mut();
+                    for i in (block_index + 1)..=run_end {
+                        if let BlockType::ListItem { ordered: true, .. } = blocks[i].block_type {
+                            blocks[i].block_type = BlockType::ListItem {
+                                ordered: true,
+                                number: Some(n),
+                            };
+                            n += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                Ok(())
+            }
+            BlockType::ListItem { ordered: false, .. } => {
+                // Convert adjacent bullets to ordered list with numbering
+                let (start, end) = {
+                    let blocks = self.document.blocks();
+                    let mut start = block_index;
+                    while start > 0 {
+                        if let BlockType::ListItem { ordered: false, .. } = blocks[start - 1].block_type
+                        {
+                            start -= 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    let mut end = block_index;
+                    while end + 1 < blocks.len() {
+                        if let BlockType::ListItem { ordered: false, .. } = blocks[end + 1].block_type
+                        {
+                            end += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    (start, end)
+                };
+
+                let mut num = 1u64;
+                let blocks = self.document.blocks_mut();
+                for i in start..=end {
+                    blocks[i].block_type = BlockType::ListItem {
+                        ordered: true,
+                        number: Some(num),
+                    };
+                    num += 1;
+                }
+                Ok(())
+            }
+            BlockType::Paragraph
+            | BlockType::Heading { .. }
+            | BlockType::CodeBlock { .. }
+            | BlockType::BlockQuote => {
+                // Determine neighbors to decide numbering and renumber following run
+                let (prev_is_ord, next_is_ord) = {
+                    let blocks = self.document.blocks();
+                    let prev = if block_index > 0 {
+                        matches!(
+                            blocks[block_index - 1].block_type,
+                            BlockType::ListItem { ordered: true, .. }
+                        )
+                    } else {
+                        false
+                    };
+                    let next = if block_index + 1 < blocks.len() {
+                        matches!(
+                            blocks[block_index + 1].block_type,
+                            BlockType::ListItem { ordered: true, .. }
+                        )
+                    } else {
+                        false
+                    };
+                    (prev, next)
+                };
+
+                // Compute the number for the current item
+                let current_number = if prev_is_ord {
+                    // Determine previous run bounds and last number
+                    let (prev_start, prev_end, prev_first) = {
+                        let blocks = self.document.blocks();
+                        // prev_end is block_index - 1 and is ordered
+                        let mut start = block_index - 1;
+                        while start > 0 {
+                            if let BlockType::ListItem { ordered: true, .. } = blocks[start - 1].block_type
+                            {
+                                start -= 1;
+                            } else {
+                                break;
+                            }
+                        }
+                        let first = match blocks[start].block_type {
+                            BlockType::ListItem { ordered: true, number } => number.unwrap_or(1),
+                            _ => 1,
+                        };
+                        (start, block_index - 1, first)
+                    };
+                    let prev_len = prev_end - prev_start + 1;
+                    Some(prev_first + prev_len as u64)
+                } else {
+                    Some(1)
+                };
+
+                // Set current block to ordered with computed number
+                {
+                    let blocks = self.document.blocks_mut();
+                    blocks[block_index].block_type = BlockType::ListItem {
+                        ordered: true,
+                        number: current_number,
+                    };
+                }
+
+                // If there is a following ordered run, renumber it to continue
+                if next_is_ord {
+                    // Find following run end
+                    let (next_start, next_end) = {
+                        let blocks = self.document.blocks();
+                        let start = block_index + 1; // guaranteed ordered
+                        let mut end = start;
+                        while end + 1 < blocks.len() {
+                            if let BlockType::ListItem { ordered: true, .. } = blocks[end + 1].block_type
+                            {
+                                end += 1;
+                            } else {
+                                break;
+                            }
+                        }
+                        (start, end)
+                    };
+
+                    // Start numbering from current_number + 1
+                    let mut n = current_number.unwrap_or(1) + 1;
+                    let blocks = self.document.blocks_mut();
+                    for i in next_start..=next_end {
+                        blocks[i].block_type = BlockType::ListItem {
+                            ordered: true,
+                            number: Some(n),
+                        };
+                        n += 1;
+                    }
+                }
+                Ok(())
+            }
+        }
     }
 
     /// Toggle quote status (on/off) for current block

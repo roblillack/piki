@@ -323,6 +323,22 @@ impl FltkStructuredRichDisplay {
                                         w_r.redraw();
                                     }
                                 }),
+                                toggle_ordered_list: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let mut w_r = w_for_actions.clone();
+                                    move || {
+                                        display
+                                            .borrow_mut()
+                                            .editor_mut()
+                                            .toggle_ordered_list()
+                                            .ok();
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                            (cb)();
+                                        }
+                                        w_r.redraw();
+                                    }
+                                }),
                                 toggle_bold: Box::new({
                                     let display = display.clone();
                                     let change_cb = change_cb.clone();
@@ -1491,6 +1507,18 @@ impl FltkStructuredRichDisplay {
                                                 w_r.redraw();
                                             }
                                         }),
+                                        toggle_ordered_list: Box::new({
+                                            let display = display.clone();
+                                            let mut w_r = w_for_actions.clone();
+                                            move || {
+                                                display
+                                                    .borrow_mut()
+                                                    .editor_mut()
+                                                    .toggle_ordered_list()
+                                                    .ok();
+                                                w_r.redraw();
+                                            }
+                                        }),
                                         toggle_bold: Box::new({
                                             let display = display.clone();
                                             let mut w_r = w_for_actions.clone();
@@ -1851,13 +1879,25 @@ impl FltkStructuredRichDisplay {
                                     }
                                     handled = true;
                                 }
-                                // Check for Cmd/Ctrl-Shift-8 (toggle list)
+                                // Check for Cmd/Ctrl-Shift-8 (toggle bullet list)
                                 // On US keyboards, Shift-8 produces '*'
                                 else if cmd_shift_modifier
                                     && (key == Key::from_char('8') || key == Key::from_char('*'))
                                 {
                                     let mut disp = display.borrow_mut();
                                     disp.editor_mut().toggle_list().ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                        (cb)();
+                                    }
+                                    handled = true;
+                                }
+                                // Check for Cmd/Ctrl-Shift-7 (toggle numbered list)
+                                // On US keyboards, Shift-7 produces '&'
+                                else if cmd_shift_modifier
+                                    && (key == Key::from_char('7') || key == Key::from_char('&'))
+                                {
+                                    let mut disp = display.borrow_mut();
+                                    disp.editor_mut().toggle_ordered_list().ok();
                                     if let Some(cb) = &mut *change_cb.borrow_mut() {
                                         (cb)();
                                     }

@@ -507,19 +507,80 @@ impl StructuredRichDisplay {
                     ctx,
                 ) + 5
             }
-            BlockType::ListItem { .. } => {
-                // Indent: bullet is 1x text_size from left, text is another 1x text_size in
-                let bullet_indent = self.text_size as i32;
-                let text_indent = bullet_indent * 2;
+            BlockType::ListItem { ordered, number } => {
+                // Base indent padding before label (keeps list labels off the edge)
+                let label_left_pad = self.text_size as i32;
 
-                let bullet_text = "• ";
-                let bullet_width =
-                    ctx.text_width(bullet_text, self.text_font, self.text_size) as i32;
+                // Determine label text and padding width
+                let (label_text, label_pad_width, content_start_x) = if *ordered {
+                    // Find contiguous ordered list run (adjacent siblings)
+                    let doc = self.editor.document();
+                    let blocks = doc.blocks();
 
+                    // Find run start
+                    let mut run_start = block_idx;
+                    while run_start > 0 {
+                        if let BlockType::ListItem { ordered: true, .. } = blocks[run_start - 1].block_type
+                        {
+                            run_start -= 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    // Find run end
+                    let mut run_end = block_idx;
+                    while run_end + 1 < blocks.len() {
+                        if let BlockType::ListItem { ordered: true, .. } = blocks[run_end + 1].block_type
+                        {
+                            run_end += 1;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    // Determine starting number (default to 1 if None)
+                    let first_num = match blocks[run_start].block_type {
+                        BlockType::ListItem { ordered: true, number } => number.unwrap_or(1),
+                        _ => 1,
+                    };
+
+                    // Compute the maximum used number across the run
+                    let mut max_num = first_num;
+                    for (i, b) in blocks[run_start..=run_end].iter().enumerate() {
+                        if let BlockType::ListItem { ordered: true, number } = b.block_type {
+                            let n = number.unwrap_or(first_num + i as u64);
+                            if n > max_num {
+                                max_num = n;
+                            }
+                        }
+                    }
+
+                    // Pad width is width of the largest label text (max_num + ". ")
+                    let max_label = format!("{}. ", max_num);
+                    let label_pad_width =
+                        ctx.text_width(&max_label, self.text_font, self.text_size) as i32;
+
+                    // Current label text
+                    let idx_in_run = block_idx - run_start;
+                    let cur_num = number.unwrap_or(first_num + idx_in_run as u64);
+                    let label_text = format!("{}. ", cur_num);
+                    let content_start_x = start_x + label_left_pad + label_pad_width;
+
+                    (label_text, label_pad_width, content_start_x)
+                } else {
+                    // Unordered bullet label and fixed width
+                    let bullet_text = "• ".to_string();
+                    let bullet_width =
+                        ctx.text_width(&bullet_text, self.text_font, self.text_size) as i32;
+                    let content_start_x = start_x + label_left_pad + bullet_width;
+                    (bullet_text, bullet_width, content_start_x)
+                };
+
+                // Assemble label run
                 let mut runs = vec![VisualRun {
-                    text: bullet_text.to_string(),
-                    x: start_x + bullet_indent,
-                    width: bullet_width,
+                    text: label_text,
+                    x: start_x + label_left_pad,
+                    width: label_pad_width,
                     style_idx: 0,
                     block_index: block_idx,
                     char_range: (0, 0),
@@ -532,8 +593,8 @@ impl StructuredRichDisplay {
                     &block.block_type,
                     block_idx,
                     y,
-                    start_x + text_indent,
-                    width - text_indent,
+                    content_start_x,
+                    width - (content_start_x - start_x),
                     self.line_height,
                     ctx,
                 );

@@ -19,6 +19,7 @@ pub struct MenuActions {
     pub toggle_quote: Box<dyn FnMut()>,
     pub toggle_code_block: Box<dyn FnMut()>,
     pub toggle_list: Box<dyn FnMut()>,
+    pub toggle_ordered_list: Box<dyn FnMut()>,
 
     // Inline styles
     pub toggle_bold: Box<dyn FnMut()>,
@@ -68,6 +69,12 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
     let list_shortcut = Shortcut::Command | Shortcut::Shift | '8';
     #[cfg(not(target_os = "macos"))]
     let list_shortcut = Shortcut::Ctrl | Shortcut::Shift | '8';
+
+    // Numbered list (Cmd/Ctrl + Shift + 7)
+    #[cfg(target_os = "macos")]
+    let ordered_list_shortcut = Shortcut::Command | Shortcut::Shift | '7';
+    #[cfg(not(target_os = "macos"))]
+    let ordered_list_shortcut = Shortcut::Ctrl | Shortcut::Shift | '7';
 
     // Code paragraph (Cmd/Ctrl + Shift + 6)
     #[cfg(target_os = "macos")]
@@ -124,6 +131,12 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         MenuFlag::Radio,
         move |_| (actions.toggle_list)(),
     );
+    menu.add(
+        "Paragraph Style/Numbered List\t",
+        ordered_list_shortcut,
+        MenuFlag::Radio,
+        move |_| (actions.toggle_ordered_list)(),
+    );
 
     // Reflect current block selection in the radio group
     let labels = [
@@ -134,6 +147,7 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         "Paragraph Style/Code\t",
         "Paragraph Style/Quote\t",
         "Paragraph Style/List Item\t",
+        "Paragraph Style/Numbered List\t",
     ];
     // Ensure radio flag is set on all items and clear Value by default
     for &label in &labels {
@@ -153,7 +167,11 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         },
         BlockType::CodeBlock { .. } => Some("Paragraph Style/Code\t"),
         BlockType::BlockQuote => Some("Paragraph Style/Quote\t"),
-        BlockType::ListItem { .. } => Some("Paragraph Style/List Item\t"),
+        BlockType::ListItem { ordered, .. } => Some(if ordered {
+            "Paragraph Style/Numbered List\t"
+        } else {
+            "Paragraph Style/List Item\t"
+        }),
         _ => None,
     } {
         if let Some(mut item) = menu.find_item(lbl) {
