@@ -27,6 +27,13 @@ struct LayoutLine {
     runs: Vec<VisualRun>,
 }
 
+impl LayoutLine {
+    /// Check if the line has no text runs
+    fn is_empty(&self) -> bool {
+        self.runs.is_empty()
+    }
+}
+
 /// Checklist marker rendering metadata
 #[derive(Debug, Clone)]
 struct ChecklistVisual {
@@ -108,7 +115,7 @@ pub struct StructuredRichDisplay {
     hovered_link: Option<(usize, usize)>, // (block_index, inline_index)
 
     // Sticky horizontal position for vertical navigation across proportional fonts
-    cursor_preferred_x: Option<i32>,
+    cursor_preferred_line_offset: Option<usize>,
 }
 
 impl StructuredRichDisplay {
@@ -139,7 +146,7 @@ impl StructuredRichDisplay {
             blink_period_ms: 1000,       // 1s full period (500ms on/off)
             selection_color: 0xB4D5FEFF, // Light blue selection color
             hovered_link: None,
-            cursor_preferred_x: None,
+            cursor_preferred_line_offset: None,
         }
     }
 
@@ -334,6 +341,16 @@ impl StructuredRichDisplay {
         self.is_last_visual_line_in_block(line_index) && offset == line.char_end
     }
 
+    /// Get the character offset within the visual line for a given block index and offset.
+    fn visual_line_offset(&self, pos: DocumentPosition) -> Option<usize> {
+        for (i, line) in self.layout_lines.iter().enumerate() {
+            if line.block_index == pos.block_index && self.offset_belongs_to_line(i, pos.offset) {
+                return Some(pos.offset - line.char_start);
+            }
+        }
+        None
+    }
+
     fn current_line_index_for_cursor(&self) -> Option<usize> {
         let cursor = self.editor.cursor();
         // First, look for a line in the same block whose char range contains the offset
@@ -364,19 +381,44 @@ impl StructuredRichDisplay {
         candidate.map(|(i, _)| i)
     }
 
-    /// Record the preferred X using precise measurement from the current cursor position.
-    /// Requires a DrawContext for font metrics.
-    pub fn record_preferred_x_from_ctx(&mut self, ctx: &mut dyn DrawContext) {
-        // Ensure layout is valid for position computation
-        self.layout(ctx);
-        if let Some((cx, _cy, _ch)) = self.get_cursor_visual_position(ctx) {
-            self.cursor_preferred_x = Some(cx);
+    pub fn record_preferred_pos(&mut self, pos: DocumentPosition) {
+        println!(
+            "Recording preferred pos: {}",
+            self.visual_line_offset(pos).unwrap_or(0)
+        );
+        self.cursor_preferred_line_offset = self.visual_line_offset(pos);
+    }
+
+    fn get_preferred_pos_for_line(&self, line: &LayoutLine) -> DocumentPosition {
+        let new_offset = self
+            .cursor_preferred_line_offset
+            .unwrap_or(self.visual_line_offset(self.editor.cursor()).unwrap_or(0));
+
+        if new_offset >= line.char_end - line.char_start {
+            // If this line is wrapped, ensure to position the cursor before the space
+            let wrapper_offset = if let Some(line_idx) =
+                self.layout_lines.iter().position(|x| std::ptr::eq(x, line))
+            {
+                if let Some(next) = self.layout_lines.get(line_idx + 1)
+                    && next.block_index == line.block_index
+                {
+                    1
+                } else {
+                    0
+                }
+            } else {
+                0
+            };
+
+            DocumentPosition::new(line.block_index, line.char_end - wrapper_offset)
+        } else {
+            DocumentPosition::new(line.block_index, line.char_start + new_offset)
         }
     }
 
     /// Move cursor one visual line up, using wrapped lines when applicable.
     /// When `extend` is true, extends the selection (Shift+Up behavior).
-    pub fn move_cursor_visual_up_precise(&mut self, extend: bool, ctx: &mut dyn DrawContext) {
+    pub fn move_cursor_visual_up(&mut self, extend: bool, ctx: &mut dyn DrawContext) {
         // Ensure layout is current for measurement
         self.layout(ctx);
         if self.layout_lines.is_empty() {
@@ -406,17 +448,7 @@ impl StructuredRichDisplay {
         }
         let target_line = &self.layout_lines[cur_idx - 1];
 
-        let x = self
-            .cursor_preferred_x
-            .unwrap_or_else(|| self.get_cursor_visual_position(ctx).unwrap_or((0, 0, 0)).0);
-        let new_offset = self.precise_offset_in_line(target_line, x, ctx);
-        println!(
-            "Moving to line {}, x={}, offset={}",
-            cur_idx - 1,
-            x,
-            new_offset
-        );
-        let new_pos = DocumentPosition::new(target_line.block_index, new_offset);
+        let new_pos = self.get_preferred_pos_for_line(target_line);
         if extend {
             self.editor.extend_selection_to(new_pos);
         } else {
@@ -426,7 +458,7 @@ impl StructuredRichDisplay {
 
     /// Move cursor one visual line down, using wrapped lines when applicable.
     /// When `extend` is true, extends the selection (Shift+Down behavior).
-    pub fn move_cursor_visual_down_precise(&mut self, extend: bool, ctx: &mut dyn DrawContext) {
+    pub fn move_cursor_visual_down(&mut self, extend: bool, ctx: &mut dyn DrawContext) {
         self.layout(ctx);
         if self.layout_lines.is_empty() {
             if extend {
@@ -454,33 +486,16 @@ impl StructuredRichDisplay {
             return;
         }
         let target_line = &self.layout_lines[cur_idx + 1];
-        let x = self
-            .cursor_preferred_x
-            .unwrap_or_else(|| self.get_cursor_visual_position(ctx).unwrap_or((0, 0, 0)).0);
-        let new_offset = self.precise_offset_in_line(target_line, x, ctx);
-        println!(
-            "Moving to line {}, x={}, offset={}",
-            cur_idx + 1,
-            x,
-            new_offset
-        );
-        let new_pos = DocumentPosition::new(target_line.block_index, new_offset);
+        let new_pos = self.get_preferred_pos_for_line(target_line);
         if extend {
             self.editor.extend_selection_to(new_pos);
         } else {
             self.editor.set_cursor(new_pos);
         }
-        if let Some((cx, _, _)) = self.get_cursor_visual_position(ctx) {
-            self.cursor_preferred_x = Some(cx);
-        }
     }
 
     /// Move cursor to the beginning of the current visual line.
-    pub fn move_cursor_visual_line_start_precise(
-        &mut self,
-        extend: bool,
-        ctx: &mut dyn DrawContext,
-    ) {
+    pub fn move_cursor_visual_line_start(&mut self, extend: bool, ctx: &mut dyn DrawContext) {
         self.layout(ctx);
         if self.layout_lines.is_empty() {
             if extend {
@@ -519,9 +534,7 @@ impl StructuredRichDisplay {
         } else {
             self.editor.set_cursor(new_pos);
         }
-        if let Some((cx, _, _)) = self.get_cursor_visual_position(ctx) {
-            self.cursor_preferred_x = Some(cx);
-        }
+        self.record_preferred_pos(new_pos);
     }
 
     /// Move cursor to the end of the current visual line.
@@ -571,9 +584,7 @@ impl StructuredRichDisplay {
         } else {
             self.editor.set_cursor(new_pos);
         }
-        if let Some((cx, _, _)) = self.get_cursor_visual_position(ctx) {
-            self.cursor_preferred_x = Some(cx);
-        }
+        self.record_preferred_pos(new_pos);
     }
 
     /// Layout a single block
@@ -2014,7 +2025,7 @@ mod tests {
             editor.set_cursor(DocumentPosition::new(0, sample_offset));
         }
 
-        display.move_cursor_visual_line_start_precise(false, &mut ctx);
+        display.move_cursor_visual_line_start(false, &mut ctx);
         assert_eq!(display.editor().cursor().offset, second_line_start);
         let (start_x, start_y, _) = display.get_cursor_visual_position(&mut ctx).unwrap();
         assert_eq!(start_y, second_line_y);

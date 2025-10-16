@@ -7,6 +7,7 @@ use crate::richtext::structured_rich_display::StructuredRichDisplay;
 use fltk::{app::MouseWheel, enums::*, prelude::*};
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Instant;
 
 /// FLTK wrapper for StructuredRichDisplay with scrollbar and event handling
@@ -1207,17 +1208,9 @@ impl FltkStructuredRichDisplay {
                             match effective_clicks {
                                 1 => {
                                     // Single click: position cursor
-                                    {
-                                        let mut d = display.borrow_mut();
-                                        d.editor_mut().set_cursor(pos);
-                                    }
-                                    // Record preferred X precisely so vertical moves land exactly
-                                    let has_focus =
-                                        fltk::app::focus().map(|f| f.as_base_widget()).as_ref()
-                                            == Some(&w.as_base_widget());
-                                    let is_active = w.active();
-                                    let mut ctx = FltkDrawContext::new(has_focus, is_active);
-                                    display.borrow_mut().record_preferred_x_from_ctx(&mut ctx);
+                                    let mut d = display.borrow_mut();
+                                    d.editor_mut().set_cursor(pos);
+                                    d.record_preferred_pos(pos);
                                 }
                                 2 => {
                                     // Double click: select word
@@ -1275,7 +1268,7 @@ impl FltkStructuredRichDisplay {
                                 == Some(&w.as_base_widget());
                             let is_active = w.active();
                             let mut ctx = FltkDrawContext::new(has_focus, is_active);
-                            display.borrow_mut().record_preferred_x_from_ctx(&mut ctx);
+                            display.borrow_mut().record_preferred_pos(pos);
                             let final_scroll = {
                                 let mut d = display.borrow_mut();
                                 d.ensure_cursor_visible(&mut ctx);
@@ -2122,9 +2115,7 @@ impl FltkStructuredRichDisplay {
                                             let is_active = w.active();
                                             let mut ctx =
                                                 FltkDrawContext::new(has_focus, is_active);
-                                            disp.move_cursor_visual_up_precise(
-                                                shift_held, &mut ctx,
-                                            );
+                                            disp.move_cursor_visual_up(shift_held, &mut ctx);
                                             handled = true;
                                         }
                                         Key::Down => {
@@ -2136,9 +2127,7 @@ impl FltkStructuredRichDisplay {
                                             let is_active = w.active();
                                             let mut ctx =
                                                 FltkDrawContext::new(has_focus, is_active);
-                                            disp.move_cursor_visual_down_precise(
-                                                shift_held, &mut ctx,
-                                            );
+                                            disp.move_cursor_visual_down(shift_held, &mut ctx);
                                             handled = true;
                                         }
                                         Key::Home => {
@@ -2149,7 +2138,7 @@ impl FltkStructuredRichDisplay {
                                             let is_active = w.active();
                                             let mut ctx =
                                                 FltkDrawContext::new(has_focus, is_active);
-                                            disp.move_cursor_visual_line_start_precise(
+                                            disp.move_cursor_visual_line_start(
                                                 shift_held, &mut ctx,
                                             );
                                             // non-vertical action
@@ -2230,7 +2219,8 @@ impl FltkStructuredRichDisplay {
                                 let new_scroll = {
                                     let mut disp = display.borrow_mut();
                                     if did_horizontal {
-                                        disp.record_preferred_x_from_ctx(&mut ctx);
+                                        let cursor = disp.editor().cursor();
+                                        disp.record_preferred_pos(cursor);
                                     }
                                     disp.ensure_cursor_visible(&mut ctx);
                                     disp.scroll_offset()
