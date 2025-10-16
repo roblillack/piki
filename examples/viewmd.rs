@@ -5,7 +5,6 @@ use fliki_rs::draw_context::{FontStyle, FontType};
 use fliki_rs::fltk_structured_rich_display::FltkStructuredRichDisplay;
 use fliki_rs::richtext::markdown_converter::{document_to_markdown, markdown_to_document};
 use fliki_rs::richtext::structured_document::DocumentPosition;
-use fliki_rs::sourceedit::text_display::{StyleTableEntry, style_attr};
 use fltk::enums::Font;
 use fltk::{prelude::*, *};
 use std::env;
@@ -13,163 +12,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::process;
 use std::time::Instant;
-
-const DEFAULT_FONT_SIZE: u8 = 14;
-const HIGHLIGHT_COLOR: u32 = 0xFFFF00FF; // Yellow highlight
-
-/// Build a complete style table including all text decoration combinations
-fn build_style_table() -> Vec<StyleTableEntry> {
-    let mut styles = Vec::new();
-
-    // Styles 0-10: Base styles (existing)
-    styles.extend_from_slice(&[
-        // Style 0 - STYLE_PLAIN
-        StyleTableEntry {
-            color: 0x000000FF,
-            font: FontType::Content,
-            style: FontStyle::Regular,
-            size: DEFAULT_FONT_SIZE,
-            attr: style_attr::BGCOLOR,
-            bgcolor: 0xFFFFF5FF,
-        },
-        // Style 1 - STYLE_BOLD
-        StyleTableEntry {
-            color: 0x000000FF,
-            font: FontType::Content,
-            style: FontStyle::Bold,
-            size: DEFAULT_FONT_SIZE,
-            attr: style_attr::BGCOLOR,
-            bgcolor: 0xFFFFF5FF,
-        },
-        // Style 2 - STYLE_ITALIC
-        StyleTableEntry {
-            color: 0x000000FF,
-            font: FontType::Content,
-            style: FontStyle::Italic,
-            size: DEFAULT_FONT_SIZE,
-            attr: style_attr::BGCOLOR,
-            bgcolor: 0xFFFFF5FF,
-        },
-        // Style 3 - STYLE_BOLD_ITALIC
-        StyleTableEntry {
-            color: 0x000000FF,
-            font: FontType::Content,
-            style: FontStyle::BoldItalic,
-            size: DEFAULT_FONT_SIZE,
-            attr: style_attr::BGCOLOR,
-            bgcolor: 0xFFFFF5FF,
-        },
-        // Style 4 - STYLE_CODE
-        StyleTableEntry {
-            color: 0x0064C8FF,
-            font: FontType::Code,
-            style: FontStyle::Regular,
-            size: DEFAULT_FONT_SIZE,
-            attr: style_attr::BGCOLOR,
-            bgcolor: 0xFFFFF5FF,
-        },
-        // Style 5 - STYLE_LINK
-        StyleTableEntry {
-            color: 0x0000FFFF,
-            font: FontType::Content,
-            style: FontStyle::Regular,
-            size: DEFAULT_FONT_SIZE,
-            attr: style_attr::UNDERLINE | style_attr::BGCOLOR,
-            bgcolor: 0xFFFFF5FF,
-        },
-        // Style 6 - STYLE_HEADER1
-        StyleTableEntry {
-            color: 0x000000FF,
-            font: FontType::Heading,
-            style: FontStyle::Bold,
-            size: DEFAULT_FONT_SIZE + 6,
-            attr: style_attr::BGCOLOR,
-            bgcolor: 0xFFFFF5FF,
-        },
-        // Style 7 - STYLE_HEADER2
-        StyleTableEntry {
-            color: 0x000000FF,
-            font: FontType::Heading,
-            style: FontStyle::Bold,
-            size: DEFAULT_FONT_SIZE + 4,
-            attr: style_attr::BGCOLOR,
-            bgcolor: 0xFFFFF5FF,
-        },
-        // Style 8 - STYLE_HEADER3
-        StyleTableEntry {
-            color: 0x000000FF,
-            font: FontType::Heading,
-            style: FontStyle::Bold,
-            size: DEFAULT_FONT_SIZE + 2,
-            attr: style_attr::BGCOLOR,
-            bgcolor: 0xFFFFF5FF,
-        },
-        // Style 9 - STYLE_QUOTE
-        StyleTableEntry {
-            color: 0x640000FF,
-            font: FontType::Content,
-            style: FontStyle::Italic,
-            size: DEFAULT_FONT_SIZE,
-            attr: style_attr::BGCOLOR,
-            bgcolor: 0xFFFFF5FF,
-        },
-        // Style 10 - STYLE_LINK_HOVER
-        StyleTableEntry {
-            color: 0x0000FFFF,
-            font: FontType::Content,
-            style: FontStyle::Regular,
-            size: DEFAULT_FONT_SIZE,
-            attr: style_attr::UNDERLINE | style_attr::BGCOLOR,
-            bgcolor: 0xD3D3D3FF,
-        },
-    ]);
-
-    // Styles 11-42: Computed decorated styles
-    // Formula: 11 + (base * 8) + decoration_flags
-    // where base = 0 (plain), 1 (bold), 2 (italic), 3 (bold+italic)
-    // and decoration_flags = (underline ? 1 : 0) | (strikethrough ? 2 : 0) | (highlight ? 4 : 0)
-
-    let base_fonts = [
-        (FontType::Content, FontStyle::Regular),    // plain
-        (FontType::Content, FontStyle::Bold),       // bold
-        (FontType::Content, FontStyle::Italic),     // italic
-        (FontType::Content, FontStyle::BoldItalic), // bold italic
-    ];
-
-    for base in 0..4 {
-        for decoration in 1..8 {
-            // Skip 0 (no decorations)
-            let underline = (decoration & 1) != 0;
-            let strikethrough = (decoration & 2) != 0;
-            let highlight = (decoration & 4) != 0;
-
-            let mut attr = style_attr::BGCOLOR;
-            if underline {
-                attr |= style_attr::UNDERLINE;
-            }
-            if strikethrough {
-                attr |= style_attr::STRIKE_THROUGH;
-            }
-
-            let bgcolor = if highlight {
-                HIGHLIGHT_COLOR
-            } else {
-                0xFFFFF5FF
-            };
-
-            styles.push(StyleTableEntry {
-                color: 0x000000FF,
-                font: base_fonts[base].0,
-                style: base_fonts[base].1,
-                size: DEFAULT_FONT_SIZE,
-                attr,
-                bgcolor,
-            });
-        }
-    }
-
-    styles
-}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -622,11 +464,6 @@ fn main() {
         *d.editor_mut().document_mut() = doc;
         d.editor_mut().set_cursor(DocumentPosition::start());
     }
-
-    // Set up style table with all text decoration combinations
-    let style_table = build_style_table();
-    display.borrow_mut().set_style_table(style_table);
-    display.borrow_mut().set_padding(10, 10, 25, 25);
 
     // Set widget color
     display_widget.set_color(enums::Color::from_rgb(255, 255, 245));

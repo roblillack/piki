@@ -12,4 +12,5 @@ pub mod page_ui;
 pub mod responsive_scrollbar;
 pub mod richtext;
 pub mod sourceedit;
+pub mod theme;
 pub mod ui_adapters;

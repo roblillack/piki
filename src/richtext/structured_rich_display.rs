@@ -7,7 +7,10 @@ use super::structured_editor::*;
 use crate::draw_context::DrawContext;
 use crate::draw_context::FontStyle;
 use crate::draw_context::FontType;
-use crate::sourceedit::text_display::{StyleTableEntry, style_attr};
+use crate::sourceedit::text_display::StyleTableEntry;
+use crate::theme::{FontSettings, Theme};
+
+const DEFAULT_HIGHLIGHT_COLOR: u32 = 0xFFFF_00FF;
 
 /// Layout information for a rendered line
 #[derive(Debug, Clone)]
@@ -52,8 +55,6 @@ struct VisualRun {
     x: i32,
     /// Width of the text
     width: i32,
-    /// Style index
-    style_idx: u8,
     /// Block index this belongs to
     block_index: usize,
     /// Character range within block
@@ -62,6 +63,27 @@ struct VisualRun {
     inline_index: Option<usize>,
     /// Checklist rendering info (if this run is a checklist marker)
     checklist: Option<ChecklistVisual>,
+
+    font_type: FontType,
+    font_style: FontStyle,
+    font_size: u8,
+    font_color: u32,
+    background_color: Option<u32>,
+    underline: bool,
+    strikethrough: bool,
+    highlight: bool,
+}
+
+#[derive(Clone, Copy)]
+struct ResolvedRunStyle {
+    font_type: FontType,
+    font_style: FontStyle,
+    font_size: u8,
+    font_color: u32,
+    background_color: Option<u32>,
+    underline: bool,
+    strikethrough: bool,
+    highlight: bool,
 }
 
 /// Rich Text Display for Structured Documents
@@ -85,37 +107,20 @@ pub struct StructuredRichDisplay {
     // Styling
     style_table: Vec<StyleTableEntry>,
 
-    // Font settings
-    text_font: FontType,
-    text_style: FontStyle,
-    text_size: u8,
-    text_color: u32,
-    background_color: u32,
-
-    // Padding
-    padding_top: i32,
-    padding_bottom: i32,
-    padding_left: i32,
-    padding_right: i32,
-
-    // Font metrics
-    line_height: i32,
-
     // Cursor display
     cursor_visible: bool,
-    cursor_color: u32,
     // Cursor blink state
     blink_on: bool,
     blink_period_ms: u64,
-
-    // Selection rendering
-    selection_color: u32,
 
     // Link hover state
     hovered_link: Option<(usize, usize)>, // (block_index, inline_index)
 
     // Sticky horizontal position for vertical navigation across proportional fonts
     cursor_preferred_line_offset: Option<usize>,
+
+    // Theme
+    theme: Theme,
 }
 
 impl StructuredRichDisplay {
@@ -130,23 +135,12 @@ impl StructuredRichDisplay {
             layout_valid: false,
             scroll_offset: 0,
             style_table: Vec::new(),
-            text_font: FontType::Content,
-            text_style: FontStyle::Regular,
-            text_size: 14,
-            text_color: 0x000000FF,
-            background_color: 0xFFFFF5FF,
-            padding_top: 10,
-            padding_bottom: 10,
-            padding_left: 25,
-            padding_right: 25,
-            line_height: 17,
             cursor_visible: true,
-            cursor_color: 0x000000FF,
             blink_on: true,
-            blink_period_ms: 1000,       // 1s full period (500ms on/off)
-            selection_color: 0xB4D5FEFF, // Light blue selection color
+            blink_period_ms: 1000, // 1s full period (500ms on/off)
             hovered_link: None,
             cursor_preferred_line_offset: None,
+            theme: Theme::default(),
         }
     }
 
@@ -159,20 +153,6 @@ impl StructuredRichDisplay {
     pub fn editor_mut(&mut self) -> &mut StructuredEditor {
         self.layout_valid = false;
         &mut self.editor
-    }
-
-    /// Set style table
-    pub fn set_style_table(&mut self, table: Vec<StyleTableEntry>) {
-        self.style_table = table;
-    }
-
-    /// Set padding
-    pub fn set_padding(&mut self, top: i32, bottom: i32, left: i32, right: i32) {
-        self.padding_top = top;
-        self.padding_bottom = bottom;
-        self.padding_left = left;
-        self.padding_right = right;
-        self.layout_valid = false;
     }
 
     /// Set scroll offset
@@ -225,7 +205,7 @@ impl StructuredRichDisplay {
     /// Get content height
     pub fn content_height(&self) -> i32 {
         if let Some(last_line) = self.layout_lines.last() {
-            last_line.y + last_line.height + self.padding_bottom
+            last_line.y + last_line.height + self.theme.padding_vertical
         } else {
             0
         }
@@ -261,8 +241,8 @@ impl StructuredRichDisplay {
 
         self.layout_lines.clear();
 
-        let content_width = self.w - self.padding_left - self.padding_right;
-        let mut current_y = self.padding_top;
+        let content_width = self.w - 2 * self.theme.padding_horizontal;
+        let mut current_y = self.theme.padding_vertical;
 
         // Clone blocks to avoid borrow checker issues
         let blocks = self.editor.document().blocks().to_vec();
@@ -290,7 +270,7 @@ impl StructuredRichDisplay {
             }
             if x >= run.x && x < run_end_x {
                 // Within this run: walk characters and measure
-                let (font, fstyle, size) = self.get_font_for_style(run.style_idx);
+                let (font, fstyle, size) = (run.font_type, run.font_style, run.font_size);
                 let mut last_offset = run.char_range.0;
                 // Iterate char boundaries in the run's text
                 for (i, _) in run
@@ -592,20 +572,26 @@ impl StructuredRichDisplay {
         width: i32,
         ctx: &mut dyn DrawContext,
     ) -> i32 {
-        let start_x = self.padding_left;
+        let start_x = self.theme.padding_horizontal;
+        let default_line_height = self.theme.line_height;
 
         match &block.block_type {
-            BlockType::Paragraph => {
-                self.layout_inline_block(block, block_idx, y, start_x, width, self.line_height, ctx)
-            }
+            BlockType::Paragraph => self.layout_inline_block(
+                block,
+                block_idx,
+                y,
+                start_x,
+                width,
+                default_line_height,
+                ctx,
+            ),
             BlockType::Heading { level } => {
-                let size = match level {
-                    1 => self.text_size + 6,
-                    2 => self.text_size + 4,
-                    3 => self.text_size + 2,
-                    _ => self.text_size,
+                let header_font = match level {
+                    1 => self.theme.header_level_1,
+                    2 => self.theme.header_level_2,
+                    _ => self.theme.header_level_3,
                 };
-                let height = ((size as f32) * 1.3) as i32;
+                let height = ((header_font.font_size as f32) * 1.3) as i32;
                 // Add top margin for headings (unless it's the first block)
                 let top_margin = if block_idx > 0 { 15 } else { 0 };
                 let y_after = self.layout_inline_block(
@@ -622,18 +608,18 @@ impl StructuredRichDisplay {
             BlockType::CodeBlock { .. } => {
                 let text = block.to_plain_text();
                 let lines: Vec<&str> = text.lines().collect();
-                let style_idx = self.get_style_for_block_type(&block.block_type);
-                let (font, fstyle, size) = self.get_font_for_style(style_idx);
+                let f = self.theme.code_text;
                 let mut current_y = y + 5;
                 let code_start_x = start_x + 10;
                 let is_empty = lines.is_empty();
 
                 for line in &lines {
-                    let line_width = ctx.text_width(line, font, fstyle, size) as i32;
+                    let line_width =
+                        ctx.text_width(line, f.font_type, f.font_style, f.font_size) as i32;
                     let line_len = line.len();
                     self.layout_lines.push(LayoutLine {
                         y: current_y,
-                        height: self.line_height,
+                        height: default_line_height,
                         base_x: code_start_x,
                         block_index: block_idx,
                         char_start: 0,
@@ -642,27 +628,34 @@ impl StructuredRichDisplay {
                             text: (*line).to_string(),
                             x: code_start_x,
                             width: line_width,
-                            style_idx,
+                            font_type: f.font_type,
+                            font_style: f.font_style,
+                            font_size: f.font_size,
+                            font_color: f.font_color,
+                            background_color: f.background_color,
+                            underline: false,
+                            strikethrough: false,
+                            highlight: false,
                             block_index: block_idx,
                             char_range: (0, line_len),
                             inline_index: None,
                             checklist: None,
                         }],
                     });
-                    current_y += self.line_height;
+                    current_y += default_line_height;
                 }
 
                 if is_empty {
                     self.layout_lines.push(LayoutLine {
                         y: current_y,
-                        height: self.line_height,
+                        height: default_line_height,
                         base_x: code_start_x,
                         block_index: block_idx,
                         char_start: 0,
                         char_end: 0,
                         runs: Vec::new(),
                     });
-                    current_y += self.line_height;
+                    current_y += default_line_height;
                 }
 
                 current_y + 10
@@ -676,7 +669,7 @@ impl StructuredRichDisplay {
                     y + 5,
                     start_x + 20,
                     width - 20,
-                    self.line_height,
+                    default_line_height,
                     ctx,
                 ) + 5
             }
@@ -685,24 +678,30 @@ impl StructuredRichDisplay {
                 number,
                 checkbox,
             } => {
+                let plain_font = self.theme.plain_text;
+
                 // Base indent padding before label (keeps list labels off the edge)
-                let label_left_pad = self.text_size as i32;
+                let label_left_pad = plain_font.font_size as i32;
 
                 let mut checklist_visual: Option<ChecklistVisual> = None;
 
                 // Determine label text and padding width
                 let (label_text, label_pad_width, content_start_x) = if let Some(checked) = checkbox
                 {
-                    let mut marker_box_size = (self.text_size as i32).saturating_sub(4);
+                    let mut marker_box_size = (plain_font.font_size as i32).saturating_sub(4);
                     if marker_box_size < 8 {
                         marker_box_size = 8;
                     }
-                    if marker_box_size > self.line_height {
-                        marker_box_size = self.line_height;
+                    if marker_box_size > default_line_height {
+                        marker_box_size = default_line_height;
                     }
 
-                    let mut space_width =
-                        ctx.text_width(" ", self.text_font, self.text_style, self.text_size) as i32;
+                    let mut space_width = ctx.text_width(
+                        " ",
+                        plain_font.font_type,
+                        plain_font.font_style,
+                        plain_font.font_size,
+                    ) as i32;
                     if space_width < 4 {
                         space_width = 4;
                     }
@@ -772,9 +771,12 @@ impl StructuredRichDisplay {
 
                     // Pad width is width of the largest label text (max_num + ". ")
                     let max_label = format!("{}. ", max_num);
-                    let label_pad_width =
-                        ctx.text_width(&max_label, self.text_font, self.text_style, self.text_size)
-                            as i32;
+                    let label_pad_width = ctx.text_width(
+                        &max_label,
+                        plain_font.font_type,
+                        plain_font.font_style,
+                        plain_font.font_size,
+                    ) as i32;
 
                     // Current label text
                     let idx_in_run = block_idx - run_start;
@@ -788,9 +790,9 @@ impl StructuredRichDisplay {
                     let bullet_text = "• ".to_string();
                     let bullet_width = ctx.text_width(
                         &bullet_text,
-                        self.text_font,
-                        self.text_style,
-                        self.text_size,
+                        plain_font.font_type,
+                        plain_font.font_style,
+                        plain_font.font_size,
                     ) as i32;
                     let content_start_x = start_x + label_left_pad + bullet_width;
                     (bullet_text, bullet_width, content_start_x)
@@ -801,7 +803,14 @@ impl StructuredRichDisplay {
                     text: label_text,
                     x: start_x + label_left_pad,
                     width: label_pad_width,
-                    style_idx: 0,
+                    font_type: self.theme.plain_text.font_type,
+                    font_style: self.theme.plain_text.font_style,
+                    font_size: self.theme.plain_text.font_size,
+                    font_color: self.theme.plain_text.font_color,
+                    background_color: self.theme.plain_text.background_color,
+                    underline: false,
+                    strikethrough: false,
+                    highlight: false,
                     block_index: block_idx,
                     char_range: (0, 0),
                     inline_index: None,
@@ -816,7 +825,7 @@ impl StructuredRichDisplay {
                     y,
                     content_start_x,
                     width - (content_start_x - start_x),
-                    self.line_height,
+                    default_line_height,
                     ctx,
                 );
 
@@ -842,14 +851,14 @@ impl StructuredRichDisplay {
 
                     self.layout_lines.push(LayoutLine {
                         y: current_y,
-                        height: self.line_height,
+                        height: default_line_height,
                         base_x: content_start_x,
                         block_index: block_idx,
                         char_start,
                         char_end,
                         runs,
                     });
-                    current_y += self.line_height;
+                    current_y += default_line_height;
 
                     // Add remaining lines
                     for line_runs in content_runs.iter().skip(1) {
@@ -858,27 +867,27 @@ impl StructuredRichDisplay {
 
                         self.layout_lines.push(LayoutLine {
                             y: current_y,
-                            height: self.line_height,
+                            height: default_line_height,
                             base_x: content_start_x,
                             block_index: block_idx,
                             char_start,
                             char_end,
                             runs: line_runs.clone(),
                         });
-                        current_y += self.line_height;
+                        current_y += default_line_height;
                     }
                 } else {
                     // Just bullet
                     self.layout_lines.push(LayoutLine {
                         y: current_y,
-                        height: self.line_height,
+                        height: default_line_height,
                         base_x: content_start_x,
                         block_index: block_idx,
                         char_start: 0,
                         char_end: 0,
                         runs,
                     });
-                    current_y += self.line_height;
+                    current_y += default_line_height;
                 }
 
                 current_y + 2
@@ -950,6 +959,58 @@ impl StructuredRichDisplay {
         current_y + 5
     }
 
+    fn resolve_text_run_style(
+        &self,
+        base_font: FontSettings,
+        text_style: &TextStyle,
+    ) -> ResolvedRunStyle {
+        let mut settings = if text_style.code {
+            self.theme.code_text
+        } else {
+            base_font
+        };
+
+        let base_is_bold = matches!(settings.font_style, FontStyle::Bold | FontStyle::BoldItalic);
+        let base_is_italic = matches!(
+            settings.font_style,
+            FontStyle::Italic | FontStyle::BoldItalic
+        );
+
+        let final_bold = text_style.bold || base_is_bold;
+        let final_italic = text_style.italic || base_is_italic;
+
+        let font_style = match (final_bold, final_italic) {
+            (true, true) => FontStyle::BoldItalic,
+            (true, false) => FontStyle::Bold,
+            (false, true) => FontStyle::Italic,
+            (false, false) => FontStyle::Regular,
+        };
+
+        let highlight = text_style.highlight;
+        let mut background_color = settings.background_color;
+        if highlight {
+            background_color = Some(DEFAULT_HIGHLIGHT_COLOR);
+        }
+
+        ResolvedRunStyle {
+            font_type: settings.font_type,
+            font_style,
+            font_size: settings.font_size,
+            font_color: settings.font_color,
+            background_color,
+            underline: text_style.underline,
+            strikethrough: text_style.strikethrough,
+            highlight,
+        }
+    }
+
+    fn resolve_link_run_style(&self, base_font: FontSettings) -> ResolvedRunStyle {
+        let mut style = self.resolve_text_run_style(base_font, &TextStyle::plain());
+        style.font_color = self.theme.link_color;
+        style.underline = true;
+        style
+    }
+
     /// Layout inline content with word wrapping
     /// Returns (lines of runs, final_y)
     fn layout_inline_content(
@@ -969,22 +1030,24 @@ impl StructuredRichDisplay {
         let mut current_y = y;
         let mut char_offset = 0;
 
-        // Determine if this is a heading - if so, use heading style for all text
-        let block_style_override = match block_type {
-            BlockType::Heading { .. } => Some(self.get_style_for_block_type(block_type)),
-            _ => None,
+        let base_font = match block_type {
+            BlockType::Heading { level } => match level {
+                1 => self.theme.header_level_1,
+                2 => self.theme.header_level_2,
+                _ => self.theme.header_level_3,
+            },
+            BlockType::BlockQuote => self.theme.quote_text,
+            BlockType::CodeBlock { .. } => self.theme.code_text,
+            _ => self.theme.plain_text,
         };
 
         for (inline_idx, item) in content.iter().enumerate() {
             match item {
                 InlineContent::Text(run) => {
-                    // Use block style for headings, otherwise use text style
-                    let style_idx = if let Some(override_style) = block_style_override {
-                        override_style
-                    } else {
-                        self.get_style_for_text_style(&run.style)
-                    };
-                    let (font, fstyle, size) = self.get_font_for_style(style_idx);
+                    let style = self.resolve_text_run_style(base_font, &run.style);
+                    let font = style.font_type;
+                    let fstyle = style.font_style;
+                    let size = style.font_size;
 
                     // Word wrap - track actual positions in original text
                     let text = &run.text;
@@ -1019,7 +1082,14 @@ impl StructuredRichDisplay {
                                     text: space_text.to_string(),
                                     x: current_x,
                                     width: space_width,
-                                    style_idx,
+                                    font_type: style.font_type,
+                                    font_style: style.font_style,
+                                    font_size: style.font_size,
+                                    font_color: style.font_color,
+                                    background_color: style.background_color,
+                                    underline: style.underline,
+                                    strikethrough: style.strikethrough,
+                                    highlight: style.highlight,
                                     block_index: block_idx,
                                     char_range: (char_offset, char_offset + space_end),
                                     inline_index: Some(inline_idx),
@@ -1059,7 +1129,14 @@ impl StructuredRichDisplay {
                                 text: word_text.to_string(),
                                 x: current_x,
                                 width: word_width,
-                                style_idx,
+                                font_type: style.font_type,
+                                font_style: style.font_style,
+                                font_size: style.font_size,
+                                font_color: style.font_color,
+                                background_color: style.background_color,
+                                underline: style.underline,
+                                strikethrough: style.strikethrough,
+                                highlight: style.highlight,
                                 block_index: block_idx,
                                 char_range: (char_offset + word_start, char_offset + word_end),
                                 inline_index: Some(inline_idx),
@@ -1081,16 +1158,16 @@ impl StructuredRichDisplay {
                     link: _,
                     content: link_content,
                 } => {
-                    // Render link content
-                    // For simplicity, treat as styled text
-                    let style_idx = 5; // STYLE_LINK
+                    // Render link content using link styling
+                    let style = self.resolve_link_run_style(base_font);
                     let text = link_content
                         .iter()
                         .map(|c| c.to_plain_text())
                         .collect::<String>();
 
-                    let (font, fstyle, size) = self.get_font_for_style(style_idx);
-                    let text_width = ctx.text_width(&text, font, fstyle, size) as i32;
+                    let text_width =
+                        ctx.text_width(&text, style.font_type, style.font_style, style.font_size)
+                            as i32;
 
                     if current_x + text_width > start_x + width && current_x > start_x {
                         lines.push(current_line);
@@ -1103,7 +1180,14 @@ impl StructuredRichDisplay {
                         text: text.clone(),
                         x: current_x,
                         width: text_width,
-                        style_idx,
+                        font_type: style.font_type,
+                        font_style: style.font_style,
+                        font_size: style.font_size,
+                        font_color: style.font_color,
+                        background_color: style.background_color,
+                        underline: style.underline,
+                        strikethrough: style.strikethrough,
+                        highlight: style.highlight,
                         block_index: block_idx,
                         char_range: (char_offset, char_offset + text.len()),
                         inline_index: Some(inline_idx),
@@ -1114,13 +1198,24 @@ impl StructuredRichDisplay {
                     char_offset += text.len();
                 }
                 InlineContent::LineBreak => {
-                    let space_width =
-                        ctx.text_width(" ", self.text_font, self.text_style, self.text_size) as i32;
+                    let space_width = ctx.text_width(
+                        " ",
+                        base_font.font_type,
+                        base_font.font_style,
+                        base_font.font_size,
+                    ) as i32;
                     current_line.push(VisualRun {
                         text: " ".to_string(),
                         x: current_x,
                         width: space_width,
-                        style_idx: 0,
+                        font_type: base_font.font_type,
+                        font_style: base_font.font_style,
+                        font_size: base_font.font_size,
+                        font_color: base_font.font_color,
+                        background_color: base_font.background_color,
+                        underline: false,
+                        strikethrough: false,
+                        highlight: false,
                         block_index: block_idx,
                         char_range: (char_offset, char_offset + 1),
                         inline_index: Some(inline_idx),
@@ -1146,71 +1241,6 @@ impl StructuredRichDisplay {
         }
 
         (lines, if is_empty { y } else { current_y })
-    }
-
-    /// Get style index for block type
-    fn get_style_for_block_type(&self, block_type: &BlockType) -> u8 {
-        match block_type {
-            BlockType::Heading { level } => match level {
-                1 => 6, // STYLE_HEADER1
-                2 => 7, // STYLE_HEADER2
-                _ => 8, // STYLE_HEADER3
-            },
-            BlockType::CodeBlock { .. } => 4, // STYLE_CODE
-            BlockType::BlockQuote => 9,       // STYLE_QUOTE
-            _ => 0,                           // STYLE_PLAIN
-        }
-    }
-
-    /// Get style index for text style
-    ///
-    /// Style indices:
-    /// - 0-10: Predefined (plain, bold, italic, bold+italic, code, link, headers, quote, link_hover)
-    /// - 11-42: Computed based on style flags (base + decorations)
-    ///   Formula: 11 + (base * 8) + decoration_flags
-    ///   where base = 0 (plain), 1 (bold), 2 (italic), 3 (bold+italic)
-    ///   and decoration_flags = (underline ? 1 : 0) | (strikethrough ? 2 : 0) | (highlight ? 4 : 0)
-    fn get_style_for_text_style(&self, style: &TextStyle) -> u8 {
-        if style.code {
-            return 4; // STYLE_CODE
-        }
-
-        // Determine base style
-        let base = if style.bold && style.italic {
-            3
-        } else if style.bold {
-            1
-        } else if style.italic {
-            2
-        } else {
-            0
-        };
-
-        // Check if any decorations are present
-        if !style.underline && !style.strikethrough && !style.highlight {
-            return base; // Just base style (0, 1, 2, or 3)
-        }
-
-        // Compute decorated style index
-        // Decoration bits: underline=1, strikethrough=2, highlight=4
-        let decoration = (style.underline as u8)
-            | ((style.strikethrough as u8) << 1)
-            | ((style.highlight as u8) << 2);
-
-        // Style table layout reserves indices 0..10 for base styles and link variants.
-        // Decorated styles are appended as 7 entries per base style (for decoration values 1..7).
-        // Therefore the correct index is 11 + base*7 + (decoration-1).
-        11 + base * 7 + (decoration - 1)
-    }
-
-    /// Get font for style
-    fn get_font_for_style(&self, style_idx: u8) -> (FontType, FontStyle, u8) {
-        if (style_idx as usize) < self.style_table.len() {
-            let style = &self.style_table[style_idx as usize];
-            (style.font, style.style, style.size)
-        } else {
-            (self.text_font, self.text_style, self.text_size)
-        }
     }
 
     /// Check if a visual run intersects with the current selection
@@ -1270,7 +1300,7 @@ impl StructuredRichDisplay {
         self.layout(ctx);
 
         // Draw background
-        ctx.set_color(self.background_color);
+        ctx.set_color(self.theme.background_color);
         ctx.draw_rect_filled(self.x, self.y, self.w, self.h);
 
         // Set up clipping
@@ -1290,11 +1320,10 @@ impl StructuredRichDisplay {
             if let Some(block) = self.editor.document().blocks().get(line.block_index) {
                 if let BlockType::BlockQuote = block.block_type {
                     // Position the bar slightly left of the quote text indent (start_x + 20)
-                    let bar_x = self.x + self.padding_left + 12;
+                    let bar_x = self.x + self.theme.padding_horizontal + 12;
                     let bar_y1 = self.y + line.y - self.scroll_offset;
                     let bar_y2 = bar_y1 + line.height;
-                    // Light gray bar color
-                    ctx.set_color(0xCCCCCCFF);
+                    ctx.set_color(self.theme.quote_bar_color);
                     ctx.draw_line(bar_x, bar_y1, bar_x, bar_y2);
                 }
             }
@@ -1305,24 +1334,9 @@ impl StructuredRichDisplay {
                     run.block_index == block_idx && run.inline_index == Some(inline_idx)
                 });
 
-                // Use hover style if applicable
-                let mut style_idx = run.style_idx;
-                if is_hovered && run.style_idx == 5 {
-                    // Link style -> Link hover style
-                    if self.style_table.len() > 10 {
-                        style_idx = 10; // STYLE_LINK_HOVER
-                    }
-                }
-
-                let style = if (style_idx as usize) < self.style_table.len() {
-                    &self.style_table[style_idx as usize]
-                } else {
-                    continue;
-                };
-
-                let descent = ctx.text_descent(style.font, style.style, style.size);
-                ctx.set_font(style.font, style.style, style.size);
-                ctx.set_color(style.color);
+                let descent = ctx.text_descent(run.font_type, run.font_style, run.font_size);
+                ctx.set_font(run.font_type, run.font_style, run.font_size);
+                ctx.set_color(run.font_color);
 
                 let line_top = self.y + line.y - self.scroll_offset;
                 let draw_x = self.x + run.x;
@@ -1364,17 +1378,18 @@ impl StructuredRichDisplay {
                     continue;
                 }
 
-                let draw_y = line_top + style.size as i32;
+                let draw_y = line_top + run.font_size as i32;
 
                 // Draw inline highlight background for styles that specify a bgcolor
                 // (e.g., text highlight). Draw this first so selection can paint over it.
                 {
                     let text_width =
-                        ctx.text_width(&run.text, style.font, style.style, style.size) as i32;
-                    if (style.attr & style_attr::BGCOLOR) != 0 {
-                        ctx.set_color(style.bgcolor);
+                        ctx.text_width(&run.text, run.font_type, run.font_style, run.font_size)
+                            as i32;
+                    if let Some(col) = run.background_color {
+                        ctx.set_color(col);
                         ctx.draw_rect_filled(draw_x, line_top, text_width, line.height);
-                        ctx.set_color(style.color); // Restore text color for text drawing
+                        ctx.set_color(run.font_color); // Restore text color for text drawing
                     }
                 }
 
@@ -1382,10 +1397,11 @@ impl StructuredRichDisplay {
                 // Draw this BEFORE selection so selection remains visible on top
                 if is_hovered {
                     let text_width =
-                        ctx.text_width(&run.text, style.font, style.style, style.size) as i32;
-                    ctx.set_color(style.bgcolor);
+                        ctx.text_width(&run.text, run.font_type, run.font_style, run.font_size)
+                            as i32;
+                    ctx.set_color(self.theme.link_hover_background);
                     ctx.draw_rect_filled(draw_x, line_top, text_width, line.height);
-                    ctx.set_color(style.color); // Restore text color
+                    ctx.set_color(run.font_color); // Restore text color
                 }
 
                 // Draw selection highlight (if run is selected)
@@ -1406,37 +1422,44 @@ impl StructuredRichDisplay {
                             ""
                         };
 
-                        let before_width =
-                            ctx.text_width(text_before, style.font, style.style, style.size) as i32;
-                        let sel_width =
-                            ctx.text_width(text_selected, style.font, style.style, style.size)
-                                as i32;
+                        let before_width = ctx.text_width(
+                            text_before,
+                            run.font_type,
+                            run.font_style,
+                            run.font_size,
+                        ) as i32;
+                        let sel_width = ctx.text_width(
+                            text_selected,
+                            run.font_type,
+                            run.font_style,
+                            run.font_size,
+                        ) as i32;
 
-                        ctx.set_color(self.selection_color);
+                        ctx.set_color(self.theme.selection_color);
                         ctx.draw_rect_filled(
                             draw_x + before_width,
                             line_top,
                             sel_width,
                             line.height,
                         );
-                        ctx.set_color(style.color); // Restore text color
+                        ctx.set_color(run.font_color); // Restore text color
                     }
                 }
 
                 ctx.draw_text(&run.text, draw_x, draw_y);
 
                 let text_width =
-                    ctx.text_width(&run.text, style.font, style.style, style.size) as i32;
+                    ctx.text_width(&run.text, run.font_type, run.font_style, run.font_size) as i32;
 
                 // Draw underline if needed (0x0004 = UNDERLINE)
-                if style.attr & 0x0004 != 0 {
+                if run.underline {
                     ctx.draw_line(draw_x, draw_y + 2, draw_x + text_width, draw_y + 2);
                 }
 
                 // Draw strikethrough if needed (0x0010 = STRIKE_THROUGH)
-                if style.attr & 0x0010 != 0 {
+                if run.strikethrough {
                     // Draw line through middle of text (roughly at half the font size)
-                    let strike_y = draw_y - (style.size as i32) / 2;
+                    let strike_y = draw_y - (run.font_size as i32) / 2;
                     ctx.draw_line(draw_x, strike_y, draw_x + text_width, strike_y);
                 }
             }
@@ -1449,7 +1472,7 @@ impl StructuredRichDisplay {
                 let screen_x = self.x + cx;
 
                 if screen_y >= self.y && screen_y < self.y + self.h {
-                    ctx.set_color(self.cursor_color);
+                    ctx.set_color(self.theme.cursor_color);
                     ctx.draw_line(screen_x, screen_y, screen_x, screen_y + ch);
                 }
             }
@@ -1487,7 +1510,7 @@ impl StructuredRichDisplay {
                 if cursor.offset >= run.char_range.0 && cursor.offset <= run.char_range.1 {
                     // Cursor is in this run - measure actual text width
                     let offset_in_run = cursor.offset - run.char_range.0;
-                    let (font, fstyle, size) = self.get_font_for_style(run.style_idx);
+                    let (font, fstyle, size) = (run.font_type, run.font_style, run.font_size);
 
                     // Measure the text up to the cursor position
                     let text_before_cursor = if offset_in_run < run.text.len() {
@@ -1504,7 +1527,7 @@ impl StructuredRichDisplay {
 
                 if cursor.offset > run.char_range.1 {
                     // Cursor is after this run - measure full run width
-                    let (font, fstyle, size) = self.get_font_for_style(run.style_idx);
+                    let (font, fstyle, size) = (run.font_type, run.font_style, run.font_size);
                     x = run.x + ctx.text_width(&run.text, font, fstyle, size) as i32;
                 }
             }
@@ -1516,7 +1539,11 @@ impl StructuredRichDisplay {
         if let Some(first_line) = self.layout_lines.first() {
             Some((first_line.base_x, first_line.y, first_line.height))
         } else {
-            Some((self.padding_left, self.padding_top, self.line_height))
+            Some((
+                self.theme.padding_horizontal,
+                self.theme.padding_vertical,
+                self.theme.line_height,
+            ))
         }
     }
 
@@ -1831,7 +1858,6 @@ mod tests {
 
     fn make_display_with_block(block: Block) -> StructuredRichDisplay {
         let mut display = StructuredRichDisplay::new(0, 0, 400, 300);
-        display.set_style_table(basic_style_table());
         {
             let editor = display.editor_mut();
             let mut doc = StructuredDocument::new();
@@ -1857,7 +1883,7 @@ mod tests {
 
         display.layout(&mut ctx);
         let (x, _, _) = display.get_cursor_visual_position(&mut ctx).unwrap();
-        assert_eq!(x, display.padding_left + 20);
+        assert_eq!(x, display.theme.padding_horizontal + 20);
     }
 
     #[test]
@@ -1875,11 +1901,13 @@ mod tests {
 
         let bullet_width = ctx.text_width(
             "• ",
-            display.text_font,
-            display.text_style,
-            display.text_size,
+            display.theme.plain_text.font_type,
+            display.theme.plain_text.font_style,
+            display.theme.plain_text.font_size,
         ) as i32;
-        let expected_x = display.padding_left + display.text_size as i32 + bullet_width;
+        let expected_x = display.theme.padding_horizontal
+            + display.theme.plain_text.font_size as i32
+            + bullet_width;
 
         display.layout(&mut ctx);
         let (x, _, _) = display.get_cursor_visual_position(&mut ctx).unwrap();
@@ -1901,11 +1929,13 @@ mod tests {
 
         let label_width = ctx.text_width(
             "3. ",
-            display.text_font,
-            display.text_style,
-            display.text_size,
+            display.theme.plain_text.font_type,
+            display.theme.plain_text.font_style,
+            display.theme.plain_text.font_size,
         ) as i32;
-        let expected_x = display.padding_left + display.text_size as i32 + label_width;
+        let expected_x = display.theme.padding_horizontal
+            + display.theme.plain_text.font_size as i32
+            + label_width;
 
         display.layout(&mut ctx);
         let (x, _, _) = display.get_cursor_visual_position(&mut ctx).unwrap();
@@ -1925,26 +1955,28 @@ mod tests {
         let mut display = make_display_with_block(block);
         let mut ctx = TestDrawContext::new_with_focus();
 
-        let mut checkbox_size = (display.text_size as i32).saturating_sub(4);
+        let mut checkbox_size = (display.theme.plain_text.font_size as i32).saturating_sub(4);
         if checkbox_size < 8 {
             checkbox_size = 8;
         }
-        if checkbox_size > display.line_height {
-            checkbox_size = display.line_height;
+        if checkbox_size > display.theme.line_height {
+            checkbox_size = display.theme.line_height;
         }
 
         let mut space_width = ctx.text_width(
             " ",
-            display.text_font,
-            display.text_style,
-            display.text_size,
+            display.theme.plain_text.font_type,
+            display.theme.plain_text.font_style,
+            display.theme.plain_text.font_size,
         ) as i32;
         if space_width < 4 {
             space_width = 4;
         }
 
-        let expected_x =
-            display.padding_left + display.text_size as i32 + checkbox_size + space_width;
+        let expected_x = display.theme.padding_horizontal
+            + display.theme.plain_text.font_size as i32
+            + checkbox_size
+            + space_width;
 
         display.layout(&mut ctx);
         let (x, _, _) = display.get_cursor_visual_position(&mut ctx).unwrap();
@@ -1959,7 +1991,7 @@ mod tests {
 
         display.layout(&mut ctx);
         let (x, _, _) = display.get_cursor_visual_position(&mut ctx).unwrap();
-        assert_eq!(x, display.padding_left + 10);
+        assert_eq!(x, display.theme.padding_horizontal + 10);
     }
 
     #[test]

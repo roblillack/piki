@@ -242,8 +242,6 @@ impl StructuredRichUI {
                 }
             }
 
-            ui.display.borrow_mut().set_style_table(styles);
-            ui.display.borrow_mut().set_padding(10, 10, 25, 25);
             ui.group.set_color(Color::from_rgb(255, 255, 245));
             ui.group.set_frame(fltk::enums::FrameType::FlatBox);
         }
