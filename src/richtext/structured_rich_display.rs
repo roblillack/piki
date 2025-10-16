@@ -382,10 +382,6 @@ impl StructuredRichDisplay {
     }
 
     pub fn record_preferred_pos(&mut self, pos: DocumentPosition) {
-        println!(
-            "Recording preferred pos: {}",
-            self.visual_line_offset(pos).unwrap_or(0)
-        );
         self.cursor_preferred_line_offset = self.visual_line_offset(pos);
     }
 
