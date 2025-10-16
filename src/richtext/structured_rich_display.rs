@@ -1451,16 +1451,18 @@ impl StructuredRichDisplay {
                 let text_width =
                     ctx.text_width(&run.text, run.font_type, run.font_style, run.font_size) as i32;
 
-                // Draw underline if needed (0x0004 = UNDERLINE)
+                // Draw underline if needed
                 if run.underline {
                     ctx.draw_line(draw_x, draw_y + 2, draw_x + text_width, draw_y + 2);
                 }
 
-                // Draw strikethrough if needed (0x0010 = STRIKE_THROUGH)
+                // Draw strikethrough if needed
                 if run.strikethrough {
                     // Draw line through middle of text (roughly at half the font size)
-                    let strike_y = draw_y - (run.font_size as i32) / 2;
-                    ctx.draw_line(draw_x, strike_y, draw_x + text_width, strike_y);
+                    let descent = ctx.text_descent(run.font_type, run.font_style, run.font_size);
+                    let strike_y = draw_y - (run.font_size as i32) / 2 + descent / 2 + 1;
+                    ctx.set_color(0xaaaaaaff);
+                    ctx.draw_rect_filled(draw_x, strike_y, text_width, 1);
                 }
             }
         }

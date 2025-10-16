@@ -43,7 +43,7 @@ impl Theme {
             quote_bar_color: 0xCCCCCCFF,       // Light gray quote bar
             quote_bar_width: 4,                // Width of the quote bar
             link_color: 0x0000EEFF,            // Standard blue link color
-            link_hover_background: 0xD0E1FFAA, // Light blue hover background
+            link_hover_background: 0xDDDDDDFF, // Light gray hover background
             link_hover_color: 0x0000AAFF,      // Darker blue link color
 
             padding_vertical: 10,
