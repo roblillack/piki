@@ -10,8 +10,6 @@ use crate::draw_context::FontType;
 use crate::sourceedit::text_display::StyleTableEntry;
 use crate::theme::{FontSettings, Theme};
 
-const DEFAULT_HIGHLIGHT_COLOR: u32 = 0xFFFF_00FF;
-
 /// Layout information for a rendered line
 #[derive(Debug, Clone)]
 struct LayoutLine {
@@ -1115,7 +1113,7 @@ impl StructuredRichDisplay {
         let highlight = text_style.highlight;
         let mut background_color = settings.background_color;
         if highlight {
-            background_color = Some(DEFAULT_HIGHLIGHT_COLOR);
+            background_color = Some(self.theme.highlight_color);
         }
 
         ResolvedRunStyle {

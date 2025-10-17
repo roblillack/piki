@@ -21,6 +21,8 @@ pub struct Theme {
     pub link_hover_background: u32,
     pub link_hover_color: u32,
 
+    pub highlight_color: u32,
+
     pub padding_vertical: i32,
     pub padding_horizontal: i32,
 
@@ -45,6 +47,7 @@ impl Theme {
             link_color: 0x0000EEFF,            // Standard blue link color
             link_hover_background: 0xDDDDDDFF, // Light gray hover background
             link_hover_color: 0x0000AAFF,      // Darker blue link color
+            highlight_color: 0xFFFF00FF,       // Yellow highlight color
 
             padding_vertical: 10,
             padding_horizontal: 25,
