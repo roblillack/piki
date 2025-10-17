@@ -1883,6 +1883,15 @@ impl FltkStructuredRichDisplay {
                                     fltk::app::paste(w);
                                     handled = true;
                                 }
+                                // Cmd/Ctrl-J (insert hard line break)
+                                else if cmd_modifier && key == Key::from_char('j') {
+                                    let mut disp = display.borrow_mut();
+                                    disp.editor_mut().insert_hard_break().ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                        (cb)();
+                                    }
+                                    handled = true;
+                                }
                                 // Cmd/Ctrl-Shift-H (toggle highlight)
                                 else if cmd_shift_modifier && key == Key::from_char('h') {
                                     let mut disp = display.borrow_mut();
@@ -2161,7 +2170,23 @@ impl FltkStructuredRichDisplay {
                                             handled = true;
                                         }
                                         Key::Enter => {
-                                            disp.editor_mut().insert_newline().ok();
+                                            let alt_pressed =
+                                                state.contains(Shortcut::Alt);
+                                            let ctrl_pressed =
+                                                state.contains(Shortcut::Ctrl);
+                                            let cmd_pressed =
+                                                state.contains(Shortcut::Command);
+                                            let force_hard_break = !cmd_pressed
+                                                && !ctrl_pressed
+                                                && (shift_held || alt_pressed);
+
+                                            if force_hard_break {
+                                                disp.editor_mut()
+                                                    .insert_hard_break()
+                                                    .ok();
+                                            } else {
+                                                disp.editor_mut().insert_newline().ok();
+                                            }
                                             if let Some(cb) = &mut *change_cb.borrow_mut() {
                                                 (cb)();
                                             }

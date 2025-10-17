@@ -125,9 +125,6 @@ fn inline_content_to_markdown(content: &[InlineContent]) -> String {
                 }
                 output.push(')');
             }
-            InlineContent::LineBreak => {
-                output.push(' ');
-            }
             InlineContent::HardBreak => {
                 output.push_str("  \n");
             }
@@ -273,7 +270,7 @@ fn ast_node_to_inline_content(node: &ASTNode) -> Vec<InlineContent> {
                 });
             }
             NodeType::SoftBreak => {
-                content.push(InlineContent::LineBreak);
+                content.push(InlineContent::Text(TextRun::plain(" ")));
             }
             NodeType::HardBreak => {
                 content.push(InlineContent::HardBreak);

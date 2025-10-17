@@ -337,7 +337,7 @@ impl StructuredEditor {
                         }
                     }
                 }
-                InlineContent::LineBreak | InlineContent::HardBreak => {
+                InlineContent::HardBreak => {
                     // Insert new text run before this element
                     block
                         .content
@@ -471,6 +471,38 @@ impl StructuredEditor {
             self.document.insert_block(block_index + 1, new_para);
             self.cursor = DocumentPosition::new(block_index + 1, 0);
         }
+
+        Ok(())
+    }
+
+    /// Insert an explicit hard line break at the current position (within the block)
+    pub fn insert_hard_break(&mut self) -> EditResult {
+        if self.document.is_empty() {
+            let mut block = Block::paragraph(0);
+            block.content.push(InlineContent::HardBreak);
+            self.document.add_block(block);
+            self.cursor = DocumentPosition::new(0, 1);
+            return Ok(());
+        }
+
+        let block_index = self.cursor.block_index;
+        if block_index >= self.document.block_count() {
+            return Err(EditError::InvalidBlockIndex);
+        }
+
+        if self.selection.is_some() {
+            self.delete_selection()?;
+        }
+
+        let offset = self.cursor.offset;
+        let blocks = self.document.blocks_mut();
+        let block = &mut blocks[block_index];
+
+        let right_content = block.split_content_at(offset);
+        block.content.push(InlineContent::HardBreak);
+        block.content.extend(right_content);
+
+        self.cursor.offset += 1;
 
         Ok(())
     }
@@ -1090,7 +1122,7 @@ impl StructuredEditor {
         let inserted_len = match block.content.get(block.content.len().saturating_sub(1)) {
             Some(InlineContent::Text(run)) => run.len(),
             Some(InlineContent::Link { content, .. }) => content.iter().map(|c| c.text_len()).sum(),
-            Some(InlineContent::LineBreak) | Some(InlineContent::HardBreak) => 1,
+            Some(InlineContent::HardBreak) => 1,
             _ => 0,
         };
         self.cursor.offset = offset + inserted_len;
@@ -2314,6 +2346,20 @@ mod tests {
 
         assert_eq!(editor.document().block_count(), 2);
         assert_eq!(editor.cursor().block_index, 1);
+    }
+
+    #[test]
+    fn test_insert_hard_break_in_text() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("HelloWorld").unwrap();
+        editor.set_cursor(DocumentPosition::new(0, 5));
+
+        editor.insert_hard_break().unwrap();
+
+        let block = &editor.document().blocks()[0];
+        assert_eq!(block.to_plain_text(), "Hello\nWorld");
+        assert!(matches!(block.content[1], InlineContent::HardBreak));
+        assert_eq!(editor.cursor(), DocumentPosition::new(0, 6));
     }
 
     #[test]

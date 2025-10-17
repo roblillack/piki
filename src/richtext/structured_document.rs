@@ -122,7 +122,6 @@ pub enum InlineContent {
         link: Link,
         content: Vec<InlineContent>,
     },
-    LineBreak, // Soft break (becomes space on wrap)
     HardBreak, // Hard break (explicit newline)
 }
 
@@ -132,7 +131,6 @@ impl InlineContent {
         match self {
             InlineContent::Text(run) => run.len(),
             InlineContent::Link { content, .. } => content.iter().map(|c| c.text_len()).sum(),
-            InlineContent::LineBreak => 1, // Treated as single character
             InlineContent::HardBreak => 1,
         }
     }
@@ -144,7 +142,6 @@ impl InlineContent {
             InlineContent::Link { content, .. } => {
                 content.iter().map(|c| c.to_plain_text()).collect()
             }
-            InlineContent::LineBreak => " ".to_string(),
             InlineContent::HardBreak => "\n".to_string(),
         }
     }
@@ -313,7 +310,7 @@ impl Block {
                             });
                         }
                     }
-                    InlineContent::LineBreak | InlineContent::HardBreak => {
+                    InlineContent::HardBreak => {
                         // If this break is within the deletion range, drop it
                         let local_start = start.saturating_sub(pos);
                         if local_start >= 1 {
@@ -397,7 +394,7 @@ impl Block {
                             });
                         }
                     }
-                    InlineContent::LineBreak | InlineContent::HardBreak => {
+                    InlineContent::HardBreak => {
                         let local = offset - pos; // 0..1
                         if local == 0 {
                             right.push(item.clone());

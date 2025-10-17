@@ -370,15 +370,20 @@ impl StructuredRichDisplay {
             .cursor_preferred_line_offset
             .unwrap_or(self.visual_line_offset(self.editor.cursor()).unwrap_or(0));
 
-        if new_offset >= line.char_end - line.char_start {
+        let line_len = line.char_end.saturating_sub(line.char_start);
+
+        if new_offset >= line_len {
             // If this line is wrapped, ensure to position the cursor before the space
-            let wrapper_offset = if let Some(line_idx) =
-                self.layout_lines.iter().position(|x| std::ptr::eq(x, line))
-            {
-                if let Some(next) = self.layout_lines.get(line_idx + 1)
-                    && next.block_index == line.block_index
+            let wrapper_offset = if line_len > 0 {
+                if let Some(line_idx) = self.layout_lines.iter().position(|x| std::ptr::eq(x, line))
                 {
-                    1
+                    if let Some(next) = self.layout_lines.get(line_idx + 1)
+                        && next.block_index == line.block_index
+                    {
+                        1
+                    } else {
+                        0
+                    }
                 } else {
                     0
                 }
@@ -386,7 +391,10 @@ impl StructuredRichDisplay {
                 0
             };
 
-            DocumentPosition::new(line.block_index, line.char_end - wrapper_offset)
+            DocumentPosition::new(
+                line.block_index,
+                line.char_end.saturating_sub(wrapper_offset),
+            )
         } else {
             DocumentPosition::new(line.block_index, line.char_start + new_offset)
         }
@@ -769,6 +777,124 @@ impl StructuredRichDisplay {
                         }
                     }
 
+                    #[cfg(test)]
+                    mod tests {
+                        use super::*;
+                        use crate::draw_context::{FontStyle, FontType};
+                        use crate::richtext::structured_document::{
+                            Block, DocumentPosition, InlineContent, StructuredDocument, TextRun,
+                        };
+
+                        struct TestCtx {
+                            focus: bool,
+                            active: bool,
+                        }
+
+                        impl TestCtx {
+                            fn new() -> Self {
+                                Self {
+                                    focus: true,
+                                    active: true,
+                                }
+                            }
+                        }
+
+                        impl DrawContext for TestCtx {
+                            fn set_color(&mut self, _color: u32) {}
+                            fn set_font(&mut self, _font: FontType, _style: FontStyle, _size: u8) {}
+                            fn draw_text(&mut self, _text: &str, _x: i32, _y: i32) {}
+                            fn draw_rect_filled(&mut self, _x: i32, _y: i32, _w: i32, _h: i32) {}
+                            fn draw_line(&mut self, _x1: i32, _y1: i32, _x2: i32, _y2: i32) {}
+                            fn text_width(
+                                &mut self,
+                                text: &str,
+                                _font: FontType,
+                                _style: FontStyle,
+                                _size: u8,
+                            ) -> f64 {
+                                text.chars().count() as f64 * 8.0
+                            }
+                            fn text_height(
+                                &self,
+                                _font: FontType,
+                                _style: FontStyle,
+                                size: u8,
+                            ) -> i32 {
+                                size as i32 + 4
+                            }
+                            fn text_descent(
+                                &self,
+                                _font: FontType,
+                                _style: FontStyle,
+                                _size: u8,
+                            ) -> i32 {
+                                4
+                            }
+                            fn push_clip(&mut self, _x: i32, _y: i32, _w: i32, _h: i32) {}
+                            fn pop_clip(&mut self) {}
+                            fn color_average(&self, c1: u32, _c2: u32, _weight: f32) -> u32 {
+                                c1
+                            }
+                            fn color_contrast(&self, fg: u32, _bg: u32) -> u32 {
+                                fg
+                            }
+                            fn color_inactive(&self, c: u32) -> u32 {
+                                c
+                            }
+                            fn has_focus(&self) -> bool {
+                                self.focus
+                            }
+                            fn is_active(&self) -> bool {
+                                self.active
+                            }
+                        }
+
+                        #[test]
+                        fn hard_break_blank_line_has_nonzero_offset() {
+                            let mut display = StructuredRichDisplay::new(0, 0, 400, 200);
+                            let mut doc = StructuredDocument::new();
+                            let mut block = Block::paragraph(0);
+                            block
+                                .content
+                                .push(InlineContent::Text(TextRun::plain("Hello")));
+                            block.content.push(InlineContent::HardBreak);
+                            block.content.push(InlineContent::HardBreak);
+                            block
+                                .content
+                                .push(InlineContent::Text(TextRun::plain("World")));
+                            doc.add_block(block);
+
+                            {
+                                let editor = display.editor_mut();
+                                *editor.document_mut() = doc;
+                                editor.set_cursor(DocumentPosition::new(0, 0));
+                            }
+
+                            let mut ctx = TestCtx::new();
+                            display.layout_valid = false;
+                            display.layout(&mut ctx);
+
+                            assert!(
+                                display.layout_lines.len() >= 3,
+                                "expected at least three visual lines, got {}",
+                                display.layout_lines.len()
+                            );
+
+                            let zero_len_offsets: Vec<usize> = display
+                                .layout_lines
+                                .iter()
+                                .filter(|line| line.char_start == line.char_end)
+                                .map(|line| line.char_start)
+                                .collect();
+
+                            assert!(
+                                zero_len_offsets.iter().any(|&offset| offset > 0),
+                                "expected a zero-length line with non-zero offset, got offsets {:?}",
+                                zero_len_offsets
+                            );
+                        }
+                    }
+
                     // Pad width is width of the largest label text (max_num + ". ")
                     let max_label = format!("{}. ", max_num);
                     let label_pad_width = ctx.text_width(
@@ -818,7 +944,7 @@ impl StructuredRichDisplay {
                 }];
 
                 // Layout the content with proper text indentation
-                let (mut content_runs, _y_after) = self.layout_inline_content(
+                let (mut content_runs, content_ranges, _y_after) = self.layout_inline_content(
                     &block.content,
                     &block.block_type,
                     block_idx,
@@ -833,6 +959,7 @@ impl StructuredRichDisplay {
 
                 // Merge bullet with first line
                 if !content_runs.is_empty() && !content_runs[0].is_empty() {
+                    let first_range = content_ranges.get(0).copied().unwrap_or((0, 0));
                     runs.extend(content_runs[0].drain(..));
 
                     // Calculate char range from content runs (skip bullet)
@@ -841,13 +968,13 @@ impl StructuredRichDisplay {
                         .skip(1)
                         .map(|r| r.char_range.0)
                         .min()
-                        .unwrap_or(0);
+                        .unwrap_or(first_range.0);
                     let char_end = runs
                         .iter()
                         .skip(1)
                         .map(|r| r.char_range.1)
                         .max()
-                        .unwrap_or(0);
+                        .unwrap_or(first_range.1);
 
                     self.layout_lines.push(LayoutLine {
                         y: current_y,
@@ -861,9 +988,9 @@ impl StructuredRichDisplay {
                     current_y += default_line_height;
 
                     // Add remaining lines
-                    for line_runs in content_runs.iter().skip(1) {
-                        let char_start = line_runs.first().map(|r| r.char_range.0).unwrap_or(0);
-                        let char_end = line_runs.last().map(|r| r.char_range.1).unwrap_or(0);
+                    for (idx, line_runs) in content_runs.iter().enumerate().skip(1) {
+                        let (char_start, char_end) =
+                            content_ranges.get(idx).copied().unwrap_or((0, 0));
 
                         self.layout_lines.push(LayoutLine {
                             y: current_y,
@@ -906,7 +1033,7 @@ impl StructuredRichDisplay {
         line_height: i32,
         ctx: &mut dyn DrawContext,
     ) -> i32 {
-        let (lines, _y_after) = self.layout_inline_content(
+        let (lines, line_ranges, _y_after) = self.layout_inline_content(
             &block.content,
             &block.block_type,
             block_idx,
@@ -932,10 +1059,9 @@ impl StructuredRichDisplay {
             });
             current_y += line_height;
         } else {
-            for line_runs in lines {
-                // Calculate char_start and char_end from the runs
-                let char_start = line_runs.first().map(|r| r.char_range.0).unwrap_or(0);
-                let char_end = line_runs.last().map(|r| r.char_range.1).unwrap_or(0);
+            for (line_runs, (char_start, char_end)) in
+                lines.into_iter().zip(line_ranges.into_iter())
+            {
                 let base_x = line_runs
                     .iter()
                     .filter(|r| !(r.char_range.0 == r.char_range.1 && r.inline_index.is_none()))
@@ -1023,8 +1149,9 @@ impl StructuredRichDisplay {
         width: i32,
         line_height: i32,
         ctx: &mut dyn DrawContext,
-    ) -> (Vec<Vec<VisualRun>>, i32) {
+    ) -> (Vec<Vec<VisualRun>>, Vec<(usize, usize)>, i32) {
         let mut lines: Vec<Vec<VisualRun>> = Vec::new();
+        let mut line_ranges: Vec<(usize, usize)> = Vec::new();
         let mut current_line: Vec<VisualRun> = Vec::new();
         let mut current_x = start_x;
         let mut current_y = y;
@@ -1039,6 +1166,23 @@ impl StructuredRichDisplay {
             BlockType::BlockQuote => self.theme.quote_text,
             BlockType::CodeBlock { .. } => self.theme.code_text,
             _ => self.theme.plain_text,
+        };
+
+        let mut push_line = |lines: &mut Vec<Vec<VisualRun>>,
+                             ranges: &mut Vec<(usize, usize)>,
+                             current_line: &mut Vec<VisualRun>,
+                             default_offset: usize| {
+            let (start, end) = if let Some(first) = current_line.first() {
+                let last_end = current_line
+                    .last()
+                    .map(|r| r.char_range.1)
+                    .unwrap_or(first.char_range.1);
+                (first.char_range.0, last_end)
+            } else {
+                (default_offset, default_offset)
+            };
+            ranges.push((start, end));
+            lines.push(std::mem::take(current_line));
         };
 
         for (inline_idx, item) in content.iter().enumerate() {
@@ -1119,8 +1263,12 @@ impl StructuredRichDisplay {
 
                             if current_x + word_width > start_x + width && current_x > start_x {
                                 // Wrap to next line
-                                lines.push(current_line);
-                                current_line = Vec::new();
+                                push_line(
+                                    &mut lines,
+                                    &mut line_ranges,
+                                    &mut current_line,
+                                    char_offset,
+                                );
                                 current_x = start_x;
                                 current_y += line_height;
                             }
@@ -1170,8 +1318,7 @@ impl StructuredRichDisplay {
                             as i32;
 
                     if current_x + text_width > start_x + width && current_x > start_x {
-                        lines.push(current_line);
-                        current_line = Vec::new();
+                        push_line(&mut lines, &mut line_ranges, &mut current_line, char_offset);
                         current_x = start_x;
                         current_y += line_height;
                     }
@@ -1197,36 +1344,8 @@ impl StructuredRichDisplay {
                     current_x += text_width;
                     char_offset += text.len();
                 }
-                InlineContent::LineBreak => {
-                    let space_width = ctx.text_width(
-                        " ",
-                        base_font.font_type,
-                        base_font.font_style,
-                        base_font.font_size,
-                    ) as i32;
-                    current_line.push(VisualRun {
-                        text: " ".to_string(),
-                        x: current_x,
-                        width: space_width,
-                        font_type: base_font.font_type,
-                        font_style: base_font.font_style,
-                        font_size: base_font.font_size,
-                        font_color: base_font.font_color,
-                        background_color: base_font.background_color,
-                        underline: false,
-                        strikethrough: false,
-                        highlight: false,
-                        block_index: block_idx,
-                        char_range: (char_offset, char_offset + 1),
-                        inline_index: Some(inline_idx),
-                        checklist: None,
-                    });
-                    current_x += space_width;
-                    char_offset += 1;
-                }
                 InlineContent::HardBreak => {
-                    lines.push(current_line);
-                    current_line = Vec::new();
+                    push_line(&mut lines, &mut line_ranges, &mut current_line, char_offset);
                     current_x = start_x;
                     current_y += line_height;
                     char_offset += 1;
@@ -1237,10 +1356,10 @@ impl StructuredRichDisplay {
         let is_empty = lines.is_empty();
 
         if !current_line.is_empty() {
-            lines.push(current_line);
+            push_line(&mut lines, &mut line_ranges, &mut current_line, char_offset);
         }
 
-        (lines, if is_empty { y } else { current_y })
+        (lines, line_ranges, if is_empty { y } else { current_y })
     }
 
     /// Check if a visual run intersects with the current selection
