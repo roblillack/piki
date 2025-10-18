@@ -24,6 +24,8 @@ struct LayoutLine {
     /// Character offset range within the block [start, end)
     char_start: usize,
     char_end: usize,
+    /// Preferred visual end offset for cursor placement
+    visual_char_end: usize,
     /// Visual elements on this line
     runs: Vec<VisualRun>,
 }
@@ -316,6 +318,9 @@ impl StructuredRichDisplay {
         if offset < line.char_end {
             return true;
         }
+        if offset == line.char_end && line.visual_char_end == line.char_end {
+            return true;
+        }
         self.is_last_visual_line_in_block(line_index) && offset == line.char_end
     }
 
@@ -327,6 +332,36 @@ impl StructuredRichDisplay {
             }
         }
         None
+    }
+
+    fn compute_visual_char_end(&self, runs: &[VisualRun], char_end: usize, wrapped: bool) -> usize {
+        if !wrapped {
+            return char_end;
+        }
+
+        for run in runs.iter().rev() {
+            if run.char_range.0 == run.char_range.1 {
+                continue;
+            }
+
+            if run.text.is_empty() {
+                continue;
+            }
+
+            let trimmed = run.text.trim_end_matches(|c: char| c.is_whitespace());
+            if trimmed.len() == run.text.len() {
+                return run.char_range.1;
+            }
+
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            let delta = run.text.len() - trimmed.len();
+            return run.char_range.1.saturating_sub(delta);
+        }
+
+        char_end
     }
 
     fn current_line_index_for_cursor(&self) -> Option<usize> {
@@ -364,38 +399,22 @@ impl StructuredRichDisplay {
     }
 
     fn get_preferred_pos_for_line(&self, line: &LayoutLine) -> DocumentPosition {
-        let new_offset = self
+        let preferred_offset = self
             .cursor_preferred_line_offset
             .unwrap_or(self.visual_line_offset(self.editor.cursor()).unwrap_or(0));
 
-        let line_len = line.char_end.saturating_sub(line.char_start);
+        let line_visual_len = line.visual_char_end.saturating_sub(line.char_start);
+        let effective_offset = preferred_offset.min(line_visual_len);
 
-        if new_offset >= line_len {
-            // If this line is wrapped, ensure to position the cursor before the space
-            let wrapper_offset = if line_len > 0 {
-                if let Some(line_idx) = self.layout_lines.iter().position(|x| std::ptr::eq(x, line))
-                {
-                    if let Some(next) = self.layout_lines.get(line_idx + 1)
-                        && next.block_index == line.block_index
-                    {
-                        1
-                    } else {
-                        0
-                    }
-                } else {
-                    0
-                }
-            } else {
-                0
-            };
+        println!(
+            "Preferred offset: {}, line len: {}, line visual len: {}, effective offset: {}",
+            preferred_offset,
+            line.char_end - line.char_start,
+            line_visual_len,
+            effective_offset
+        );
 
-            DocumentPosition::new(
-                line.block_index,
-                line.char_end.saturating_sub(wrapper_offset),
-            )
-        } else {
-            DocumentPosition::new(line.block_index, line.char_start + new_offset)
-        }
+        DocumentPosition::new(line.block_index, line.char_start + effective_offset)
     }
 
     /// Move cursor one visual line up, using wrapped lines when applicable.
@@ -623,6 +642,24 @@ impl StructuredRichDisplay {
                     let line_width =
                         ctx.text_width(line, f.font_type, f.font_style, f.font_size) as i32;
                     let line_len = line.len();
+                    let mut runs = vec![VisualRun {
+                        text: (*line).to_string(),
+                        x: code_start_x,
+                        width: line_width,
+                        font_type: f.font_type,
+                        font_style: f.font_style,
+                        font_size: f.font_size,
+                        font_color: f.font_color,
+                        background_color: f.background_color,
+                        underline: false,
+                        strikethrough: false,
+                        highlight: false,
+                        block_index: block_idx,
+                        char_range: (0, line_len),
+                        inline_index: None,
+                        checklist: None,
+                    }];
+                    let visual_char_end = self.compute_visual_char_end(&runs, line_len, false);
                     self.layout_lines.push(LayoutLine {
                         y: current_y,
                         height: default_line_height,
@@ -630,23 +667,8 @@ impl StructuredRichDisplay {
                         block_index: block_idx,
                         char_start: 0,
                         char_end: line_len,
-                        runs: vec![VisualRun {
-                            text: (*line).to_string(),
-                            x: code_start_x,
-                            width: line_width,
-                            font_type: f.font_type,
-                            font_style: f.font_style,
-                            font_size: f.font_size,
-                            font_color: f.font_color,
-                            background_color: f.background_color,
-                            underline: false,
-                            strikethrough: false,
-                            highlight: false,
-                            block_index: block_idx,
-                            char_range: (0, line_len),
-                            inline_index: None,
-                            checklist: None,
-                        }],
+                        visual_char_end,
+                        runs,
                     });
                     current_y += default_line_height;
                 }
@@ -659,6 +681,7 @@ impl StructuredRichDisplay {
                         block_index: block_idx,
                         char_start: 0,
                         char_end: 0,
+                        visual_char_end: 0,
                         runs: Vec::new(),
                     });
                     current_y += default_line_height;
@@ -942,21 +965,23 @@ impl StructuredRichDisplay {
                 }];
 
                 // Layout the content with proper text indentation
-                let (mut content_runs, content_ranges, _y_after) = self.layout_inline_content(
-                    &block.content,
-                    &block.block_type,
-                    block_idx,
-                    y,
-                    content_start_x,
-                    width - (content_start_x - start_x),
-                    default_line_height,
-                    ctx,
-                );
+                let (mut content_runs, content_ranges, content_wraps, _y_after) = self
+                    .layout_inline_content(
+                        &block.content,
+                        &block.block_type,
+                        block_idx,
+                        y,
+                        content_start_x,
+                        width - (content_start_x - start_x),
+                        default_line_height,
+                        ctx,
+                    );
 
                 let mut current_y = y;
 
                 // Merge bullet with first line
                 if !content_runs.is_empty() && !content_runs[0].is_empty() {
+                    let first_wrap = content_wraps.get(0).copied().unwrap_or(false);
                     let first_range = content_ranges.get(0).copied().unwrap_or((0, 0));
                     runs.extend(content_runs[0].drain(..));
 
@@ -974,6 +999,7 @@ impl StructuredRichDisplay {
                         .max()
                         .unwrap_or(first_range.1);
 
+                    let visual_char_end = self.compute_visual_char_end(&runs, char_end, first_wrap);
                     self.layout_lines.push(LayoutLine {
                         y: current_y,
                         height: default_line_height,
@@ -981,6 +1007,7 @@ impl StructuredRichDisplay {
                         block_index: block_idx,
                         char_start,
                         char_end,
+                        visual_char_end,
                         runs,
                     });
                     current_y += default_line_height;
@@ -989,6 +1016,9 @@ impl StructuredRichDisplay {
                     for (idx, line_runs) in content_runs.iter().enumerate().skip(1) {
                         let (char_start, char_end) =
                             content_ranges.get(idx).copied().unwrap_or((0, 0));
+                        let wrapped = content_wraps.get(idx).copied().unwrap_or(false);
+                        let visual_char_end =
+                            self.compute_visual_char_end(line_runs, char_end, wrapped);
 
                         self.layout_lines.push(LayoutLine {
                             y: current_y,
@@ -997,6 +1027,7 @@ impl StructuredRichDisplay {
                             block_index: block_idx,
                             char_start,
                             char_end,
+                            visual_char_end,
                             runs: line_runs.clone(),
                         });
                         current_y += default_line_height;
@@ -1010,6 +1041,7 @@ impl StructuredRichDisplay {
                         block_index: block_idx,
                         char_start: 0,
                         char_end: 0,
+                        visual_char_end: 0,
                         runs,
                     });
                     current_y += default_line_height;
@@ -1031,7 +1063,7 @@ impl StructuredRichDisplay {
         line_height: i32,
         ctx: &mut dyn DrawContext,
     ) -> i32 {
-        let (lines, line_ranges, _y_after) = self.layout_inline_content(
+        let (lines, line_ranges, line_wraps, _y_after) = self.layout_inline_content(
             &block.content,
             &block.block_type,
             block_idx,
@@ -1053,12 +1085,14 @@ impl StructuredRichDisplay {
                 block_index: block_idx,
                 char_start: 0,
                 char_end: 0,
+                visual_char_end: 0,
                 runs: Vec::new(),
             });
             current_y += line_height;
         } else {
-            for (line_runs, (char_start, char_end)) in
-                lines.into_iter().zip(line_ranges.into_iter())
+            for (line_runs, ((char_start, char_end), wrapped)) in lines
+                .into_iter()
+                .zip(line_ranges.into_iter().zip(line_wraps.into_iter()))
             {
                 let base_x = line_runs
                     .iter()
@@ -1067,6 +1101,8 @@ impl StructuredRichDisplay {
                     .min()
                     .unwrap_or(start_x);
 
+                let visual_char_end = self.compute_visual_char_end(&line_runs, char_end, wrapped);
+
                 self.layout_lines.push(LayoutLine {
                     y: current_y,
                     height: line_height,
@@ -1074,6 +1110,7 @@ impl StructuredRichDisplay {
                     block_index: block_idx,
                     char_start,
                     char_end,
+                    visual_char_end,
                     runs: line_runs,
                 });
                 current_y += line_height;
@@ -1147,8 +1184,9 @@ impl StructuredRichDisplay {
         width: i32,
         line_height: i32,
         ctx: &mut dyn DrawContext,
-    ) -> (Vec<Vec<VisualRun>>, Vec<(usize, usize)>, i32) {
+    ) -> (Vec<Vec<VisualRun>>, Vec<(usize, usize)>, Vec<bool>, i32) {
         let mut lines: Vec<Vec<VisualRun>> = Vec::new();
+        let mut line_wraps: Vec<bool> = Vec::new();
         let mut line_ranges: Vec<(usize, usize)> = Vec::new();
         let mut current_line: Vec<VisualRun> = Vec::new();
         let mut current_x = start_x;
@@ -1168,8 +1206,10 @@ impl StructuredRichDisplay {
 
         let mut push_line = |lines: &mut Vec<Vec<VisualRun>>,
                              ranges: &mut Vec<(usize, usize)>,
+                             wraps: &mut Vec<bool>,
                              current_line: &mut Vec<VisualRun>,
-                             default_offset: usize| {
+                             default_offset: usize,
+                             wrapped: bool| {
             let (start, end) = if let Some(first) = current_line.first() {
                 let last_end = current_line
                     .last()
@@ -1180,12 +1220,16 @@ impl StructuredRichDisplay {
                 (default_offset, default_offset)
             };
             ranges.push((start, end));
+            wraps.push(wrapped);
             lines.push(std::mem::take(current_line));
         };
+
+        let mut pending_empty_line = false;
 
         for (inline_idx, item) in content.iter().enumerate() {
             match item {
                 InlineContent::Text(run) => {
+                    pending_empty_line = false;
                     let style = self.resolve_text_run_style(base_font, &run.style);
                     let font = style.font_type;
                     let fstyle = style.font_style;
@@ -1264,8 +1308,10 @@ impl StructuredRichDisplay {
                                 push_line(
                                     &mut lines,
                                     &mut line_ranges,
+                                    &mut line_wraps,
                                     &mut current_line,
                                     char_offset,
+                                    true,
                                 );
                                 current_x = start_x;
                                 current_y += line_height;
@@ -1304,6 +1350,7 @@ impl StructuredRichDisplay {
                     link: _,
                     content: link_content,
                 } => {
+                    pending_empty_line = false;
                     // Render link content using link styling
                     let style = self.resolve_link_run_style(base_font);
                     let text = link_content
@@ -1316,7 +1363,14 @@ impl StructuredRichDisplay {
                             as i32;
 
                     if current_x + text_width > start_x + width && current_x > start_x {
-                        push_line(&mut lines, &mut line_ranges, &mut current_line, char_offset);
+                        push_line(
+                            &mut lines,
+                            &mut line_ranges,
+                            &mut line_wraps,
+                            &mut current_line,
+                            char_offset,
+                            true,
+                        );
                         current_x = start_x;
                         current_y += line_height;
                     }
@@ -1343,10 +1397,18 @@ impl StructuredRichDisplay {
                     char_offset += text.len();
                 }
                 InlineContent::HardBreak => {
-                    push_line(&mut lines, &mut line_ranges, &mut current_line, char_offset);
+                    push_line(
+                        &mut lines,
+                        &mut line_ranges,
+                        &mut line_wraps,
+                        &mut current_line,
+                        char_offset,
+                        false,
+                    );
                     current_x = start_x;
                     current_y += line_height;
                     char_offset += 1;
+                    pending_empty_line = true;
                 }
             }
         }
@@ -1354,10 +1416,32 @@ impl StructuredRichDisplay {
         let is_empty = lines.is_empty();
 
         if !current_line.is_empty() {
-            push_line(&mut lines, &mut line_ranges, &mut current_line, char_offset);
+            push_line(
+                &mut lines,
+                &mut line_ranges,
+                &mut line_wraps,
+                &mut current_line,
+                char_offset,
+                false,
+            );
+        } else if pending_empty_line {
+            // Preserve the trailing hard break by materializing an empty visual line.
+            push_line(
+                &mut lines,
+                &mut line_ranges,
+                &mut line_wraps,
+                &mut current_line,
+                char_offset,
+                false,
+            );
         }
 
-        (lines, line_ranges, if is_empty { y } else { current_y })
+        (
+            lines,
+            line_ranges,
+            line_wraps,
+            if is_empty { y } else { current_y },
+        )
     }
 
     /// Check if a visual run intersects with the current selection
@@ -1896,7 +1980,7 @@ impl StructuredRichDisplay {
 mod tests {
     use super::*;
     use crate::richtext::structured_document::{
-        Block, BlockType, DocumentPosition, StructuredDocument,
+        Block, BlockType, DocumentPosition, InlineContent, StructuredDocument, TextRun,
     };
     use crate::sourceedit::text_display::StyleTableEntry;
 
@@ -2111,6 +2195,46 @@ mod tests {
         display.layout(&mut ctx);
         let (x, _, _) = display.get_cursor_visual_position(&mut ctx).unwrap();
         assert_eq!(x, display.theme.padding_horizontal + 10);
+    }
+
+    #[test]
+    fn trailing_hard_break_creates_empty_visual_line() {
+        let mut block = Block::paragraph(0);
+        block
+            .content
+            .push(InlineContent::Text(TextRun::plain("Hello")));
+        block.content.push(InlineContent::HardBreak);
+
+        let mut display = make_display_with_block(block);
+
+        let mut layout_ctx = TestDrawContext::new_with_focus();
+        display.layout(&mut layout_ctx);
+
+        assert_eq!(
+            display.layout_lines.len(),
+            2,
+            "Trailing hard break should produce two visual lines"
+        );
+
+        let end_offset = display.editor().document().blocks()[0].text_len();
+        {
+            let editor = display.editor_mut();
+            editor.set_cursor(DocumentPosition::new(0, end_offset));
+        }
+
+        let trailing_line = display
+            .layout_lines
+            .last()
+            .expect("Expected trailing layout line for hard break");
+        assert_eq!(trailing_line.char_start, end_offset);
+        assert_eq!(trailing_line.char_end, end_offset);
+
+        let mut ctx = TestDrawContext::new_with_focus();
+        let (cursor_x, cursor_y, _) = display
+            .get_cursor_visual_position(&mut ctx)
+            .expect("Cursor position should resolve with trailing hard break");
+        assert_eq!(cursor_x, trailing_line.base_x);
+        assert_eq!(cursor_y, trailing_line.y);
     }
 
     #[test]

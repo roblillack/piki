@@ -338,10 +338,28 @@ impl StructuredEditor {
                     }
                 }
                 InlineContent::HardBreak => {
-                    // Insert new text run before this element
-                    block
-                        .content
-                        .insert(content_idx, InlineContent::Text(TextRun::plain(text)));
+                    // Insert relative to the hard break depending on cursor offset:
+                    // offset 0 -> before break, offset >= break length -> after break.
+                    if content_offset == 0 {
+                        block
+                            .content
+                            .insert(content_idx, InlineContent::Text(TextRun::plain(text)));
+                    } else {
+                        // After the hard break: merge with following text run when possible.
+                        if content_idx + 1 < block.content.len() {
+                            match &mut block.content[content_idx + 1] {
+                                InlineContent::Text(run) => run.insert_text(0, text),
+                                _ => block.content.insert(
+                                    content_idx + 1,
+                                    InlineContent::Text(TextRun::plain(text)),
+                                ),
+                            }
+                        } else {
+                            block
+                                .content
+                                .push(InlineContent::Text(TextRun::plain(text)));
+                        }
+                    }
                 }
             }
         }
@@ -2360,6 +2378,32 @@ mod tests {
         assert_eq!(block.to_plain_text(), "Hello\nWorld");
         assert!(matches!(block.content[1], InlineContent::HardBreak));
         assert_eq!(editor.cursor(), DocumentPosition::new(0, 6));
+    }
+
+    #[test]
+    fn test_insert_text_after_trailing_hard_break_appends() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("Hello").unwrap();
+        editor.insert_hard_break().unwrap();
+
+        editor.insert_text("World").unwrap();
+
+        let block = &editor.document().blocks()[0];
+        assert_eq!(block.content.len(), 3, "Expected text, break, text runs");
+        assert!(
+            matches!(block.content[1], InlineContent::HardBreak),
+            "Second inline should remain the hard break"
+        );
+        assert!(
+            matches!(block.content[2], InlineContent::Text(_)),
+            "Inserted text should appear after the hard break"
+        );
+        assert_eq!(block.to_plain_text(), "Hello\nWorld");
+        assert_eq!(
+            editor.cursor(),
+            DocumentPosition::new(0, block.text_len()),
+            "Cursor should advance past inserted text"
+        );
     }
 
     #[test]
