@@ -6,6 +6,10 @@ use super::markdown_ast::{ASTNode, Document as ASTDocument, NodeType};
 use super::markdown_parser::parse_markdown;
 use super::structured_document::*;
 
+const MAX_LINE_WIDTH: usize = 80;
+const BR_TOKEN: &str = "<<__FLIKI_BR__>>";
+const NEWLINE_TOKEN: &str = "<<__FLIKI_NL__>>";
+
 /// Convert markdown text to a StructuredDocument
 pub fn markdown_to_document(markdown: &str) -> StructuredDocument {
     let ast_doc = parse_markdown(markdown);
@@ -32,49 +36,44 @@ pub fn document_to_markdown(doc: &StructuredDocument) -> String {
             }
         }
 
-        match &block.block_type {
+        let block_markdown = match &block.block_type {
             BlockType::Paragraph => {
-                output.push_str(&inline_content_to_markdown(&block.content));
+                wrap_text_with_indent(&inline_content_to_markdown(&block.content), "", "")
             }
             BlockType::Heading { level } => {
-                output.push_str(&"#".repeat(*level as usize));
-                output.push(' ');
-                output.push_str(&inline_content_to_markdown(&block.content));
+                let mut heading = "#".repeat(*level as usize);
+                heading.push(' ');
+                heading.push_str(&inline_content_to_markdown(&block.content));
+                heading
             }
             BlockType::CodeBlock { language } => {
-                output.push_str("```");
+                let mut code = String::from("```");
                 if let Some(lang) = language {
-                    output.push_str(lang);
+                    code.push_str(lang);
                 }
-                output.push('\n');
-                output.push_str(&block.to_plain_text());
-                output.push_str("\n```");
+                code.push('\n');
+                code.push_str(&block.to_plain_text());
+                code.push_str("\n```");
+                code
             }
-            BlockType::BlockQuote => {
-                output.push_str("> ");
-                output.push_str(&inline_content_to_markdown(&block.content));
-            }
+            BlockType::BlockQuote => wrap_text_with_indent(
+                &inline_content_to_markdown(&block.content),
+                "> ",
+                "> ",
+            ),
             BlockType::ListItem {
                 ordered,
                 number,
                 checkbox,
             } => {
-                if let Some(checked) = checkbox {
-                    let marker = if *checked { "[x] " } else { "[ ] " };
-                    output.push_str("- ");
-                    output.push_str(marker);
-                } else if *ordered {
-                    if let Some(n) = number {
-                        output.push_str(&format!("{}. ", n));
-                    } else {
-                        output.push_str("1. ");
-                    }
-                } else {
-                    output.push_str("- ");
-                }
-                output.push_str(&inline_content_to_markdown(&block.content));
+                let inline = inline_content_to_markdown(&block.content);
+                let (initial_indent, subsequent_indent) =
+                    list_item_indents(*ordered, *number, *checkbox);
+                wrap_text_with_indent(&inline, &initial_indent, &subsequent_indent)
             }
-        }
+        };
+
+        output.push_str(&block_markdown);
 
         is_first_block = false;
         prev_list_ordered = current_list_ordered;
@@ -164,6 +163,132 @@ fn inline_content_to_markdown(content: &[InlineContent]) -> String {
     }
 
     output
+}
+
+fn wrap_text_with_indent(text: &str, initial_indent: &str, subsequent_indent: &str) -> String {
+    if text.is_empty() {
+        return initial_indent.to_string();
+    }
+
+    if text.trim().is_empty() {
+        return initial_indent.to_string();
+    }
+
+    if initial_indent.len() + text.len() <= MAX_LINE_WIDTH {
+        if initial_indent.is_empty() {
+            return text.to_string();
+        }
+        let mut line = initial_indent.to_string();
+        line.push_str(text);
+        return line;
+    }
+
+    let mut normalized = text.replace("<br>", &format!(" {} ", BR_TOKEN));
+    normalized = normalized.replace('\n', &format!(" {} ", NEWLINE_TOKEN));
+
+    let mut lines: Vec<String> = Vec::new();
+    let mut current_line = String::new();
+    let mut is_first_line = true;
+
+    for token in normalized.split_whitespace() {
+        if token == BR_TOKEN {
+            if !current_line.is_empty() {
+                current_line.push_str("<br>");
+                lines.push(std::mem::take(&mut current_line));
+            } else if let Some(last) = lines.last_mut() {
+                last.push_str("<br>");
+            } else {
+                lines.push("<br>".to_string());
+            }
+            is_first_line = false;
+            continue;
+        }
+
+        if token == NEWLINE_TOKEN {
+            lines.push(std::mem::take(&mut current_line));
+            is_first_line = false;
+            continue;
+        }
+
+        let word = token;
+        loop {
+            let indent_len = if is_first_line && current_line.is_empty() {
+                initial_indent.len()
+            } else {
+                subsequent_indent.len()
+            };
+            let needed_len = if current_line.is_empty() {
+                indent_len + word.len()
+            } else {
+                indent_len + current_line.len() + 1 + word.len()
+            };
+
+            if !current_line.is_empty() && needed_len > MAX_LINE_WIDTH {
+                lines.push(std::mem::take(&mut current_line));
+                is_first_line = false;
+                continue;
+            }
+
+            if current_line.is_empty() && indent_len + word.len() > MAX_LINE_WIDTH {
+                current_line.push_str(word);
+            } else {
+                if !current_line.is_empty() {
+                    current_line.push(' ');
+                }
+                current_line.push_str(word);
+            }
+
+            break;
+        }
+    }
+
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+
+    if lines.is_empty() {
+        return initial_indent.to_string();
+    }
+
+    let mut result = String::new();
+    for (idx, line) in lines.into_iter().enumerate() {
+        if idx > 0 {
+            result.push('\n');
+        }
+        let indent = if idx == 0 {
+            initial_indent
+        } else {
+            subsequent_indent
+        };
+        result.push_str(indent);
+        result.push_str(&line);
+    }
+
+    result
+}
+
+fn list_item_indents(
+    ordered: bool,
+    number: Option<u64>,
+    checkbox: Option<bool>,
+) -> (String, String) {
+    if let Some(checked) = checkbox {
+        let marker = if checked { "[x] " } else { "[ ] " };
+        let initial = format!("- {}", marker);
+        let subsequent = " ".repeat(initial.len());
+        return (initial, subsequent);
+    }
+
+    if ordered {
+        let value = number.unwrap_or(1);
+        let initial = format!("{}. ", value);
+        let subsequent = " ".repeat(initial.len());
+        return (initial, subsequent);
+    }
+
+    let initial = "- ".to_string();
+    let subsequent = "  ".to_string();
+    (initial, subsequent)
 }
 
 /// Convert AST to StructuredDocument
@@ -284,6 +409,12 @@ fn ast_node_to_inline_content(node: &ASTNode) -> Vec<InlineContent> {
                     underline: style.underline,
                     highlight: style.highlight,
                 };
+                if let Some(InlineContent::Text(existing)) = content.last_mut() {
+                    if existing.style == text_style {
+                        existing.text.push_str(text);
+                        continue;
+                    }
+                }
                 content.push(InlineContent::Text(TextRun::new(text, text_style)));
             }
             NodeType::WikiLink { destination: _ } => {}
@@ -302,7 +433,11 @@ fn ast_node_to_inline_content(node: &ASTNode) -> Vec<InlineContent> {
                 });
             }
             NodeType::SoftBreak => {
-                content.push(InlineContent::Text(TextRun::plain(" ")));
+                if let Some(InlineContent::Text(existing)) = content.last_mut() {
+                    existing.text.push(' ');
+                } else {
+                    content.push(InlineContent::Text(TextRun::plain(" ")));
+                }
             }
             NodeType::HardBreak => {
                 content.push(InlineContent::HardBreak);
@@ -311,6 +446,16 @@ fn ast_node_to_inline_content(node: &ASTNode) -> Vec<InlineContent> {
                 // Recursively process container nodes
                 if child.node_type.can_have_children() {
                     content.extend(ast_node_to_inline_content(child));
+                }
+            }
+        }
+    }
+
+    for idx in 1..content.len() {
+        if matches!(content[idx - 1], InlineContent::HardBreak) {
+            if let InlineContent::Text(run) = &mut content[idx] {
+                if run.text.starts_with(' ') {
+                    run.text.remove(0);
                 }
             }
         }
@@ -508,6 +653,7 @@ mod tests {
             )
             .with_plain_text("Todo"),
         );
+        doc.add_block(Block::paragraph(0).with_plain_text(""));
         doc.add_block(
             Block::new(
                 0,
@@ -521,7 +667,157 @@ mod tests {
         );
 
         let md = document_to_markdown(&doc);
-        assert_eq!(md, "- [ ] Todo\n\n- [x] Done");
+        assert_eq!(md, "- [ ] Todo\n\n\n\n- [x] Done");
+    }
+
+    #[test]
+    fn test_markdown_export_wraps_paragraph_without_modifying_structure() {
+        let mut doc = StructuredDocument::new();
+        let long_text = (0..6)
+            .map(|_| "Lorem ipsum dolor sit amet, consectetur adipiscing elit.")
+            .collect::<Vec<_>>()
+            .join(" ");
+        doc.add_block(Block::paragraph(0).with_plain_text(long_text));
+
+        let markdown = document_to_markdown(&doc);
+        let lines: Vec<&str> = markdown.lines().collect();
+        assert!(
+            lines.len() > 1,
+            "expected wrapped output for long paragraph, got: {}",
+            markdown
+        );
+
+        for line in &lines {
+            assert!(
+                line.len() <= MAX_LINE_WIDTH,
+                "line exceeded {} characters: {}",
+                MAX_LINE_WIDTH,
+                line
+            );
+        }
+
+        let round_tripped = markdown_to_document(&markdown);
+        assert_eq!(round_tripped.blocks(), doc.blocks());
+    }
+
+    #[test]
+    fn test_markdown_export_wraps_list_items_with_round_trip() {
+        let mut doc = StructuredDocument::new();
+        let long_text = (0..6)
+            .map(|_| "Aliquam fermentum sapien nec quam feugiat, vitae placerat mauris luctus.")
+            .collect::<Vec<_>>()
+            .join(" ");
+        doc.add_block(
+            Block::new(
+                0,
+                BlockType::ListItem {
+                    ordered: false,
+                    number: None,
+                    checkbox: None,
+                },
+            )
+            .with_plain_text(long_text),
+        );
+
+        let markdown = document_to_markdown(&doc);
+        let lines: Vec<&str> = markdown.lines().collect();
+        assert!(
+            lines.len() > 1,
+            "expected wrapped output for long list item, got: {}",
+            markdown
+        );
+        assert!(
+            lines.iter().skip(1).all(|line| line.starts_with("  ")),
+            "expected subsequent lines to be indented with spaces: {:?}",
+            lines
+        );
+        for line in &lines {
+            assert!(
+                line.len() <= MAX_LINE_WIDTH,
+                "line exceeded {} characters: {}",
+                MAX_LINE_WIDTH,
+                line
+            );
+        }
+
+        let round_tripped = markdown_to_document(&markdown);
+        assert_eq!(round_tripped.blocks(), doc.blocks());
+    }
+
+    #[test]
+    fn test_markdown_export_wraps_blockquotes_with_round_trip() {
+        let mut doc = StructuredDocument::new();
+        let long_text = (0..5)
+            .map(|_| "Praesent a orci sed lorem cursus tempor id ut lectus.")
+            .collect::<Vec<_>>()
+            .join(" ");
+        doc.add_block(Block::new(0, BlockType::BlockQuote).with_plain_text(long_text));
+
+        let markdown = document_to_markdown(&doc);
+        let lines: Vec<&str> = markdown.lines().collect();
+        assert!(
+            lines.len() > 1,
+            "expected wrapped output for blockquote, got: {}",
+            markdown
+        );
+        assert!(
+            lines.iter().all(|line| line.starts_with("> ")),
+            "expected each blockquote line to start with '> ': {:?}",
+            lines
+        );
+        for line in &lines {
+            assert!(
+                line.len() <= MAX_LINE_WIDTH,
+                "line exceeded {} characters: {}",
+                MAX_LINE_WIDTH,
+                line
+            );
+        }
+
+        let round_tripped = markdown_to_document(&markdown);
+        assert_eq!(round_tripped.blocks(), doc.blocks());
+    }
+
+    #[test]
+    fn test_markdown_export_wraps_blockquote_with_html_breaks() {
+        let mut doc = StructuredDocument::new();
+        let mut block = Block::new(0, BlockType::BlockQuote);
+        block
+            .content
+            .push(InlineContent::Text(TextRun::plain("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur elementum augue ut erat laoreet, at tristique leo laoreet.")));
+        block.content.push(InlineContent::HardBreak);
+        block.content.push(InlineContent::HardBreak);
+        block
+            .content
+            .push(InlineContent::Text(TextRun::plain("Vestibulum ante ipsum primis in faucibus orci luctus et ultrices posuere cubilia curae; Integer euismod, justo in consequat fermentum, est mi sodales justo, at aliquam est mauris a lectus.")));
+        doc.add_block(block);
+
+        let markdown = document_to_markdown(&doc);
+        let lines: Vec<&str> = markdown.lines().collect();
+        assert!(
+            lines.len() > 2,
+            "expected wrapped blockquote with multiple lines, got: {}",
+            markdown
+        );
+        assert!(
+            lines.iter().all(|line| line.starts_with("> ")),
+            "expected blockquote lines to keep '> ' prefix: {:?}",
+            lines
+        );
+        assert!(
+            lines.iter().all(|line| line.len() <= MAX_LINE_WIDTH),
+            "line exceeded {} characters: {:?}",
+            MAX_LINE_WIDTH,
+            lines
+        );
+        assert!(
+            markdown.contains("<br>"),
+            "expected HTML breaks to be preserved: {}",
+            markdown
+        );
+
+        let round_tripped = markdown_to_document(&markdown);
+        assert_eq!(round_tripped.blocks(), doc.blocks());
     }
 
     #[test]
