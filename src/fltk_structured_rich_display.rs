@@ -2170,20 +2170,15 @@ impl FltkStructuredRichDisplay {
                                             handled = true;
                                         }
                                         Key::Enter => {
-                                            let alt_pressed =
-                                                state.contains(Shortcut::Alt);
-                                            let ctrl_pressed =
-                                                state.contains(Shortcut::Ctrl);
-                                            let cmd_pressed =
-                                                state.contains(Shortcut::Command);
+                                            let alt_pressed = state.contains(Shortcut::Alt);
+                                            let ctrl_pressed = state.contains(Shortcut::Ctrl);
+                                            let cmd_pressed = state.contains(Shortcut::Command);
                                             let force_hard_break = !cmd_pressed
                                                 && !ctrl_pressed
                                                 && (shift_held || alt_pressed);
 
                                             if force_hard_break {
-                                                disp.editor_mut()
-                                                    .insert_hard_break()
-                                                    .ok();
+                                                disp.editor_mut().insert_hard_break().ok();
                                             } else {
                                                 disp.editor_mut().insert_newline().ok();
                                             }

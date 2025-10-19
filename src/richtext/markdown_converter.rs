@@ -73,7 +73,7 @@ pub fn document_to_markdown(doc: &StructuredDocument) -> String {
 fn inline_content_to_markdown(content: &[InlineContent]) -> String {
     let mut output = String::new();
 
-    for item in content {
+    for (idx, item) in content.iter().enumerate() {
         match item {
             InlineContent::Text(run) => {
                 let text = &run.text;
@@ -126,7 +126,25 @@ fn inline_content_to_markdown(content: &[InlineContent]) -> String {
                 output.push(')');
             }
             InlineContent::HardBreak => {
-                output.push_str("  \n");
+                let trailing_hard_break = content[idx..]
+                    .iter()
+                    .all(|c| matches!(c, InlineContent::HardBreak));
+                let next_is_hard_break = content
+                    .get(idx + 1)
+                    .map(|c| matches!(c, InlineContent::HardBreak))
+                    .unwrap_or(false);
+                let prev_is_hard_break =
+                    idx > 0 && matches!(content.get(idx - 1), Some(InlineContent::HardBreak));
+                let part_of_hard_break_run = prev_is_hard_break || next_is_hard_break;
+
+                if trailing_hard_break || part_of_hard_break_run {
+                    output.push_str("<br>");
+                    if trailing_hard_break && !next_is_hard_break {
+                        output.push('\n');
+                    }
+                } else {
+                    output.push_str("  \n");
+                }
             }
         }
     }
@@ -436,5 +454,90 @@ mod tests {
             .iter()
             .any(|c| matches!(c, InlineContent::Link { .. }));
         assert!(has_link);
+    }
+
+    #[test]
+    fn test_double_hard_break_round_trip() {
+        let mut doc = StructuredDocument::new();
+        let mut block = Block::paragraph(0);
+        block
+            .content
+            .push(InlineContent::Text(TextRun::plain("Line 1")));
+        block.content.push(InlineContent::HardBreak);
+        block.content.push(InlineContent::HardBreak);
+        block
+            .content
+            .push(InlineContent::Text(TextRun::plain("Line 2")));
+        doc.add_block(block);
+
+        let markdown = document_to_markdown(&doc);
+        assert_eq!(markdown, "Line 1<br><br>Line 2");
+
+        let round_tripped = markdown_to_document(&markdown);
+        assert_eq!(
+            round_tripped.block_count(),
+            1,
+            "blocks after round trip: {:?}",
+            round_tripped.blocks()
+        );
+        let block = &round_tripped.blocks()[0];
+        assert_eq!(block.content, doc.blocks()[0].content);
+    }
+
+    #[test]
+    fn test_double_hard_break_round_trip_in_list_item() {
+        let mut doc = StructuredDocument::new();
+        let mut block = Block::new(
+            0,
+            BlockType::ListItem {
+                ordered: false,
+                number: None,
+                checkbox: None,
+            },
+        );
+        block
+            .content
+            .push(InlineContent::Text(TextRun::plain("First line")));
+        block.content.push(InlineContent::HardBreak);
+        block.content.push(InlineContent::HardBreak);
+        block
+            .content
+            .push(InlineContent::Text(TextRun::plain("Second line")));
+        doc.add_block(block);
+
+        let markdown = document_to_markdown(&doc);
+        assert_eq!(markdown, "- First line<br><br>Second line");
+
+        let round_tripped = markdown_to_document(&markdown);
+        assert_eq!(
+            round_tripped.block_count(),
+            1,
+            "blocks after round trip: {:?}",
+            round_tripped.blocks()
+        );
+        match &round_tripped.blocks()[0].block_type {
+            BlockType::ListItem { .. } => {}
+            other => panic!("expected list item, got {:?}", other),
+        }
+        assert_eq!(round_tripped.blocks()[0].content, doc.blocks()[0].content);
+    }
+
+    #[test]
+    fn test_trailing_double_hard_break_round_trip() {
+        let mut doc = StructuredDocument::new();
+        let mut block = Block::paragraph(0);
+        block
+            .content
+            .push(InlineContent::Text(TextRun::plain("Line 1")));
+        block.content.push(InlineContent::HardBreak);
+        block.content.push(InlineContent::HardBreak);
+        doc.add_block(block);
+
+        let markdown = document_to_markdown(&doc);
+        assert_eq!(markdown, "Line 1<br><br>\n");
+
+        let round_tripped = markdown_to_document(&markdown);
+        assert_eq!(round_tripped.block_count(), 1);
+        assert_eq!(round_tripped.blocks()[0].content, doc.blocks()[0].content);
     }
 }

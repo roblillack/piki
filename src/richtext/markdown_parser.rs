@@ -150,24 +150,35 @@ pub fn parse_markdown(text: &str) -> Document {
             }
 
             Event::Html(html) | Event::InlineHtml(html) => {
-                // Handle <u> and <mark> HTML tags for underline and highlight
+                // Handle <br> explicit breaks plus <u>/<mark> styling tags
                 let html_str = html.to_string();
-                if html_str == "<u>" || html_str.starts_with("<u ") {
+                let trimmed = html_str.trim();
+                let normalized = trimmed.to_ascii_lowercase();
+
+                if matches!(normalized.as_str(), "<br>" | "<br/>" | "<br />") {
+                    let node =
+                        ASTNode::new(doc.next_id(), NodeType::HardBreak, range.start, range.end);
+                    if let Some(parent) = node_stack.last_mut() {
+                        parent.add_child(node);
+                    } else {
+                        doc.root.add_child(node);
+                    }
+                } else if trimmed == "<u>" || trimmed.starts_with("<u ") {
                     // Start underline
                     let mut new_style = style_stack.last().copied().unwrap_or_default();
                     new_style.underline = true;
                     style_stack.push(new_style);
-                } else if html_str == "</u>" {
+                } else if trimmed == "</u>" {
                     // End underline
                     if style_stack.len() > 1 {
                         style_stack.pop();
                     }
-                } else if html_str == "<mark>" || html_str.starts_with("<mark ") {
+                } else if trimmed == "<mark>" || trimmed.starts_with("<mark ") {
                     // Start highlight
                     let mut new_style = style_stack.last().copied().unwrap_or_default();
                     new_style.highlight = true;
                     style_stack.push(new_style);
-                } else if html_str == "</mark>" {
+                } else if trimmed == "</mark>" {
                     // End highlight
                     if style_stack.len() > 1 {
                         style_stack.pop();
