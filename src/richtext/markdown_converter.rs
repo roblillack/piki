@@ -16,9 +16,20 @@ pub fn markdown_to_document(markdown: &str) -> StructuredDocument {
 pub fn document_to_markdown(doc: &StructuredDocument) -> String {
     let mut output = String::new();
 
-    for (i, block) in doc.blocks().iter().enumerate() {
-        if i > 0 {
-            output.push_str("\n\n");
+    let mut is_first_block = true;
+    let mut prev_list_ordered: Option<bool> = None;
+
+    for block in doc.blocks() {
+        let current_list_ordered = match &block.block_type {
+            BlockType::ListItem { ordered, .. } => Some(*ordered),
+            _ => None,
+        };
+
+        if !is_first_block {
+            match (prev_list_ordered, current_list_ordered) {
+                (Some(prev), Some(curr)) if prev == curr => output.push('\n'),
+                _ => output.push_str("\n\n"),
+            }
         }
 
         match &block.block_type {
@@ -64,6 +75,9 @@ pub fn document_to_markdown(doc: &StructuredDocument) -> String {
                 output.push_str(&inline_content_to_markdown(&block.content));
             }
         }
+
+        is_first_block = false;
+        prev_list_ordered = current_list_ordered;
     }
 
     output
@@ -375,7 +389,98 @@ mod tests {
         );
 
         let md = document_to_markdown(&doc);
-        assert_eq!(md, "- Item 1\n\n- Item 2");
+        assert_eq!(md, "- Item 1\n- Item 2");
+    }
+
+    #[test]
+    fn test_document_to_markdown_ordered_list_spacing() {
+        let mut doc = StructuredDocument::new();
+        doc.add_block(
+            Block::new(
+                0,
+                BlockType::ListItem {
+                    ordered: true,
+                    number: Some(1),
+                    checkbox: None,
+                },
+            )
+            .with_plain_text("First"),
+        );
+        doc.add_block(
+            Block::new(
+                0,
+                BlockType::ListItem {
+                    ordered: true,
+                    number: Some(2),
+                    checkbox: None,
+                },
+            )
+            .with_plain_text("Second"),
+        );
+
+        let md = document_to_markdown(&doc);
+        assert_eq!(md, "1. First\n2. Second");
+    }
+
+    #[test]
+    fn test_document_to_markdown_checklist_spacing() {
+        let mut doc = StructuredDocument::new();
+        doc.add_block(
+            Block::new(
+                0,
+                BlockType::ListItem {
+                    ordered: false,
+                    number: None,
+                    checkbox: Some(false),
+                },
+            )
+            .with_plain_text("Todo"),
+        );
+        doc.add_block(
+            Block::new(
+                0,
+                BlockType::ListItem {
+                    ordered: false,
+                    number: None,
+                    checkbox: Some(true),
+                },
+            )
+            .with_plain_text("Done"),
+        );
+
+        let md = document_to_markdown(&doc);
+        assert_eq!(md, "- [ ] Todo\n- [x] Done");
+    }
+
+    #[test]
+    fn test_document_to_markdown_list_spacing_between_types() {
+        let mut doc = StructuredDocument::new();
+        doc.add_block(
+            Block::new(
+                0,
+                BlockType::ListItem {
+                    ordered: false,
+                    number: None,
+                    checkbox: None,
+                },
+            )
+            .with_plain_text("Bullet item"),
+        );
+        doc.add_block(
+            Block::new(
+                0,
+                BlockType::ListItem {
+                    ordered: true,
+                    number: Some(1),
+                    checkbox: None,
+                },
+            )
+            .with_plain_text("Numbered item"),
+        );
+        doc.add_block(Block::paragraph(0).with_plain_text("After list"));
+
+        let md = document_to_markdown(&doc);
+        assert_eq!(md, "- Bullet item\n\n1. Numbered item\n\nAfter list");
     }
 
     #[test]
