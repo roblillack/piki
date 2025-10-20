@@ -36,6 +36,7 @@ pub fn show_page_picker(
     let py = parent.y() + (parent.h() - height) / 2;
     let mut win = Window::new(px.max(0), py.max(0), width, height, Some("Open Page"));
     win.begin();
+    win.make_modal(true);
 
     let mut input = Input::new(10, 10, width - 20, 28, None);
     let mut list = HoldBrowser::new(10, 50, width - 20, height - 60, None);
