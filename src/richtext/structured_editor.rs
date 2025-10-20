@@ -628,6 +628,79 @@ impl StructuredEditor {
         self.normalize_cursor();
         Ok(())
     }
+
+    /// Delete up to `byte_count` bytes immediately before the cursor (used for IME composition).
+    /// Returns `Ok(true)` when any content was removed.
+    pub fn delete_backward_bytes(
+        &mut self,
+        mut byte_count: usize,
+    ) -> Result<bool, EditError> {
+        if byte_count == 0 {
+            return Ok(false);
+        }
+
+        if self.document.is_empty() {
+            return Err(EditError::EmptyDocument);
+        }
+
+        // Ensure cursor is on a valid grapheme boundary before calculating ranges.
+        self.normalize_cursor();
+
+        let original_cursor = self.cursor;
+        let mut start = original_cursor;
+
+        {
+            let doc = self.document();
+            if doc.block_count() == 0 {
+                return Ok(false);
+            }
+
+            // Clamp to valid block in case document shrank unexpectedly
+            if start.block_index >= doc.block_count() {
+                start.block_index = doc.block_count() - 1;
+                start.offset = doc.blocks()[start.block_index].text_len();
+            }
+
+            while byte_count > 0 {
+                if start.offset == 0 {
+                    if start.block_index == 0 {
+                        break;
+                    }
+                    start.block_index -= 1;
+                    start.offset = doc.blocks()[start.block_index].text_len();
+                    continue;
+                }
+
+                if let Some(prev_offset) =
+                    doc.previous_grapheme_offset(start.block_index, start.offset)
+                {
+                    let removed = start.offset - prev_offset;
+                    start.offset = prev_offset;
+
+                    if removed == 0 {
+                        break;
+                    }
+
+                    if removed > byte_count {
+                        byte_count = 0;
+                    } else {
+                        byte_count -= removed;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+
+        if start == original_cursor {
+            return Ok(false);
+        }
+
+        self.set_selection(start, original_cursor);
+        self.delete_selection()?;
+        Ok(true)
+    }
+
     /// Delete character at cursor (delete key)
     pub fn delete_forward(&mut self) -> EditResult {
         if self.document.is_empty() {

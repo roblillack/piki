@@ -1315,7 +1315,7 @@ impl FltkStructuredRichDisplay {
                     }
                     Event::KeyDown => {
                         let key = fltk::app::event_key();
-                        let text_input = fltk::app::event_text();
+                        let mut text_input = fltk::app::event_text();
                         let state = fltk::app::event_state();
 
                         // Handle editing keys if in edit mode
@@ -2213,13 +2213,52 @@ impl FltkStructuredRichDisplay {
                                             #[cfg(not(target_os = "macos"))]
                                             let has_cmd_modifier = state.contains(Shortcut::Ctrl);
 
-                                            if !text_input.is_empty() && !has_cmd_modifier {
-                                                disp.editor_mut().insert_text(&text_input).ok();
-                                                did_horizontal = true;
-                                                if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                                    (cb)();
+                                            if !has_cmd_modifier {
+                                                let compose_result = fltk::app::compose();
+                                                if compose_result.is_some() {
+                                                    text_input = fltk::app::event_text();
                                                 }
-                                                handled = true;
+
+                                                let mut text_changed = false;
+                                                {
+                                                    let editor = disp.editor_mut();
+
+                                                    if let Some(del) = compose_result {
+                                                        let delete_bytes =
+                                                            del.max(0) as usize;
+                                                        if delete_bytes > 0 {
+                                                            if matches!(
+                                                                editor
+                                                                    .delete_backward_bytes(
+                                                                        delete_bytes
+                                                                    ),
+                                                                Ok(true)
+                                                            ) {
+                                                                text_changed = true;
+                                                                did_horizontal = true;
+                                                            }
+                                                        }
+                                                    }
+
+                                                    if !text_input.is_empty() {
+                                                        if editor.insert_text(&text_input).is_ok()
+                                                        {
+                                                            text_changed = true;
+                                                            did_horizontal = true;
+                                                        }
+                                                    }
+                                                }
+
+                                                if text_changed {
+                                                    if let Some(cb) =
+                                                        &mut *change_cb.borrow_mut()
+                                                    {
+                                                        (cb)();
+                                                    }
+                                                    handled = true;
+                                                } else if compose_result.is_some() {
+                                                    handled = true;
+                                                }
                                             }
                                         }
                                     }
