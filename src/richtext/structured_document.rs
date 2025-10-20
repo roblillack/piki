@@ -332,7 +332,7 @@ impl Block {
         let end = min(end, len);
         let mut content = std::mem::take(&mut self.content);
         delete_in_vec(&mut content, start, end);
-        self.content = content;
+        self.content = Self::normalize_inline_vec(content);
     }
 
     /// Split this block's content at a flattened text offset, returning the right part.
@@ -414,6 +414,44 @@ impl Block {
         let (left, right) = split_vec(&self.content, offset);
         self.content = left;
         right
+    }
+
+    fn normalize_inline_vec(content: Vec<InlineContent>) -> Vec<InlineContent> {
+        let mut normalized: Vec<InlineContent> = Vec::with_capacity(content.len());
+        for item in content.into_iter() {
+            match item {
+                InlineContent::Text(run) => {
+                    if run.text.is_empty() {
+                        continue;
+                    }
+                    match normalized.last_mut() {
+                        Some(InlineContent::Text(prev_run)) if prev_run.style == run.style => {
+                            prev_run.text.push_str(&run.text);
+                        }
+                        _ => normalized.push(InlineContent::Text(run)),
+                    }
+                }
+                InlineContent::Link { link, content: inner } => {
+                    let normalized_inner = Self::normalize_inline_vec(inner);
+                    if normalized_inner.is_empty() {
+                        continue;
+                    }
+                    normalized.push(InlineContent::Link {
+                        link,
+                        content: normalized_inner,
+                    });
+                }
+                InlineContent::HardBreak => {
+                    normalized.push(InlineContent::HardBreak);
+                }
+            }
+        }
+        normalized
+    }
+
+    pub fn normalize_content(&mut self) {
+        let content = std::mem::take(&mut self.content);
+        self.content = Self::normalize_inline_vec(content);
     }
 
     /// Insert plain text at a flattened text offset
@@ -687,6 +725,7 @@ impl StructuredDocument {
                 .content
                 .extend(tail_content.drain(..));
         }
+        self.blocks[a.block_index].normalize_content();
     }
 
     /// Replace content in [start..end) with plain text. Supports multi-paragraph text using \n\n separators.
@@ -760,6 +799,7 @@ impl StructuredDocument {
             let target = last_block_index;
             self.blocks[target].content.extend(trailing_right.drain(..));
         }
+        self.blocks[last_block_index].normalize_content();
     }
 }
 

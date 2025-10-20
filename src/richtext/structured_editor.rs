@@ -570,6 +570,7 @@ impl StructuredEditor {
                 let prev_len = prev_block.text_len();
                 // Merge content
                 prev_block.content.extend(current_block.content);
+                prev_block.normalize_content();
                 self.cursor = DocumentPosition::new(block_index - 1, prev_len);
             }
 
@@ -740,7 +741,9 @@ impl StructuredEditor {
             {
                 let blocks = self.document.blocks_mut();
                 let next_block = blocks.remove(block_index + 1);
-                blocks[block_index].content.extend(next_block.content);
+                let block = &mut blocks[block_index];
+                block.content.extend(next_block.content);
+                block.normalize_content();
             }
 
             match (cur_type, next_type) {
