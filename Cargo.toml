@@ -14,6 +14,9 @@ pulldown-cmark = "0.13.0"
 clap = { version = "4.5", features = ["derive"] }
 walkdir = "2.5"
 regex = "1.10"
+directories = "5"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
 
 [dev-dependencies]
 insta = "1.34"

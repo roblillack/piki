@@ -10,6 +10,7 @@ mod page_picker;
 mod plugin;
 pub mod responsive_scrollbar;
 pub mod sourceedit;
+mod window_state;
 
 use autosave::AutoSaveState;
 use clap::Parser;
@@ -24,6 +25,9 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
+use window_state::WindowGeometry;
+
+const WINDOW_STATE_SAVE_TIMEOUT_SECS: f64 = 3.0;
 
 #[derive(Parser, Debug)]
 #[command(name = "fliki-rs")]
@@ -735,9 +739,23 @@ fn main() {
 
     // Initialize FLTK
     let app = app::App::default();
+    let window_state_path = window_state::state_file_path().map(Rc::new);
     let mut wind = window::Window::default()
         .with_size(660, 400)
         .with_label("fliki-rs");
+
+    if let Some(path) = window_state_path.as_ref() {
+        if let Some(saved_state) = window_state::load_state(path.as_path()) {
+            if saved_state.width > 0 && saved_state.height > 0 {
+                wind.resize(
+                    saved_state.x,
+                    saved_state.y,
+                    saved_state.width,
+                    saved_state.height,
+                );
+            }
+        }
+    }
 
     // #[cfg(target_os = "macos")]
     // wind.set_color(Color::White);
@@ -758,13 +776,13 @@ fn main() {
 
     // macOS uses system menu bar (no space needed), other platforms use window menu bar (25px)
     #[cfg(target_os = "macos")]
-    let (editor_y, editor_height) = (5, 370);
+    let (editor_y, editor_height) = (5, wind.h() - 30);
     #[cfg(not(target_os = "macos"))]
-    let (editor_y, editor_height) = (30, 345);
+    let (editor_y, editor_height) = (30, wind.h() - 55);
 
     // Create only the initially active editor (structured rich editor)
     let editor_x = 5;
-    let editor_w = 650;
+    let editor_w = wind.w() - 10;
     let editor_h = editor_height;
     let rich_editor: Rc<RefCell<dyn PageUI>> = Rc::new(RefCell::new(StructuredRichUI::new(
         editor_x, editor_y, editor_w, editor_h, true,
@@ -774,7 +792,7 @@ fn main() {
 
     // Create two status frames at the bottom: page status and save status
     let page_status = Rc::new(RefCell::new({
-        let mut f = frame::Frame::new(5, 375, 400, 25, None);
+        let mut f = frame::Frame::new(5, wind.h() - 25, 400, 25, None);
         f.set_frame(enums::FrameType::FlatBox);
         f.set_label("...");
         f.set_align(enums::Align::Left | enums::Align::Inside);
@@ -782,7 +800,7 @@ fn main() {
     }));
 
     let save_status = Rc::new(RefCell::new({
-        let mut f = frame::Frame::new(400, 375, 255, 25, None);
+        let mut f = frame::Frame::new(400, wind.h() - 25, wind.w() - 400 - 5, 25, None);
         f.set_frame(enums::FrameType::FlatBox);
         f.set_label("");
         f.set_align(enums::Align::Right | enums::Align::Inside);
@@ -830,6 +848,81 @@ fn main() {
         .set_bg_color(enums::Color::from_rgb(255, 255, 245));
 
     wind.end();
+
+    let window_geometry = Rc::new(RefCell::new(WindowGeometry {
+        x: wind.x(),
+        y: wind.y(),
+        width: wind.width(),
+        height: wind.height(),
+    }));
+    let pending_save_handle = Rc::new(RefCell::new(None::<app::TimeoutHandle>));
+
+    {
+        let geometry = window_geometry.clone();
+        let pending = pending_save_handle.clone();
+        let state_path_for_handler = window_state_path.clone();
+
+        wind.handle(move |win, event| match event {
+            enums::Event::Move | enums::Event::Resize => {
+                if (win.x() == geometry.borrow().x)
+                    && (win.y() == geometry.borrow().y)
+                    && (win.width() == geometry.borrow().width)
+                    && (win.height() == geometry.borrow().height)
+                {
+                    return false;
+                }
+
+                {
+                    let mut geom = geometry.borrow_mut();
+                    geom.x = win.x();
+                    geom.y = win.y();
+                    geom.width = win.width();
+                    geom.height = win.height();
+                }
+
+                if let Some(handle) = {
+                    let mut slot = pending.borrow_mut();
+                    slot.take()
+                } {
+                    app::remove_timeout3(handle);
+                }
+
+                if let Some(path) = state_path_for_handler.as_ref() {
+                    let geometry_for_timer = geometry.clone();
+                    let pending_for_timer = pending.clone();
+                    let path_for_timer = path.clone();
+                    let new_handle = app::add_timeout3(WINDOW_STATE_SAVE_TIMEOUT_SECS, move |_| {
+                        let snapshot = geometry_for_timer.borrow().clone();
+                        if let Err(err) =
+                            window_state::save_state(path_for_timer.as_path(), &snapshot)
+                        {
+                            eprintln!("Failed to save window state: {err}");
+                        }
+                        pending_for_timer.borrow_mut().take();
+                    });
+                    pending.borrow_mut().replace(new_handle);
+                }
+                false
+            }
+            enums::Event::Close => {
+                if let Some(handle) = {
+                    let mut slot = pending.borrow_mut();
+                    slot.take()
+                } {
+                    app::remove_timeout3(handle);
+                }
+                if let Some(path) = state_path_for_handler.as_ref() {
+                    let snapshot = geometry.borrow().clone();
+                    if let Err(err) = window_state::save_state(path.as_path(), &snapshot) {
+                        eprintln!("Failed to save window state on close: {err}");
+                    }
+                }
+                false
+            }
+            _ => false,
+        });
+    }
+
     active_editor.borrow().borrow().set_resizable(&mut wind);
     wind.show();
 
