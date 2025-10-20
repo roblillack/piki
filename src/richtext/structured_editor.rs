@@ -76,6 +76,10 @@ impl StructuredEditor {
         &mut self.document
     }
 
+    fn normalize_cursor(&mut self) {
+        self.cursor = self.document.clamp_position(self.cursor);
+    }
+
     /// Get cursor position
     pub fn cursor(&self) -> DocumentPosition {
         self.cursor
@@ -95,7 +99,7 @@ impl StructuredEditor {
     /// Set selection range
     pub fn set_selection(&mut self, start: DocumentPosition, end: DocumentPosition) {
         let start = self.document.clamp_position(start);
-        let end = self.document.clamp_position(end);
+        let end = self.document.clamp_position_forward(end);
         self.selection = Some((start, end));
     }
 
@@ -119,6 +123,7 @@ impl StructuredEditor {
         };
         self.selection = Some((start, end));
         self.cursor = end;
+        self.normalize_cursor();
     }
 
     /// Start or extend selection from current cursor position to a new position
@@ -136,6 +141,7 @@ impl StructuredEditor {
 
         // Update cursor to the end position
         self.cursor = end;
+        self.normalize_cursor();
     }
 
     /// Select the word at the given position
@@ -198,7 +204,7 @@ impl StructuredEditor {
         let end_pos = DocumentPosition::new(pos.block_index, end);
 
         self.set_selection(start_pos, end_pos);
-        self.cursor = end_pos;
+        self.cursor = self.document.clamp_position_forward(end_pos);
     }
 
     /// Select the entire line (block) at the given position
@@ -215,7 +221,7 @@ impl StructuredEditor {
         let end_pos = DocumentPosition::new(pos.block_index, block.text_len());
 
         self.set_selection(start_pos, end_pos);
-        self.cursor = end_pos;
+        self.cursor = self.document.clamp_position_forward(end_pos);
     }
 
     /// Insert text at cursor position
@@ -608,32 +614,20 @@ impl StructuredEditor {
             }
         } else {
             // Delete a single character within this block, respecting UTF-8 and nested links
-            let (prev_char_start, can_delete) = {
-                let blocks = self.document.blocks();
-                let block = &blocks[block_index];
-                let text = block.to_plain_text();
-                if offset == 0 || text.is_empty() {
-                    (0usize, false)
-                } else {
-                    let prev = text[..offset]
-                        .char_indices()
-                        .next_back()
-                        .map(|(i, _)| i)
-                        .unwrap_or(0);
-                    (prev, prev < offset)
+            if let Some(prev_grapheme_start) =
+                self.document.previous_grapheme_offset(block_index, offset)
+            {
+                if prev_grapheme_start < offset {
+                    let blocks = self.document.blocks_mut();
+                    let block = &mut blocks[block_index];
+                    block.delete_text_range(prev_grapheme_start, offset);
+                    self.cursor.offset = prev_grapheme_start;
                 }
-            };
-
-            if can_delete {
-                let blocks = self.document.blocks_mut();
-                let block = &mut blocks[block_index];
-                block.delete_text_range(prev_char_start, offset);
-                self.cursor.offset = prev_char_start;
             }
         }
+        self.normalize_cursor();
         Ok(())
     }
-
     /// Delete character at cursor (delete key)
     pub fn delete_forward(&mut self) -> EditResult {
         if self.document.is_empty() {
@@ -647,28 +641,35 @@ impl StructuredEditor {
 
         let block_index = self.cursor.block_index;
         let offset = self.cursor.offset;
+        let block_count = self.document.block_count();
 
-        let blocks = self.document.blocks_mut();
-        let block = &blocks[block_index];
+        if block_index >= block_count {
+            return Err(EditError::InvalidBlockIndex);
+        }
 
-        if offset >= block.text_len() {
-            // At end of block - merge with next block
-            if block_index >= blocks.len() - 1 {
+        let block_len = {
+            let blocks = self.document.blocks();
+            blocks[block_index].text_len()
+        };
+
+        if offset >= block_len {
+            if block_index >= block_count - 1 {
                 return Ok(()); // At end of document, nothing to delete
             }
 
-            // Capture types before mutation
             let (cur_type, next_type) = {
+                let blocks = self.document.blocks();
                 let cur = blocks[block_index].block_type.clone();
                 let nxt = blocks[block_index + 1].block_type.clone();
                 (cur, nxt)
             };
 
-            // Perform merge
-            let next_block = blocks.remove(block_index + 1);
-            blocks[block_index].content.extend(next_block.content);
+            {
+                let blocks = self.document.blocks_mut();
+                let next_block = blocks.remove(block_index + 1);
+                blocks[block_index].content.extend(next_block.content);
+            }
 
-            // Post-merge renumbering for ordered lists
             match (cur_type, next_type) {
                 // Current and next were ordered: renumber following items to close the gap
                 (
@@ -681,13 +682,11 @@ impl StructuredEditor {
                 ) => {
                     let start_index = block_index + 1;
                     let start_n = cur_num.unwrap_or(1) + 1;
-                    drop(blocks);
                     self.renumber_ordered_from(start_index, start_n);
                 }
                 // Current paragraph merged with next ordered: following ordered run should reset numbering from 1
                 (BlockType::Paragraph, BlockType::ListItem { ordered: true, .. }) => {
                     let start_index = block_index + 1;
-                    drop(blocks);
                     self.renumber_ordered_from(start_index, 1);
                 }
                 // Current ordered merged with next paragraph: if there is an ordered run after, continue numbering
@@ -700,34 +699,27 @@ impl StructuredEditor {
                     BlockType::Paragraph,
                 ) => {
                     let start_index = block_index + 1;
-                    drop(blocks);
                     self.renumber_ordered_from(start_index, cur_num.unwrap_or(1) + 1);
                 }
                 _ => {}
             }
-        } else {
-            // Delete a single character forward within this block respecting UTF-8 and nested links
-            let next_char_end = {
-                let block = &blocks[block_index];
-                let text = block.to_plain_text();
-                if offset >= text.len() {
-                    text.len()
-                } else {
-                    // Find boundary of the next character after current offset
-                    let slice = &text[offset..];
-                    match slice.char_indices().nth(1) {
-                        Some((i, _)) => offset + i,
-                        None => text.len(),
-                    }
-                }
-            };
 
-            if next_char_end > offset {
-                let block = &mut blocks[block_index];
-                block.delete_text_range(offset, next_char_end);
-            }
+            self.normalize_cursor();
+            return Ok(());
         }
 
+        let next_grapheme_end = self
+            .document
+            .next_grapheme_offset(block_index, offset)
+            .unwrap_or(offset);
+
+        if next_grapheme_end > offset {
+            let blocks = self.document.blocks_mut();
+            let block = &mut blocks[block_index];
+            block.delete_text_range(offset, next_grapheme_end);
+        }
+
+        self.normalize_cursor();
         Ok(())
     }
 
@@ -752,6 +744,7 @@ impl StructuredEditor {
 
         self.document.delete_range(to, from);
         self.cursor = to;
+        self.normalize_cursor();
         self.selection = None;
         Ok(())
     }
@@ -777,6 +770,7 @@ impl StructuredEditor {
 
         self.document.delete_range(from, to);
         // Cursor stays at original start
+        self.normalize_cursor();
         self.selection = None;
         Ok(())
     }
@@ -800,41 +794,63 @@ impl StructuredEditor {
 
         self.cursor = start;
         self.selection = None;
+        self.normalize_cursor();
 
         Ok(())
     }
 
     /// Move cursor left by one character
     pub fn move_cursor_left(&mut self) {
+        if self.document.block_count() == 0 {
+            self.cursor = DocumentPosition::start();
+            self.selection = None;
+            return;
+        }
+
+        if self.cursor.block_index >= self.document.block_count() {
+            self.cursor.block_index = self.document.block_count() - 1;
+            let blocks = self.document.blocks();
+            self.cursor.offset = blocks[self.cursor.block_index].text_len();
+        }
+
         if self.cursor.offset > 0 {
-            self.cursor.offset -= 1;
+            self.cursor = self.document.previous_grapheme_position(self.cursor);
         } else if self.cursor.block_index > 0 {
             // Move to end of previous block
             self.cursor.block_index -= 1;
             let blocks = self.document.blocks();
             self.cursor.offset = blocks[self.cursor.block_index].text_len();
         }
-        self.cursor = self.document.clamp_position(self.cursor);
+        self.normalize_cursor();
         self.selection = None;
     }
 
     /// Move cursor right by one character
     pub fn move_cursor_right(&mut self) {
-        let blocks = self.document.blocks();
-        if self.cursor.block_index >= blocks.len() {
+        let block_count = self.document.block_count();
+        if block_count == 0 {
+            self.cursor = DocumentPosition::start();
+            self.selection = None;
             return;
         }
 
+        if self.cursor.block_index >= block_count {
+            self.cursor.block_index = block_count - 1;
+            let blocks = self.document.blocks();
+            self.cursor.offset = blocks[self.cursor.block_index].text_len();
+        }
+
+        let blocks = self.document.blocks();
         let block_len = blocks[self.cursor.block_index].text_len();
 
         if self.cursor.offset < block_len {
-            self.cursor.offset += 1;
-        } else if self.cursor.block_index < blocks.len() - 1 {
+            self.cursor = self.document.next_grapheme_position(self.cursor);
+        } else if self.cursor.block_index < block_count - 1 {
             // Move to start of next block
             self.cursor.block_index += 1;
             self.cursor.offset = 0;
         }
-        self.cursor = self.document.clamp_position(self.cursor);
+        self.normalize_cursor();
         self.selection = None;
     }
 
@@ -845,17 +861,25 @@ impl StructuredEditor {
             let blocks = self.document.blocks();
             let new_block_len = blocks[self.cursor.block_index].text_len();
             self.cursor.offset = self.cursor.offset.min(new_block_len);
+            self.normalize_cursor();
         }
         self.selection = None;
     }
 
     /// Move cursor down (to next block)
     pub fn move_cursor_down(&mut self) {
-        let blocks = self.document.blocks();
-        if self.cursor.block_index < blocks.len() - 1 {
+        let block_count = self.document.block_count();
+        if block_count == 0 {
+            self.cursor = DocumentPosition::start();
+            self.selection = None;
+            return;
+        }
+        if self.cursor.block_index + 1 < block_count {
             self.cursor.block_index += 1;
+            let blocks = self.document.blocks();
             let new_block_len = blocks[self.cursor.block_index].text_len();
             self.cursor.offset = self.cursor.offset.min(new_block_len);
+            self.normalize_cursor();
         }
         self.selection = None;
     }
@@ -863,6 +887,7 @@ impl StructuredEditor {
     /// Move cursor to start of current block
     pub fn move_cursor_to_line_start(&mut self) {
         self.cursor.offset = 0;
+        self.normalize_cursor();
         self.selection = None;
     }
 
@@ -871,6 +896,7 @@ impl StructuredEditor {
         let blocks = self.document.blocks();
         if self.cursor.block_index < blocks.len() {
             self.cursor.offset = blocks[self.cursor.block_index].text_len();
+            self.normalize_cursor();
         }
         self.selection = None;
     }
@@ -909,7 +935,7 @@ impl StructuredEditor {
     fn word_right_position(&self, pos: DocumentPosition) -> DocumentPosition {
         let blocks = self.document.blocks();
         if pos.block_index >= blocks.len() {
-            return pos;
+            return self.document.clamp_position(pos);
         }
         let text = blocks[pos.block_index].to_plain_text();
         let mut i = pos.offset.min(text.len());
@@ -917,7 +943,7 @@ impl StructuredEditor {
             if pos.block_index + 1 < blocks.len() {
                 return DocumentPosition::new(pos.block_index + 1, 0);
             }
-            return pos;
+            return self.document.clamp_position(pos);
         }
         while i < text.len() {
             let ch = text[i..].chars().next().unwrap();
@@ -935,14 +961,15 @@ impl StructuredEditor {
                 break;
             }
         }
-        DocumentPosition::new(pos.block_index, i)
+        self.document
+            .clamp_position_forward(DocumentPosition::new(pos.block_index, i))
     }
 
     /// Compute next word-left position from a given position
     fn word_left_position(&self, pos: DocumentPosition) -> DocumentPosition {
         let blocks = self.document.blocks();
         if pos.block_index >= blocks.len() {
-            return pos;
+            return self.document.clamp_position(pos);
         }
         let text = blocks[pos.block_index].to_plain_text();
         let mut i = pos.offset.min(text.len());
@@ -953,7 +980,7 @@ impl StructuredEditor {
                     blocks[pos.block_index - 1].text_len(),
                 );
             }
-            return pos;
+            return self.document.clamp_position(pos);
         }
         while i > 0 {
             let (prev_i, ch) = {
@@ -979,15 +1006,19 @@ impl StructuredEditor {
                 break;
             }
         }
-        DocumentPosition::new(pos.block_index, i)
+        self.document
+            .clamp_position(DocumentPosition::new(pos.block_index, i))
     }
 
     // Selection-extending movement methods (for Shift+arrow keys)
 
     /// Move cursor left by one character, extending selection
     pub fn move_cursor_left_extend(&mut self) {
-        let new_pos = if self.cursor.offset > 0 {
-            DocumentPosition::new(self.cursor.block_index, self.cursor.offset - 1)
+        self.normalize_cursor();
+        let new_pos = if self.document.block_count() == 0 {
+            self.cursor
+        } else if self.cursor.offset > 0 {
+            self.document.previous_grapheme_position(self.cursor)
         } else if self.cursor.block_index > 0 {
             // Move to end of previous block
             let blocks = self.document.blocks();
@@ -1006,17 +1037,20 @@ impl StructuredEditor {
 
     /// Move cursor right by one character, extending selection
     pub fn move_cursor_right_extend(&mut self) {
-        let blocks = self.document.blocks();
-        if self.cursor.block_index >= blocks.len() {
+        self.normalize_cursor();
+        let block_count = self.document.block_count();
+        if block_count == 0 {
             return;
         }
 
-        let block_len = blocks[self.cursor.block_index].text_len();
+        let current_index = self.cursor.block_index.min(block_count - 1);
+        let blocks = self.document.blocks();
+        let block_len = blocks[current_index].text_len();
         let new_pos = if self.cursor.offset < block_len {
-            DocumentPosition::new(self.cursor.block_index, self.cursor.offset + 1)
-        } else if self.cursor.block_index < blocks.len() - 1 {
+            self.document.next_grapheme_position(self.cursor)
+        } else if current_index + 1 < block_count {
             // Move to start of next block
-            DocumentPosition::new(self.cursor.block_index + 1, 0)
+            DocumentPosition::new(current_index + 1, 0)
         } else {
             self.cursor
         };
@@ -2353,6 +2387,63 @@ mod tests {
         editor.delete_backward().unwrap();
         assert_eq!(editor.document().to_plain_text(), "Hell");
         assert_eq!(editor.cursor().offset, 4);
+    }
+
+    #[test]
+    fn cursor_respects_grapheme_clusters() {
+        let mut editor = StructuredEditor::new();
+        let flag = "\u{1F1FA}\u{1F1F8}";
+
+        editor.insert_text(flag).unwrap();
+        assert_eq!(editor.cursor().offset, flag.len());
+
+        editor.set_cursor(DocumentPosition::new(0, flag.len() / 2));
+        assert_eq!(
+            editor.cursor().offset,
+            0,
+            "cursor should snap to grapheme start"
+        );
+
+        editor.move_cursor_right();
+        assert_eq!(editor.cursor().offset, flag.len());
+
+        editor.move_cursor_left();
+        assert_eq!(editor.cursor().offset, 0);
+    }
+
+    #[test]
+    fn deletion_respects_grapheme_clusters() {
+        let mut editor = StructuredEditor::new();
+        let flag = "\u{1F1FA}\u{1F1F8}";
+
+        editor.insert_text(flag).unwrap();
+        editor.set_cursor(DocumentPosition::new(0, flag.len()));
+        editor.delete_backward().unwrap();
+        assert_eq!(editor.document().to_plain_text(), "");
+        assert_eq!(editor.cursor().offset, 0);
+
+        editor.insert_text(flag).unwrap();
+        editor.set_cursor(DocumentPosition::new(0, 0));
+        editor.delete_forward().unwrap();
+        assert_eq!(editor.document().to_plain_text(), "");
+        assert_eq!(editor.cursor().offset, 0);
+    }
+
+    #[test]
+    fn selection_respects_grapheme_clusters() {
+        let mut editor = StructuredEditor::new();
+        let flag = "\u{1F1FA}\u{1F1F8}";
+
+        editor.insert_text(flag).unwrap();
+        editor.move_cursor_to_line_start();
+        editor.move_cursor_right_extend();
+
+        let (start, end) = editor
+            .selection()
+            .expect("selection should be created when extending");
+        assert_eq!(start.offset, 0);
+        assert_eq!(end.offset, flag.len());
+        assert_eq!(editor.cursor().offset, flag.len());
     }
 
     #[test]

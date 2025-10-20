@@ -56,11 +56,9 @@ pub fn document_to_markdown(doc: &StructuredDocument) -> String {
                 code.push_str("\n```");
                 code
             }
-            BlockType::BlockQuote => wrap_text_with_indent(
-                &inline_content_to_markdown(&block.content),
-                "> ",
-                "> ",
-            ),
+            BlockType::BlockQuote => {
+                wrap_text_with_indent(&inline_content_to_markdown(&block.content), "> ", "> ")
+            }
             BlockType::ListItem {
                 ordered,
                 number,

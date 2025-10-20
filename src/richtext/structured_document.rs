@@ -2,8 +2,9 @@
 // A document representation completely independent of markdown syntax
 // Markdown is only used as a storage/serialization format
 
-use std::cmp::{max, min};
+use std::cmp::min;
 use std::fmt;
+use unicode_segmentation::UnicodeSegmentation;
 
 /// Unique identifier for document elements
 pub type ElementId = usize;
@@ -524,10 +525,90 @@ impl StructuredDocument {
         }
 
         let block_index = pos.block_index.min(self.blocks.len() - 1);
-        let block = &self.blocks[block_index];
-        let offset = pos.offset.min(block.text_len());
+        let offset = self
+            .grapheme_offset_at_or_before(block_index, pos.offset)
+            .unwrap_or(0);
 
         DocumentPosition::new(block_index, offset)
+    }
+
+    /// Clamp a position so that its offset lies on or after the next grapheme boundary.
+    pub fn clamp_position_forward(&self, pos: DocumentPosition) -> DocumentPosition {
+        if self.blocks.is_empty() {
+            return DocumentPosition::start();
+        }
+
+        let block_index = pos.block_index.min(self.blocks.len() - 1);
+        let offset = self
+            .grapheme_offset_at_or_after(block_index, pos.offset)
+            .unwrap_or(0);
+
+        DocumentPosition::new(block_index, offset)
+    }
+
+    /// Get the previous grapheme position within the same block.
+    pub fn previous_grapheme_position(&self, pos: DocumentPosition) -> DocumentPosition {
+        if self.blocks.is_empty() {
+            return DocumentPosition::start();
+        }
+
+        let block_index = pos.block_index.min(self.blocks.len() - 1);
+        let offset = self
+            .previous_grapheme_offset(block_index, pos.offset)
+            .unwrap_or(0);
+
+        DocumentPosition::new(block_index, offset)
+    }
+
+    /// Get the next grapheme position within the same block.
+    pub fn next_grapheme_position(&self, pos: DocumentPosition) -> DocumentPosition {
+        if self.blocks.is_empty() {
+            return DocumentPosition::start();
+        }
+
+        let block_index = pos.block_index.min(self.blocks.len() - 1);
+        let offset = self
+            .next_grapheme_offset(block_index, pos.offset)
+            .unwrap_or_else(|| {
+                self.blocks
+                    .get(block_index)
+                    .map(|block| block.text_len())
+                    .unwrap_or(0)
+            });
+
+        DocumentPosition::new(block_index, offset)
+    }
+
+    /// Return the nearest grapheme boundary at or before the provided offset.
+    pub fn grapheme_offset_at_or_before(&self, block_index: usize, offset: usize) -> Option<usize> {
+        self.blocks.get(block_index).map(|block| {
+            let text = block.to_plain_text();
+            grapheme_offset_at_or_before(&text, offset)
+        })
+    }
+
+    /// Return the nearest grapheme boundary at or after the provided offset.
+    pub fn grapheme_offset_at_or_after(&self, block_index: usize, offset: usize) -> Option<usize> {
+        self.blocks.get(block_index).map(|block| {
+            let text = block.to_plain_text();
+            grapheme_offset_at_or_after(&text, offset)
+        })
+    }
+
+    /// Return the previous grapheme boundary strictly before the provided offset.
+    pub fn previous_grapheme_offset(&self, block_index: usize, offset: usize) -> Option<usize> {
+        self.blocks.get(block_index).map(|block| {
+            let text = block.to_plain_text();
+            grapheme_offset_before(&text, offset)
+        })
+    }
+
+    /// Return the next grapheme boundary strictly after the provided offset.
+    pub fn next_grapheme_offset(&self, block_index: usize, offset: usize) -> Option<usize> {
+        self.blocks.get(block_index).map(|block| {
+            let text = block.to_plain_text();
+            grapheme_offset_after(&text, offset)
+        })
     }
 
     /// Convert to plain text
@@ -722,6 +803,75 @@ impl fmt::Display for StructuredDocument {
         }
         Ok(())
     }
+}
+
+fn grapheme_boundaries(text: &str) -> Vec<usize> {
+    let mut boundaries: Vec<usize> = text.grapheme_indices(true).map(|(idx, _)| idx).collect();
+    if boundaries.is_empty() {
+        boundaries.push(0);
+        return boundaries;
+    }
+    if boundaries[0] != 0 {
+        boundaries.insert(0, 0);
+    }
+    if *boundaries.last().unwrap() != text.len() {
+        boundaries.push(text.len());
+    }
+    boundaries
+}
+
+fn grapheme_offset_at_or_before(text: &str, offset: usize) -> usize {
+    let boundaries = grapheme_boundaries(text);
+    let mut result = 0usize;
+    let max_offset = offset.min(text.len());
+    for boundary in boundaries {
+        if boundary > max_offset {
+            break;
+        }
+        result = boundary;
+    }
+    result
+}
+
+fn grapheme_offset_at_or_after(text: &str, offset: usize) -> usize {
+    let boundaries = grapheme_boundaries(text);
+    let max_offset = offset.min(text.len());
+    for boundary in boundaries {
+        if boundary >= max_offset {
+            return boundary;
+        }
+    }
+    text.len()
+}
+
+fn grapheme_offset_before(text: &str, offset: usize) -> usize {
+    if offset == 0 {
+        return 0;
+    }
+    let boundaries = grapheme_boundaries(text);
+    let mut previous = 0usize;
+    let max_offset = offset.min(text.len());
+    for boundary in boundaries {
+        if boundary >= max_offset {
+            if boundary == max_offset {
+                return previous;
+            }
+            break;
+        }
+        previous = boundary;
+    }
+    previous
+}
+
+fn grapheme_offset_after(text: &str, offset: usize) -> usize {
+    let boundaries = grapheme_boundaries(text);
+    let max_offset = offset.min(text.len());
+    for boundary in boundaries {
+        if boundary > max_offset {
+            return boundary;
+        }
+    }
+    text.len()
 }
 
 #[cfg(test)]

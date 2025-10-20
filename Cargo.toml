@@ -17,6 +17,7 @@ regex = "1.10"
 directories = "5"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
+unicode-segmentation = "1.10"
 
 [dev-dependencies]
 insta = "1.34"
