@@ -144,6 +144,58 @@ impl StructuredEditor {
         self.normalize_cursor();
     }
 
+    /// Collect unique block indices covered by the current selection (if any).
+    /// Returns an empty vector when there is no active selection or the selection is collapsed.
+    fn collect_selection_block_indices(&self) -> Vec<usize> {
+        let block_count = self.document.block_count();
+        if block_count == 0 {
+            return Vec::new();
+        }
+
+        let Some((mut start, mut end)) = self.selection else {
+            return Vec::new();
+        };
+
+        if start.block_index > end.block_index
+            || (start.block_index == end.block_index && start.offset > end.offset)
+        {
+            std::mem::swap(&mut start, &mut end);
+        }
+
+        if start.block_index == end.block_index && start.offset == end.offset {
+            return Vec::new();
+        }
+
+        let start = self.document.clamp_position(start);
+        let end = self.document.clamp_position_forward(end);
+
+        let start_idx = start.block_index.min(block_count - 1);
+        let end_idx = end.block_index.min(block_count - 1);
+
+        let mut indices: Vec<usize> = (start_idx..=end_idx).collect();
+
+        if let Some(&last) = indices.last() {
+            if start_idx != end_idx && last == end_idx {
+                let include_end = if end.offset == 0 {
+                    self.document
+                        .blocks()
+                        .get(end_idx)
+                        .map(|block| block.is_empty())
+                        .unwrap_or(false)
+                } else {
+                    true
+                };
+                if !include_end {
+                    indices.pop();
+                }
+            }
+        }
+
+        indices.sort_unstable();
+        indices.dedup();
+        indices
+    }
+
     /// Select the word at the given position
     pub fn select_word_at(&mut self, pos: DocumentPosition) {
         let pos = self.document.clamp_position(pos);
@@ -632,10 +684,7 @@ impl StructuredEditor {
 
     /// Delete up to `byte_count` bytes immediately before the cursor (used for IME composition).
     /// Returns `Ok(true)` when any content was removed.
-    pub fn delete_backward_bytes(
-        &mut self,
-        mut byte_count: usize,
-    ) -> Result<bool, EditError> {
+    pub fn delete_backward_bytes(&mut self, mut byte_count: usize) -> Result<bool, EditError> {
         if byte_count == 0 {
             return Ok(false);
         }
@@ -1551,8 +1600,38 @@ impl StructuredEditor {
     /// Toggle list status (on/off)
     /// When turning list on, removes heading if present
     pub fn toggle_list(&mut self) -> EditResult {
+        let block_count = self.document.block_count();
+        if block_count == 0 {
+            return Err(EditError::InvalidBlockIndex);
+        }
+
+        let selection_blocks = self.collect_selection_block_indices();
+        if !selection_blocks.is_empty() {
+            let blocks_snapshot = self.document.blocks();
+            let all_plain_bullets = selection_blocks.iter().all(|&idx| {
+                matches!(
+                    blocks_snapshot.get(idx).map(|b| &b.block_type),
+                    Some(BlockType::ListItem {
+                        ordered: false,
+                        number: None,
+                        checkbox: None,
+                    })
+                )
+            });
+
+            if all_plain_bullets {
+                return self.set_block_type(BlockType::Paragraph);
+            }
+
+            return self.set_block_type(BlockType::ListItem {
+                ordered: false,
+                number: None,
+                checkbox: None,
+            });
+        }
+
         let block_index = self.cursor.block_index;
-        if block_index >= self.document.block_count() {
+        if block_index >= block_count {
             return Err(EditError::InvalidBlockIndex);
         }
 
@@ -1692,8 +1771,42 @@ impl StructuredEditor {
     /// Toggle checklist status (on/off) for current block/run
     /// Converts ordered runs to checklists, bullets to checklists, and removes checklist state when toggled off.
     pub fn toggle_checklist(&mut self) -> EditResult {
+        let block_count = self.document.block_count();
+        if block_count == 0 {
+            return Err(EditError::InvalidBlockIndex);
+        }
+
+        let selection_blocks = self.collect_selection_block_indices();
+        if !selection_blocks.is_empty() {
+            let blocks_snapshot = self.document.blocks();
+            let all_checklists = selection_blocks.iter().all(|&idx| {
+                matches!(
+                    blocks_snapshot.get(idx).map(|b| &b.block_type),
+                    Some(BlockType::ListItem {
+                        ordered: false,
+                        number: None,
+                        checkbox: Some(_),
+                    })
+                )
+            });
+
+            if all_checklists {
+                return self.set_block_type(BlockType::ListItem {
+                    ordered: false,
+                    number: None,
+                    checkbox: None,
+                });
+            }
+
+            return self.set_block_type(BlockType::ListItem {
+                ordered: false,
+                number: None,
+                checkbox: Some(false),
+            });
+        }
+
         let block_index = self.cursor.block_index;
-        if block_index >= self.document.block_count() {
+        if block_index >= block_count {
             return Err(EditError::InvalidBlockIndex);
         }
 
@@ -1835,12 +1948,100 @@ impl StructuredEditor {
         self.toggle_checkmark_at(block_index)
     }
 
+    fn ordered_start_number_for_selection(&self, selection_blocks: &[usize]) -> u64 {
+        if selection_blocks.is_empty() {
+            return 1;
+        }
+
+        let blocks = self.document.blocks();
+        if blocks.is_empty() {
+            return 1;
+        }
+
+        let first_idx = selection_blocks[0].min(blocks.len() - 1);
+
+        if let Some(BlockType::ListItem {
+            ordered: true,
+            number,
+            ..
+        }) = blocks.get(first_idx).map(|b| &b.block_type)
+        {
+            return number.unwrap_or(1);
+        }
+
+        if first_idx == 0 {
+            return 1;
+        }
+
+        if let Some(BlockType::ListItem { ordered: true, .. }) =
+            blocks.get(first_idx - 1).map(|b| &b.block_type)
+        {
+            let mut run_start = first_idx - 1;
+            while run_start > 0 {
+                if let BlockType::ListItem { ordered: true, .. } = blocks[run_start - 1].block_type
+                {
+                    run_start -= 1;
+                } else {
+                    break;
+                }
+            }
+
+            let first_number = match blocks[run_start].block_type {
+                BlockType::ListItem {
+                    ordered: true,
+                    number,
+                    ..
+                } => number.unwrap_or(1),
+                _ => 1,
+            };
+            let run_len = first_idx - run_start;
+            return first_number + run_len as u64;
+        }
+
+        1
+    }
+
     /// Toggle ordered list (on/off) and handle conversion from bullets when applicable.
     /// Special case: If currently in an unordered list, convert all adjacent bullet
     /// list items into ordered list items with sequential numbering starting at 1.
     pub fn toggle_ordered_list(&mut self) -> EditResult {
+        let block_count = self.document.block_count();
+        if block_count == 0 {
+            return Err(EditError::InvalidBlockIndex);
+        }
+
+        let selection_blocks = self.collect_selection_block_indices();
+        if !selection_blocks.is_empty() {
+            let blocks_snapshot = self.document.blocks();
+            let all_ordered = selection_blocks.iter().all(|&idx| {
+                matches!(
+                    blocks_snapshot.get(idx).map(|b| &b.block_type),
+                    Some(BlockType::ListItem { ordered: true, .. })
+                )
+            });
+
+            if all_ordered {
+                let result = self.set_block_type(BlockType::Paragraph);
+                if result.is_ok() {
+                    if let Some(&last_idx) = selection_blocks.last() {
+                        if last_idx + 1 < block_count {
+                            self.renumber_ordered_from(last_idx + 1, 1);
+                        }
+                    }
+                }
+                return result;
+            }
+
+            let start_number = self.ordered_start_number_for_selection(&selection_blocks);
+            return self.set_block_type(BlockType::ListItem {
+                ordered: true,
+                number: Some(start_number),
+                checkbox: None,
+            });
+        }
+
         let block_index = self.cursor.block_index;
-        if block_index >= self.document.block_count() {
+        if block_index >= block_count {
             return Err(EditError::InvalidBlockIndex);
         }
 
@@ -2090,15 +2291,84 @@ impl StructuredEditor {
         Ok(())
     }
 
-    /// Set the block type for the current block
+    /// Set the block type for the current block or all blocks covered by the selection.
     pub fn set_block_type(&mut self, block_type: BlockType) -> EditResult {
-        let block_index = self.cursor.block_index;
-        if block_index >= self.document.block_count() {
+        let block_count = self.document.block_count();
+        if block_count == 0 {
             return Err(EditError::InvalidBlockIndex);
         }
 
-        let blocks = self.document.blocks_mut();
-        blocks[block_index].block_type = block_type;
+        let mut target_blocks = self.collect_selection_block_indices();
+        if target_blocks.is_empty() {
+            let cursor_index = self.cursor.block_index;
+            if cursor_index >= block_count {
+                return Err(EditError::InvalidBlockIndex);
+            }
+            target_blocks.push(cursor_index);
+        }
+
+        target_blocks.sort_unstable();
+        target_blocks.dedup();
+
+        if target_blocks.iter().any(|&idx| idx >= block_count) {
+            return Err(EditError::InvalidBlockIndex);
+        }
+
+        let ordered_conversion = matches!(block_type, BlockType::ListItem { ordered: true, .. });
+        let ordered_start_number = if let BlockType::ListItem {
+            ordered: true,
+            number,
+            ..
+        } = &block_type
+        {
+            number.unwrap_or(1)
+        } else {
+            0
+        };
+
+        let new_types: Vec<BlockType> = (0..target_blocks.len())
+            .map(|i| match &block_type {
+                BlockType::Paragraph => BlockType::Paragraph,
+                BlockType::Heading { level } => BlockType::Heading { level: *level },
+                BlockType::BlockQuote => BlockType::BlockQuote,
+                BlockType::CodeBlock { language } => BlockType::CodeBlock {
+                    language: language.clone(),
+                },
+                BlockType::ListItem {
+                    ordered, checkbox, ..
+                } => {
+                    if *ordered {
+                        BlockType::ListItem {
+                            ordered: true,
+                            number: Some(ordered_start_number + i as u64),
+                            checkbox: *checkbox,
+                        }
+                    } else {
+                        BlockType::ListItem {
+                            ordered: false,
+                            number: None,
+                            checkbox: *checkbox,
+                        }
+                    }
+                }
+            })
+            .collect();
+
+        {
+            let blocks = self.document.blocks_mut();
+            for (idx, new_type) in target_blocks.iter().copied().zip(new_types.into_iter()) {
+                blocks[idx].block_type = new_type;
+            }
+        }
+
+        if ordered_conversion {
+            if let Some(last_idx) = target_blocks.last().copied() {
+                if last_idx + 1 < block_count {
+                    let next_number = ordered_start_number + target_blocks.len() as u64;
+                    self.renumber_ordered_from(last_idx + 1, next_number);
+                }
+            }
+        }
 
         Ok(())
     }
@@ -2698,6 +2968,231 @@ mod tests {
                 }
             )
         }));
+    }
+
+    #[test]
+    fn test_set_block_type_multi_block_bullet() {
+        let mut editor = StructuredEditor::new();
+
+        let mut doc = StructuredDocument::new();
+        for text in ["One", "Two", "Three"] {
+            let block = Block::paragraph(0).with_plain_text(text);
+            doc.add_block(block);
+        }
+        let last_len = doc.blocks().last().unwrap().text_len();
+        *editor.document_mut() = doc;
+
+        editor.set_selection(
+            DocumentPosition::new(0, 0),
+            DocumentPosition::new(2, last_len),
+        );
+        editor
+            .set_block_type(BlockType::ListItem {
+                ordered: false,
+                number: None,
+                checkbox: None,
+            })
+            .unwrap();
+
+        let blocks = editor.document().blocks();
+        assert!(blocks.iter().all(|block| {
+            matches!(
+                block.block_type,
+                BlockType::ListItem {
+                    ordered: false,
+                    number: None,
+                    checkbox: None,
+                }
+            )
+        }));
+    }
+
+    #[test]
+    fn test_set_block_type_multi_block_ordered() {
+        let mut editor = StructuredEditor::new();
+
+        let mut doc = StructuredDocument::new();
+        for text in ["One", "Two", "Three"] {
+            let block = Block::paragraph(0).with_plain_text(text);
+            doc.add_block(block);
+        }
+        let last_len = doc.blocks().last().unwrap().text_len();
+        *editor.document_mut() = doc;
+
+        editor.set_selection(
+            DocumentPosition::new(0, 0),
+            DocumentPosition::new(2, last_len),
+        );
+        editor
+            .set_block_type(BlockType::ListItem {
+                ordered: true,
+                number: Some(1),
+                checkbox: None,
+            })
+            .unwrap();
+
+        let blocks = editor.document().blocks();
+        for (i, block) in blocks.iter().enumerate() {
+            match block.block_type {
+                BlockType::ListItem {
+                    ordered: true,
+                    number,
+                    checkbox: None,
+                } => assert_eq!(number, Some(1 + i as u64)),
+                ref other => panic!("unexpected block type: {:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn test_toggle_list_multi_block_selection() {
+        let mut editor = StructuredEditor::new();
+
+        let mut doc = StructuredDocument::new();
+        for text in ["One", "Two", "Three"] {
+            let block = Block::paragraph(0).with_plain_text(text);
+            doc.add_block(block);
+        }
+        let last_len = doc.blocks().last().unwrap().text_len();
+        *editor.document_mut() = doc;
+
+        editor.set_selection(
+            DocumentPosition::new(0, 0),
+            DocumentPosition::new(2, last_len),
+        );
+        editor.toggle_list().unwrap();
+
+        {
+            let blocks = editor.document().blocks();
+            assert!(blocks.iter().all(|block| {
+                matches!(
+                    block.block_type,
+                    BlockType::ListItem {
+                        ordered: false,
+                        number: None,
+                        checkbox: None,
+                    }
+                )
+            }));
+        }
+
+        editor.set_selection(
+            DocumentPosition::new(0, 0),
+            DocumentPosition::new(2, last_len),
+        );
+        editor.toggle_list().unwrap();
+
+        let blocks = editor.document().blocks();
+        assert!(
+            blocks
+                .iter()
+                .all(|block| matches!(block.block_type, BlockType::Paragraph))
+        );
+    }
+
+    #[test]
+    fn test_toggle_ordered_list_multi_block_selection() {
+        let mut editor = StructuredEditor::new();
+
+        let mut doc = StructuredDocument::new();
+        for text in ["One", "Two", "Three"] {
+            let block = Block::paragraph(0).with_plain_text(text);
+            doc.add_block(block);
+        }
+        let last_len = doc.blocks().last().unwrap().text_len();
+        *editor.document_mut() = doc;
+
+        editor.set_selection(
+            DocumentPosition::new(0, 0),
+            DocumentPosition::new(2, last_len),
+        );
+        editor.toggle_ordered_list().unwrap();
+
+        {
+            let blocks = editor.document().blocks();
+            for (i, block) in blocks.iter().enumerate() {
+                match block.block_type {
+                    BlockType::ListItem {
+                        ordered: true,
+                        number,
+                        checkbox: None,
+                    } => assert_eq!(number, Some(1 + i as u64)),
+                    ref other => panic!("expected ordered list item, found {:?}", other),
+                }
+            }
+        }
+
+        editor.set_selection(
+            DocumentPosition::new(0, 0),
+            DocumentPosition::new(2, last_len),
+        );
+        editor.toggle_ordered_list().unwrap();
+
+        let blocks = editor.document().blocks();
+        assert!(
+            blocks
+                .iter()
+                .all(|block| matches!(block.block_type, BlockType::Paragraph))
+        );
+    }
+
+    #[test]
+    fn test_toggle_ordered_list_continues_numbering_after_run() {
+        let mut editor = StructuredEditor::new();
+
+        let mut doc = StructuredDocument::new();
+
+        doc.add_block(
+            Block::new(
+                0,
+                BlockType::ListItem {
+                    ordered: true,
+                    number: Some(3),
+                    checkbox: None,
+                },
+            )
+            .with_plain_text("Item 3"),
+        );
+        doc.add_block(
+            Block::new(
+                0,
+                BlockType::ListItem {
+                    ordered: true,
+                    number: Some(4),
+                    checkbox: None,
+                },
+            )
+            .with_plain_text("Item 4"),
+        );
+        doc.add_block(Block::paragraph(0).with_plain_text("Next"));
+        doc.add_block(Block::paragraph(0).with_plain_text("Another"));
+
+        let last_len = doc.blocks().last().unwrap().text_len();
+        *editor.document_mut() = doc;
+
+        editor.set_selection(
+            DocumentPosition::new(2, 0),
+            DocumentPosition::new(3, last_len),
+        );
+        editor.toggle_ordered_list().unwrap();
+
+        let blocks = editor.document().blocks();
+        assert_eq!(
+            blocks[2].block_type,
+            BlockType::ListItem {
+                ordered: true,
+                number: Some(5),
+                checkbox: None
+            }
+        );
+        assert_eq!(
+            blocks[3].block_type,
+            BlockType::ListItem {
+                ordered: true,
+                number: Some(6),
+                checkbox: None
+            }
+        );
     }
 
     #[test]

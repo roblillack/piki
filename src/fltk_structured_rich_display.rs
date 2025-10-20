@@ -2224,14 +2224,12 @@ impl FltkStructuredRichDisplay {
                                                     let editor = disp.editor_mut();
 
                                                     if let Some(del) = compose_result {
-                                                        let delete_bytes =
-                                                            del.max(0) as usize;
+                                                        let delete_bytes = del.max(0) as usize;
                                                         if delete_bytes > 0 {
                                                             if matches!(
-                                                                editor
-                                                                    .delete_backward_bytes(
-                                                                        delete_bytes
-                                                                    ),
+                                                                editor.delete_backward_bytes(
+                                                                    delete_bytes
+                                                                ),
                                                                 Ok(true)
                                                             ) {
                                                                 text_changed = true;
@@ -2241,8 +2239,7 @@ impl FltkStructuredRichDisplay {
                                                     }
 
                                                     if !text_input.is_empty() {
-                                                        if editor.insert_text(&text_input).is_ok()
-                                                        {
+                                                        if editor.insert_text(&text_input).is_ok() {
                                                             text_changed = true;
                                                             did_horizontal = true;
                                                         }
@@ -2250,9 +2247,7 @@ impl FltkStructuredRichDisplay {
                                                 }
 
                                                 if text_changed {
-                                                    if let Some(cb) =
-                                                        &mut *change_cb.borrow_mut()
-                                                    {
+                                                    if let Some(cb) = &mut *change_cb.borrow_mut() {
                                                         (cb)();
                                                     }
                                                     handled = true;

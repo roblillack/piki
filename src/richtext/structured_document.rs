@@ -431,7 +431,10 @@ impl Block {
                         _ => normalized.push(InlineContent::Text(run)),
                     }
                 }
-                InlineContent::Link { link, content: inner } => {
+                InlineContent::Link {
+                    link,
+                    content: inner,
+                } => {
                     let normalized_inner = Self::normalize_inline_vec(inner);
                     if normalized_inner.is_empty() {
                         continue;
