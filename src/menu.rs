@@ -1,6 +1,6 @@
 use super::{
     AppState, AutoSaveState, editor::MarkdownEditor, load_page_helper, navigate_back,
-    navigate_forward, page_picker, wire_editor_callbacks,
+    navigate_forward, page_picker, statusbar::StatusBar, wire_editor_callbacks,
 };
 use fliki_rs::link_editor::{self, LinkEditOptions};
 use fliki_rs::page_ui::PageUI;
@@ -65,13 +65,12 @@ const INLINE_ITEMS: &[&str] = &[
 ];
 
 #[cfg(target_os = "macos")]
-pub fn setup_menu<PS: WidgetExt + 'static>(
+pub fn setup_menu(
     app_state: Rc<RefCell<AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
     active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
     is_structured: Rc<RefCell<bool>>,
-    page_status: Rc<RefCell<PS>>,
-    save_status: Rc<RefCell<frame::Frame>>,
+    statusbar: Rc<RefCell<StatusBar>>,
     wind_ref: Rc<RefCell<window::Window>>,
     editor_x: i32,
     editor_y: i32,
@@ -85,8 +84,7 @@ pub fn setup_menu<PS: WidgetExt + 'static>(
         autosave_state,
         active_editor,
         is_structured,
-        page_status,
-        save_status,
+        statusbar,
         wind_ref,
         editor_x,
         editor_y,
@@ -96,13 +94,12 @@ pub fn setup_menu<PS: WidgetExt + 'static>(
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn setup_menu<PS: WidgetExt + 'static>(
+pub fn setup_menu(
     app_state: Rc<RefCell<AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
     active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
     is_structured: Rc<RefCell<bool>>,
-    page_status: Rc<RefCell<PS>>,
-    save_status: Rc<RefCell<frame::Frame>>,
+    statusbar: Rc<RefCell<StatusBar>>,
     wind_ref: Rc<RefCell<window::Window>>,
     editor_x: i32,
     editor_y: i32,
@@ -116,8 +113,7 @@ pub fn setup_menu<PS: WidgetExt + 'static>(
         autosave_state,
         active_editor,
         is_structured,
-        page_status,
-        save_status,
+        statusbar,
         wind_ref,
         editor_x,
         editor_y,
@@ -127,14 +123,13 @@ pub fn setup_menu<PS: WidgetExt + 'static>(
     menu_bar
 }
 
-fn populate_menu<M, PS>(
+fn populate_menu<M>(
     menu_bar: &mut M,
     app_state: Rc<RefCell<AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
     active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
     is_structured: Rc<RefCell<bool>>,
-    page_status: Rc<RefCell<PS>>,
-    save_status: Rc<RefCell<frame::Frame>>,
+    statusbar: Rc<RefCell<StatusBar>>,
     wind_ref: Rc<RefCell<window::Window>>,
     editor_x: i32,
     editor_y: i32,
@@ -142,7 +137,6 @@ fn populate_menu<M, PS>(
     editor_h: i32,
 ) where
     M: MenuExt + Clone + 'static,
-    PS: WidgetExt + 'static,
 {
     let cmd = if cfg!(target_os = "macos") {
         Shortcut::Command
@@ -193,8 +187,7 @@ fn populate_menu<M, PS>(
         let app_state = app_state.clone();
         let autosave_state = autosave_state.clone();
         let active_editor = active_editor.clone();
-        let page_status = page_status.clone();
-        let save_status = save_status.clone();
+        let statusbar = statusbar.clone();
         let wind_ref = wind_ref.clone();
         menu_bar.add(
             "Page/New...",
@@ -205,8 +198,7 @@ fn populate_menu<M, PS>(
                     app_state.clone(),
                     autosave_state.clone(),
                     active_editor.clone(),
-                    page_status.clone(),
-                    save_status.clone(),
+                    statusbar.clone(),
                     wind_ref.clone(),
                 );
             },
@@ -217,8 +209,7 @@ fn populate_menu<M, PS>(
         let app_state = app_state.clone();
         let autosave_state = autosave_state.clone();
         let active_editor = active_editor.clone();
-        let page_status = page_status.clone();
-        let save_status = save_status.clone();
+        let statusbar = statusbar.clone();
         let wind_ref = wind_ref.clone();
         menu_bar.add(
             "Page/Open...",
@@ -230,8 +221,7 @@ fn populate_menu<M, PS>(
                         app_state.clone(),
                         autosave_state.clone(),
                         active_editor.clone(),
-                        page_status.clone(),
-                        save_status.clone(),
+                        statusbar.clone(),
                         &*w,
                     );
                 }
@@ -243,8 +233,7 @@ fn populate_menu<M, PS>(
         let app_state = app_state.clone();
         let autosave_state = autosave_state.clone();
         let active_editor = active_editor.clone();
-        let page_status = page_status.clone();
-        let save_status = save_status.clone();
+        let statusbar = statusbar.clone();
         menu_bar.add(
             "Page/Back",
             back_shortcut,
@@ -254,8 +243,7 @@ fn populate_menu<M, PS>(
                     &app_state,
                     &autosave_state,
                     &active_editor,
-                    &page_status,
-                    &save_status,
+                    &statusbar,
                 );
             },
         );
@@ -265,8 +253,7 @@ fn populate_menu<M, PS>(
         let app_state = app_state.clone();
         let autosave_state = autosave_state.clone();
         let active_editor = active_editor.clone();
-        let page_status = page_status.clone();
-        let save_status = save_status.clone();
+        let statusbar = statusbar.clone();
         menu_bar.add(
             "Page/Forward",
             forward_shortcut,
@@ -276,8 +263,7 @@ fn populate_menu<M, PS>(
                     &app_state,
                     &autosave_state,
                     &active_editor,
-                    &page_status,
-                    &save_status,
+                    &statusbar,
                 );
             },
         );
@@ -287,8 +273,7 @@ fn populate_menu<M, PS>(
         let app_state = app_state.clone();
         let autosave_state = autosave_state.clone();
         let active_editor = active_editor.clone();
-        let page_status = page_status.clone();
-        let save_status = save_status.clone();
+        let statusbar = statusbar.clone();
         menu_bar.add(
             "Page/Go to frontpage",
             frontpage_shortcut,
@@ -299,8 +284,7 @@ fn populate_menu<M, PS>(
                     &app_state,
                     &autosave_state,
                     &active_editor,
-                    &page_status,
-                    &save_status,
+                    &statusbar,
                     None,
                 );
             },
@@ -311,8 +295,7 @@ fn populate_menu<M, PS>(
         let app_state = app_state.clone();
         let autosave_state = autosave_state.clone();
         let active_editor = active_editor.clone();
-        let page_status = page_status.clone();
-        let save_status = save_status.clone();
+        let statusbar = statusbar.clone();
         menu_bar.add(
             "Page/Go to index",
             index_shortcut,
@@ -323,8 +306,7 @@ fn populate_menu<M, PS>(
                     &app_state,
                     &autosave_state,
                     &active_editor,
-                    &page_status,
-                    &save_status,
+                    &statusbar,
                     None,
                 );
             },
@@ -383,8 +365,7 @@ fn populate_menu<M, PS>(
         let autosave_state = autosave_state.clone();
         let active_editor = active_editor.clone();
         let is_structured = is_structured.clone();
-        let page_status = page_status.clone();
-        let save_status = save_status.clone();
+        let statusbar = statusbar.clone();
         let wind_ref = wind_ref.clone();
         let menu_handle = menu_bar.clone();
         menu_bar.add(
@@ -403,8 +384,7 @@ fn populate_menu<M, PS>(
                     &autosave_state,
                     &active_editor,
                     &is_structured,
-                    &page_status,
-                    &save_status,
+                    &statusbar,
                     &wind_ref,
                     editor_x,
                     editor_y,
@@ -1170,14 +1150,13 @@ fn instantiate_editor(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn switch_editor<PS: WidgetExt + 'static>(
+fn switch_editor(
     target: EditorKind,
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
     active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
     is_structured: &Rc<RefCell<bool>>,
-    page_status: &Rc<RefCell<PS>>,
-    save_status: &Rc<RefCell<frame::Frame>>,
+    statusbar: &Rc<RefCell<StatusBar>>,
     wind_ref: &Rc<RefCell<window::Window>>,
     editor_x: i32,
     editor_y: i32,
@@ -1223,8 +1202,7 @@ fn switch_editor<PS: WidgetExt + 'static>(
         active_editor,
         autosave_state,
         app_state,
-        page_status,
-        save_status,
+        statusbar,
     );
 
     if let Ok(state) = app_state.try_borrow() {
@@ -1235,8 +1213,7 @@ fn switch_editor<PS: WidgetExt + 'static>(
             app_state,
             autosave_state,
             active_editor,
-            page_status,
-            save_status,
+            statusbar,
             Some(scroll_pos),
         );
     }
@@ -1244,12 +1221,11 @@ fn switch_editor<PS: WidgetExt + 'static>(
     true
 }
 
-fn show_new_page_dialog<PS: WidgetExt + 'static>(
+fn show_new_page_dialog(
     app_state: Rc<RefCell<AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
     active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    page_status: Rc<RefCell<PS>>,
-    save_status: Rc<RefCell<frame::Frame>>,
+    statusbar: Rc<RefCell<StatusBar>>,
     wind_ref: Rc<RefCell<window::Window>>,
 ) {
     let width = 360;
@@ -1303,8 +1279,7 @@ fn show_new_page_dialog<PS: WidgetExt + 'static>(
                 &app_state,
                 &autosave_state,
                 &active_editor,
-                &page_status,
-                &save_status,
+                &statusbar,
                 None,
             );
             win_for_create.hide();

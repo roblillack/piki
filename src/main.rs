@@ -11,6 +11,7 @@ mod page_picker;
 mod plugin;
 pub mod responsive_scrollbar;
 pub mod sourceedit;
+mod statusbar;
 mod window_state;
 
 use autosave::AutoSaveState;
@@ -22,6 +23,7 @@ use fltk::enums::Color;
 use fltk::{prelude::*, *};
 use history::History;
 use plugin::{IndexPlugin, PluginRegistry};
+use statusbar::StatusBar;
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -83,13 +85,12 @@ impl AppState {
         }
     }
 }
-fn load_page_helper<PS: WidgetExt>(
+fn load_page_helper(
     page_name: &str,
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
     active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    page_status: &Rc<RefCell<PS>>,
-    save_status: &Rc<RefCell<frame::Frame>>,
+    statusbar: &Rc<RefCell<StatusBar>>,
     restore_scroll: Option<i32>,
 ) {
     // If we're not restoring from history, update the scroll position of the current history entry
@@ -173,33 +174,32 @@ fn load_page_helper<PS: WidgetExt>(
                 format!("Page: {}", page_name)
             };
 
-            page_status.borrow_mut().set_label(&page_text);
+            statusbar.borrow_mut().set_page(&page_text);
 
             // Set initial save status based on modification time
             if let Ok(as_state) = autosave_state.try_borrow() {
-                save_status
+                statusbar
                     .borrow_mut()
-                    .set_label(&as_state.get_status_text());
+                    .set_status(&as_state.get_status_text());
             } else {
-                save_status.borrow_mut().set_label("");
+                statusbar.borrow_mut().set_status("");
             }
 
             app::redraw();
         }
         Err(e) => {
-            page_status.borrow_mut().set_label(&format!("Error: {}", e));
-            save_status.borrow_mut().set_label("");
+            statusbar.borrow_mut().set_page(&format!("Error: {}", e));
+            statusbar.borrow_mut().set_status("");
             app::redraw();
         }
     }
 }
 
-fn navigate_back<PS: WidgetExt>(
+fn navigate_back(
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
     active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    page_status: &Rc<RefCell<PS>>,
-    save_status: &Rc<RefCell<frame::Frame>>,
+    statusbar: &Rc<RefCell<StatusBar>>,
 ) {
     // Update current entry's scroll position before navigating
     let scroll_pos = active_editor.borrow().borrow().scroll_pos();
@@ -223,19 +223,17 @@ fn navigate_back<PS: WidgetExt>(
             app_state,
             autosave_state,
             active_editor,
-            page_status,
-            save_status,
+            statusbar,
             Some(scroll_position),
         );
     }
 }
 
-fn navigate_forward<PS: WidgetExt>(
+fn navigate_forward(
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
     active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    page_status: &Rc<RefCell<PS>>,
-    save_status: &Rc<RefCell<frame::Frame>>,
+    statusbar: &Rc<RefCell<StatusBar>>,
 ) {
     // Update current entry's scroll position before navigating
     let scroll_pos = active_editor.borrow().borrow().scroll_pos();
@@ -259,8 +257,7 @@ fn navigate_forward<PS: WidgetExt>(
             app_state,
             autosave_state,
             active_editor,
-            page_status,
-            save_status,
+            statusbar,
             Some(scroll_position),
         );
     }
@@ -326,8 +323,6 @@ fn main() {
     let editor_padding = 5;
 
     let statusbar_size = 25;
-    let statusbar_bgcolor = Color::from_rgb(136, 167, 246); // "rgba(136, 167, 246, 1)"
-    let statusbar_fgcolor = Color::White;
 
     // macOS uses system menu bar (no space needed), other platforms use window menu bar (25px)
     #[cfg(target_os = "macos")]
@@ -348,63 +343,13 @@ fn main() {
     let active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>> = Rc::new(RefCell::new(rich_editor));
     let is_structured: Rc<RefCell<bool>> = Rc::new(RefCell::new(true));
 
-    // Create two status frames at the bottom: page status and save status
-    let mut statusbar =
-        frame::Frame::new(0, wind.h() - statusbar_size, wind.w(), statusbar_size, None);
-    statusbar.set_frame(enums::FrameType::FlatBox);
-    statusbar.set_color(statusbar_bgcolor);
-
-    let page_status = Rc::new(RefCell::new({
-        let mut f = button::Button::new(
-            5,
-            wind.h() - statusbar_size,
-            wind.w() / 2 - 10,
-            statusbar_size,
-            None,
-        );
-        // let mut f = frame::Frame::new(5, wind.h() - 25, wind.w() / 2 - 10, 25, None);
-        f.set_frame(enums::FrameType::FlatBox);
-        f.set_label("...");
-        f.set_tooltip("Click to open page picker");
-        f.set_align(enums::Align::Left | enums::Align::Inside);
-        f.set_label_size(fltk::app::font_size() - 1);
-        f.set_color(statusbar_bgcolor);
-        f.set_label_color(statusbar_fgcolor);
-        // f.handle_event(fltk::enums::Event::Enter);
-        let mut but2 = f.clone();
-        f.handle(move |_, evt| match evt {
-            enums::Event::Enter => {
-                // f.(enums::Cursor::Hand);
-                but2.set_color(Color::Black);
-                true
-            }
-            enums::Event::Leave => {
-                // app::set_cursor(enums::Cursor::Default);
-                but2.set_color(statusbar_bgcolor);
-                true
-            }
-            _ => false,
-        });
-
-        f
-    }));
-
-    let save_status = Rc::new(RefCell::new({
-        let mut f = frame::Frame::new(
-            5 + wind.w() / 2,
-            wind.h() - statusbar_size,
-            wind.w() / 2 - 10,
-            statusbar_size,
-            None,
-        );
-        f.set_frame(enums::FrameType::FlatBox);
-        f.set_label("");
-        f.set_align(enums::Align::Right | enums::Align::Inside);
-        f.set_label_size(fltk::app::font_size() - 1);
-        f.set_color(statusbar_bgcolor);
-        f.set_label_color(statusbar_fgcolor);
-        f
-    }));
+    // Create status bar at the bottom using the custom StatusBar widget
+    let statusbar = Rc::new(RefCell::new(StatusBar::new(
+        0,
+        wind.h() - statusbar_size,
+        wind.w(),
+        statusbar_size,
+    )));
 
     // Create a clone handle to the window for callbacks
     let wind_ref = Rc::new(RefCell::new(wind.clone()));
@@ -416,8 +361,7 @@ fn main() {
         autosave_state.clone(),
         active_editor.clone(),
         is_structured.clone(),
-        page_status.clone(),
-        save_status.clone(),
+        statusbar.clone(),
         wind_ref.clone(),
         editor_x,
         editor_y,
@@ -431,8 +375,7 @@ fn main() {
         autosave_state.clone(),
         active_editor.clone(),
         is_structured.clone(),
-        page_status.clone(),
-        save_status.clone(),
+        statusbar.clone(),
         wind_ref.clone(),
         editor_x,
         editor_y,
@@ -530,16 +473,14 @@ fn main() {
         let app_state = app_state.clone();
         let autosave_state = autosave_state.clone();
         let active_editor = active_editor.clone();
-        let page_status_for_click = page_status.clone();
-        let save_status_for_click = save_status.clone();
+        let statusbar_for_click = statusbar.clone();
         let wind_for_click = wind.clone();
-        page_status.borrow_mut().set_callback(move |_| {
+        statusbar.borrow_mut().on_page_click(move |_| {
             page_picker::show_page_picker(
                 app_state.clone(),
                 autosave_state.clone(),
                 active_editor.clone(),
-                page_status_for_click.clone(),
-                save_status_for_click.clone(),
+                statusbar_for_click.clone(),
                 &wind_for_click,
             );
         });
@@ -551,8 +492,7 @@ fn main() {
         &app_state,
         &autosave_state,
         &active_editor,
-        &page_status,
-        &save_status,
+        &statusbar,
         None,
     );
 
@@ -561,22 +501,21 @@ fn main() {
         &active_editor,
         &autosave_state,
         &app_state,
-        &page_status,
-        &save_status,
+        &statusbar,
     );
 
     // Set up periodic timer to update "X ago" display
     {
         let autosave_ref = autosave_state.clone();
-        let save_status_ref = save_status.clone();
+        let statusbar_ref = statusbar.clone();
 
         app::add_timeout3(SAVE_STATUS_UPDATE_INTERVAL_SECS, move |handle| {
             // Update the status text
-            if let (Ok(as_state), Ok(mut status)) =
-                (autosave_ref.try_borrow(), save_status_ref.try_borrow_mut())
+            if let (Ok(as_state), Ok(mut sb)) =
+                (autosave_ref.try_borrow(), statusbar_ref.try_borrow_mut())
             {
                 if !as_state.is_saving && as_state.last_save_time.is_some() {
-                    status.set_label(&as_state.get_status_text());
+                    sb.set_status(&as_state.get_status_text());
                     app::redraw();
                 }
             }
@@ -606,17 +545,16 @@ fn main() {
     app.run().unwrap();
 }
 
-fn wire_editor_callbacks<PS: WidgetExt + 'static>(
+fn wire_editor_callbacks(
     active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
     app_state: &Rc<RefCell<AppState>>,
-    page_status: &Rc<RefCell<PS>>,
-    save_status: &Rc<RefCell<frame::Frame>>,
+    statusbar: &Rc<RefCell<StatusBar>>,
 ) {
     let editor_for_callback = active_editor.clone();
     let autosave_for_callback = autosave_state.clone();
     let app_state_for_callback = app_state.clone();
-    let save_status_for_callback = save_status.clone();
+    let statusbar_for_callback = statusbar.clone();
     let current_for_change = active_editor.borrow().clone();
     current_for_change.borrow_mut().on_change(Box::new(move || {
         // Restyle if supported
@@ -635,7 +573,7 @@ fn wire_editor_callbacks<PS: WidgetExt + 'static>(
         let editor_clone = editor_for_callback.clone();
         let autosave_clone = autosave_for_callback.clone();
         let app_state_clone = app_state_for_callback.clone();
-        let save_status_clone = save_status_for_callback.clone();
+        let statusbar_clone = statusbar_for_callback.clone();
 
         app::add_timeout3(AUTOSAVE_INTERVAL_SECS, move |_| {
             let should_save = autosave_clone
@@ -644,8 +582,8 @@ fn wire_editor_callbacks<PS: WidgetExt + 'static>(
                 .unwrap_or(false);
 
             if should_save {
-                if let Ok(mut status) = save_status_clone.try_borrow_mut() {
-                    status.set_label("Saving...");
+                if let Ok(mut sb) = statusbar_clone.try_borrow_mut() {
+                    sb.set_status("Saving...");
                     app::redraw();
                 }
 
@@ -657,14 +595,14 @@ fn wire_editor_callbacks<PS: WidgetExt + 'static>(
                     let ed_ref = (&*ed_ptr).borrow();
                     match as_state.trigger_save(&*ed_ref, &app_st.store) {
                         Ok(()) => {
-                            if let Ok(mut status) = save_status_clone.try_borrow_mut() {
-                                status.set_label(&as_state.get_status_text());
+                            if let Ok(mut sb) = statusbar_clone.try_borrow_mut() {
+                                sb.set_status(&as_state.get_status_text());
                                 app::redraw();
                             }
                         }
                         Err(e) => {
-                            if let Ok(mut status) = save_status_clone.try_borrow_mut() {
-                                status.set_label(&format!("Error: {}", e));
+                            if let Ok(mut sb) = statusbar_clone.try_borrow_mut() {
+                                sb.set_status(&format!("Error: {}", e));
                                 app::redraw();
                             }
                         }
@@ -677,7 +615,7 @@ fn wire_editor_callbacks<PS: WidgetExt + 'static>(
     // Link click handler via PageUI uses active editor
     let app_state_links = app_state.clone();
     let autosave_links = autosave_state.clone();
-    let page_status_links = save_status.clone(); // not used here
+    let statusbar_links = statusbar.clone();
     let current_for_links = active_editor.borrow().clone();
     {
         let mut cur = current_for_links.borrow_mut();
@@ -686,17 +624,14 @@ fn wire_editor_callbacks<PS: WidgetExt + 'static>(
             let app_state = app_state_links.clone();
             let autosave_state = autosave_links.clone();
             let editor_ref = active_clone.clone();
-            let save_status = page_status_links.clone();
+            let statusbar = statusbar_links.clone();
             app::awake_callback(move || {
-                // We cannot refresh page_status from here easily; keep it unchanged
-                let dummy = Rc::new(RefCell::new(frame::Frame::new(0, 0, 0, 0, None)));
                 load_page_helper(
                     &link_dest,
                     &app_state,
                     &autosave_state,
                     &editor_ref,
-                    &dummy,
-                    &save_status,
+                    &statusbar,
                     None,
                 );
             });
@@ -707,10 +642,10 @@ fn wire_editor_callbacks<PS: WidgetExt + 'static>(
     let current_for_hover = active_editor.borrow().clone();
     {
         let mut cur = current_for_hover.borrow_mut();
-        let page_status_clone = page_status.clone();
+        let statusbar_clone = statusbar.clone();
         let base_label: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         cur.on_link_hover(Box::new(move |target: Option<String>| {
-            let page_status_for_cb = page_status_clone.clone();
+            let statusbar_for_cb = statusbar_clone.clone();
             let base_label_for_cb = base_label.clone();
             let tgt = target.clone();
             app::awake_callback(move || {
@@ -718,14 +653,14 @@ fn wire_editor_callbacks<PS: WidgetExt + 'static>(
                     Some(dest) => {
                         let dest = dest.clone();
                         if base_label_for_cb.borrow().is_none() {
-                            let current = page_status_for_cb.borrow().label();
+                            let current = statusbar_for_cb.borrow().page_status_widget().label();
                             *base_label_for_cb.borrow_mut() = Some(current);
                         }
-                        page_status_for_cb.borrow_mut().set_label(&dest);
+                        statusbar_for_cb.borrow_mut().set_page(&dest);
                     }
                     None => {
                         if let Some(orig) = base_label_for_cb.borrow_mut().take() {
-                            page_status_for_cb.borrow_mut().set_label(&orig);
+                            statusbar_for_cb.borrow_mut().set_page(&orig);
                         }
                     }
                 }
