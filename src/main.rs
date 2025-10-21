@@ -320,7 +320,7 @@ fn main() {
     #[cfg(target_os = "macos")]
     let editor_padding = 0;
     #[cfg(not(target_os = "macos"))]
-    let editor_padding = 5;
+    let editor_padding = 0;
 
     let statusbar_size = 25;
 
@@ -497,12 +497,7 @@ fn main() {
     );
 
     // Wire callbacks for active editor
-    wire_editor_callbacks(
-        &active_editor,
-        &autosave_state,
-        &app_state,
-        &statusbar,
-    );
+    wire_editor_callbacks(&active_editor, &autosave_state, &app_state, &statusbar);
 
     // Set up periodic timer to update "X ago" display
     {
