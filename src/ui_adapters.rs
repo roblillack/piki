@@ -1,5 +1,4 @@
 use crate::content::{ContentLoader, ContentProvider};
-use crate::draw_context::{FontStyle, FontType};
 use crate::fltk_structured_rich_display::FltkStructuredRichDisplay;
 use crate::fltk_text_display::create_text_display_widget;
 use crate::page_ui::PageUI;
@@ -8,7 +7,6 @@ use crate::richtext::structured_document::BlockType;
 use crate::richtext::structured_editor::StructuredEditor;
 use crate::sourceedit::text_buffer::TextBuffer;
 use crate::sourceedit::text_display::TextDisplay;
-use crate::sourceedit::text_display::{style_attr, StyleTableEntry};
 use fltk::{app, enums::Color, prelude::*, window};
 use std::any::Any;
 use std::cell::RefCell;
@@ -112,164 +110,11 @@ pub struct StructuredRichUI(pub FltkStructuredRichDisplay);
 
 impl StructuredRichUI {
     pub fn new(x: i32, y: i32, w: i32, h: i32, edit_mode: bool) -> Self {
-        let mut ui = FltkStructuredRichDisplay::new(x, y, w, h, edit_mode);
-        {
-            // Match examples/viewmd.rs style table and widget styling
-            const DEFAULT_FONT_SIZE: u8 = 14;
-            const HIGHLIGHT_COLOR: u32 = 0xFFFF00FF;
-
-            // Base styles 0..10
-            let mut styles: Vec<StyleTableEntry> = vec![
-                // 0 Plain
-                StyleTableEntry {
-                    color: 0x000000FF,
-                    font: FontType::Content,
-                    style: FontStyle::Regular,
-                    size: DEFAULT_FONT_SIZE,
-                    attr: style_attr::BGCOLOR,
-                    bgcolor: 0xFFFFF5FF,
-                },
-                // 1 Bold
-                StyleTableEntry {
-                    color: 0x000000FF,
-                    font: FontType::Content,
-                    style: FontStyle::Bold,
-                    size: DEFAULT_FONT_SIZE,
-                    attr: style_attr::BGCOLOR,
-                    bgcolor: 0xFFFFF5FF,
-                },
-                // 2 Italic
-                StyleTableEntry {
-                    color: 0x000000FF,
-                    font: FontType::Content,
-                    style: FontStyle::Italic,
-                    size: DEFAULT_FONT_SIZE,
-                    attr: style_attr::BGCOLOR,
-                    bgcolor: 0xFFFFF5FF,
-                },
-                // 3 Bold+Italic
-                StyleTableEntry {
-                    color: 0x000000FF,
-                    font: FontType::Content,
-                    style: FontStyle::BoldItalic,
-                    size: DEFAULT_FONT_SIZE,
-                    attr: style_attr::BGCOLOR,
-                    bgcolor: 0xFFFFF5FF,
-                },
-                // 4 Code
-                StyleTableEntry {
-                    color: 0x0064C8FF,
-                    font: FontType::Content,
-                    style: FontStyle::Regular,
-                    size: DEFAULT_FONT_SIZE,
-                    attr: style_attr::BGCOLOR,
-                    bgcolor: 0xFFFFF5FF,
-                },
-                // 5 Link
-                StyleTableEntry {
-                    color: 0x0000FFFF,
-                    font: FontType::Content,
-                    style: FontStyle::Regular,
-                    size: DEFAULT_FONT_SIZE,
-                    attr: style_attr::UNDERLINE | style_attr::BGCOLOR,
-                    bgcolor: 0xFFFFF5FF,
-                },
-                // 6 Header1
-                StyleTableEntry {
-                    color: 0x000000FF,
-                    font: FontType::Heading,
-                    style: FontStyle::Bold,
-                    size: DEFAULT_FONT_SIZE + 6,
-                    attr: style_attr::BGCOLOR,
-                    bgcolor: 0xFFFFF5FF,
-                },
-                // 7 Header2
-                StyleTableEntry {
-                    color: 0x000000FF,
-                    font: FontType::Heading,
-                    style: FontStyle::Bold,
-                    size: DEFAULT_FONT_SIZE + 4,
-                    attr: style_attr::BGCOLOR,
-                    bgcolor: 0xFFFFF5FF,
-                },
-                // 8 Header3
-                StyleTableEntry {
-                    color: 0x000000FF,
-                    font: FontType::Heading,
-                    style: FontStyle::Bold,
-                    size: DEFAULT_FONT_SIZE + 2,
-                    attr: style_attr::BGCOLOR,
-                    bgcolor: 0xFFFFF5FF,
-                },
-                // 9 Quote
-                StyleTableEntry {
-                    color: 0x640000FF,
-                    font: FontType::Content,
-                    style: FontStyle::Italic,
-                    size: DEFAULT_FONT_SIZE,
-                    attr: style_attr::BGCOLOR,
-                    bgcolor: 0xFFFFF5FF,
-                },
-                // 10 Link hover
-                StyleTableEntry {
-                    color: 0x0000FFFF,
-                    font: FontType::Content,
-                    style: FontStyle::Regular,
-                    size: DEFAULT_FONT_SIZE,
-                    attr: style_attr::UNDERLINE | style_attr::BGCOLOR,
-                    bgcolor: 0xD3D3D3FF,
-                },
-            ];
-
-            // Decorated variants 11..42 like in example
-            let base_fonts = [
-                (FontType::Content, FontStyle::Regular),    // plain
-                (FontType::Content, FontStyle::Bold),       // bold
-                (FontType::Content, FontStyle::Italic),     // italic
-                (FontType::Content, FontStyle::BoldItalic), // bold italic
-            ];
-            for base in 0..4 {
-                for decoration in 1..8 {
-                    let underline = (decoration & 1) != 0;
-                    let strikethrough = (decoration & 2) != 0;
-                    let highlight = (decoration & 4) != 0;
-
-                    let mut attr = style_attr::BGCOLOR;
-                    if underline {
-                        attr |= style_attr::UNDERLINE;
-                    }
-                    if strikethrough {
-                        attr |= style_attr::STRIKE_THROUGH;
-                    }
-                    let bgcolor = if highlight {
-                        HIGHLIGHT_COLOR
-                    } else {
-                        0xFFFFF5FF
-                    };
-                    styles.push(StyleTableEntry {
-                        color: 0x000000FF,
-                        font: base_fonts[base].0,
-                        style: base_fonts[base].1,
-                        size: DEFAULT_FONT_SIZE,
-                        attr,
-                        bgcolor,
-                    });
-                }
-            }
-
-            ui.group.set_color(Color::from_rgb(255, 255, 245));
-            ui.group.set_frame(fltk::enums::FrameType::FlatBox);
-        }
-        Self(ui)
+        Self(FltkStructuredRichDisplay::new(x, y, w, h, edit_mode))
     }
 
     pub fn has_selection(&self) -> bool {
-        self.0
-            .display
-            .borrow()
-            .editor()
-            .selection()
-            .is_some()
+        self.0.display.borrow().editor().selection().is_some()
     }
 
     pub fn cut_selection(&mut self) -> Option<String> {
@@ -280,11 +125,7 @@ impl StructuredRichUI {
         match result {
             Ok(text) => {
                 self.0.notify_change();
-                if text.is_empty() {
-                    None
-                } else {
-                    Some(text)
-                }
+                if text.is_empty() { None } else { Some(text) }
             }
             Err(_) => None,
         }
@@ -293,11 +134,7 @@ impl StructuredRichUI {
     pub fn copy_selection(&self) -> Option<String> {
         let disp = self.0.display.borrow();
         let text = disp.editor().copy();
-        if text.is_empty() {
-            None
-        } else {
-            Some(text)
-        }
+        if text.is_empty() { None } else { Some(text) }
     }
 
     pub fn paste_from_clipboard(&mut self) {

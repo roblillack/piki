@@ -19,7 +19,6 @@ use clap::Parser;
 use document::DocumentStore;
 use fliki_rs::page_ui::PageUI;
 use fliki_rs::ui_adapters::StructuredRichUI;
-use fltk::enums::Color;
 use fltk::{prelude::*, *};
 use history::History;
 use plugin::{IndexPlugin, PluginRegistry};
