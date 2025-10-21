@@ -1201,6 +1201,15 @@ fn switch_editor<PS: WidgetExt + 'static>(
         0
     };
 
+    // Hide the old editor before creating the new one
+    if let Ok(active_ptr) = active_editor.try_borrow() {
+        let editor_rc = active_ptr.clone();
+        drop(active_ptr);
+        if let Ok(mut editor) = editor_rc.try_borrow_mut() {
+            editor.hide();
+        }
+    }
+
     let new_editor = instantiate_editor(target, wind_ref, editor_x, editor_y, editor_w, editor_h);
 
     {

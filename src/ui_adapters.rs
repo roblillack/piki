@@ -101,6 +101,10 @@ impl PageUI for TextDisplayUI {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
+
+    fn hide(&mut self) {
+        self.group.hide();
+    }
 }
 
 /// PageUI adapter for StructuredRichDisplay + FLTK Group wrapper
@@ -450,5 +454,9 @@ impl PageUI for StructuredRichUI {
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+
+    fn hide(&mut self) {
+        self.0.group.hide();
     }
 }

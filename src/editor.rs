@@ -494,6 +494,10 @@ impl fliki_rs::page_ui::PageUI for MarkdownEditor {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
+
+    fn hide(&mut self) {
+        self.editor.hide();
+    }
 }
 
 /// Helper function to find a delimiter in a character slice

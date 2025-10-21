@@ -43,4 +43,7 @@ pub trait PageUI: ContentProvider + ContentLoader + 'static {
 
     // Paragraph style change notification (structured editors can override).
     fn on_paragraph_style_change(&mut self, _f: Box<dyn FnMut(BlockType) + 'static>) {}
+
+    // Hide the widget (called when switching editors).
+    fn hide(&mut self);
 }
