@@ -28,7 +28,12 @@ use std::rc::Rc;
 use std::time::Instant;
 use window_state::WindowGeometry;
 
+// Timeout to save window state after resize/move
 const WINDOW_STATE_SAVE_TIMEOUT_SECS: f64 = 3.0;
+// Interval to autosave changes
+const AUTOSAVE_INTERVAL_SECS: f64 = 10.0;
+// Interval to update "X ago" display in save status
+const SAVE_STATUS_UPDATE_INTERVAL_SECS: f64 = 30.0;
 
 #[derive(Parser, Debug)]
 #[command(name = "fliki-rs")]
@@ -565,7 +570,7 @@ fn main() {
         let autosave_ref = autosave_state.clone();
         let save_status_ref = save_status.clone();
 
-        app::add_timeout3(1.0, move |handle| {
+        app::add_timeout3(SAVE_STATUS_UPDATE_INTERVAL_SECS, move |handle| {
             // Update the status text
             if let (Ok(as_state), Ok(mut status)) =
                 (autosave_ref.try_borrow(), save_status_ref.try_borrow_mut())
@@ -577,7 +582,7 @@ fn main() {
             }
 
             // Repeat every second
-            app::repeat_timeout3(1.0, handle);
+            app::repeat_timeout3(SAVE_STATUS_UPDATE_INTERVAL_SECS, handle);
         });
     }
 
@@ -632,7 +637,7 @@ fn wire_editor_callbacks<PS: WidgetExt + 'static>(
         let app_state_clone = app_state_for_callback.clone();
         let save_status_clone = save_status_for_callback.clone();
 
-        app::add_timeout3(1.0, move |_| {
+        app::add_timeout3(AUTOSAVE_INTERVAL_SECS, move |_| {
             let should_save = autosave_clone
                 .try_borrow()
                 .map(|s| s.pending_save)
