@@ -21,6 +21,7 @@ pub struct StructuredEditor {
     document: StructuredDocument,
     cursor: DocumentPosition,
     selection: Option<(DocumentPosition, DocumentPosition)>, // (start, end)
+    paragraph_cb: Option<Box<dyn FnMut(BlockType) + 'static>>,
 }
 
 impl StructuredEditor {
@@ -54,6 +55,7 @@ impl StructuredEditor {
             document: StructuredDocument::new(),
             cursor: DocumentPosition::start(),
             selection: None,
+            paragraph_cb: None,
         }
     }
 
@@ -63,6 +65,7 @@ impl StructuredEditor {
             document,
             cursor: DocumentPosition::start(),
             selection: None,
+            paragraph_cb: None,
         }
     }
 
@@ -74,6 +77,28 @@ impl StructuredEditor {
     /// Get mutable document
     pub fn document_mut(&mut self) -> &mut StructuredDocument {
         &mut self.document
+    }
+
+    pub fn set_paragraph_change_callback(
+        &mut self,
+        cb: Option<Box<dyn FnMut(BlockType) + 'static>>,
+    ) {
+        self.paragraph_cb = cb;
+        self.trigger_paragraph_change();
+    }
+
+    fn trigger_paragraph_change(&mut self) {
+        println!("Triggering paragraph change");
+        if let Some(cb) = self.paragraph_cb.as_mut() {
+            println!("Calling paragraph change callback");
+            let block_type = self
+                .document
+                .blocks()
+                .get(self.cursor.block_index)
+                .map(|b| b.block_type.clone())
+                .unwrap_or(BlockType::Paragraph);
+            cb(block_type);
+        }
     }
 
     fn normalize_cursor(&mut self) {
@@ -89,6 +114,7 @@ impl StructuredEditor {
     pub fn set_cursor(&mut self, pos: DocumentPosition) {
         self.cursor = self.document.clamp_position(pos);
         self.selection = None; // Clear selection when moving cursor
+        self.trigger_paragraph_change();
     }
 
     /// Get selection range
@@ -1677,6 +1703,7 @@ impl StructuredEditor {
                     checkbox: None,
                 };
             }
+            self.trigger_paragraph_change();
             return Ok(());
         }
 
@@ -1733,6 +1760,7 @@ impl StructuredEditor {
                     checkbox: None,
                 };
             }
+            self.trigger_paragraph_change();
             return Ok(());
         }
 
@@ -1765,6 +1793,7 @@ impl StructuredEditor {
             },
         };
 
+        self.trigger_paragraph_change();
         Ok(())
     }
 
@@ -1851,6 +1880,7 @@ impl StructuredEditor {
                         checkbox: Some(false),
                     };
                 }
+                self.trigger_paragraph_change();
                 Ok(())
             }
             BlockType::ListItem {
@@ -1861,6 +1891,7 @@ impl StructuredEditor {
                 // Toggling off a checklist item returns it to a paragraph
                 let blocks = self.document.blocks_mut();
                 blocks[block_index].block_type = BlockType::Paragraph;
+                self.trigger_paragraph_change();
                 Ok(())
             }
             BlockType::ListItem {
@@ -1908,6 +1939,7 @@ impl StructuredEditor {
                         checkbox: Some(false),
                     };
                 }
+                self.trigger_paragraph_change();
                 Ok(())
             }
             BlockType::Paragraph
@@ -1920,6 +1952,7 @@ impl StructuredEditor {
                     number: None,
                     checkbox: Some(false),
                 };
+                self.trigger_paragraph_change();
                 Ok(())
             }
         }
@@ -2112,6 +2145,7 @@ impl StructuredEditor {
                         }
                     }
                 }
+                self.trigger_paragraph_change();
                 Ok(())
             }
             BlockType::ListItem { ordered: false, .. } => {
@@ -2151,6 +2185,7 @@ impl StructuredEditor {
                     };
                     num += 1;
                 }
+                self.trigger_paragraph_change();
                 Ok(())
             }
             BlockType::Paragraph
@@ -2252,6 +2287,7 @@ impl StructuredEditor {
                         n += 1;
                     }
                 }
+                self.trigger_paragraph_change();
                 Ok(())
             }
         }
@@ -2271,6 +2307,7 @@ impl StructuredEditor {
             _ => BlockType::BlockQuote,
         };
 
+        self.trigger_paragraph_change();
         Ok(())
     }
 
@@ -2288,6 +2325,7 @@ impl StructuredEditor {
             _ => BlockType::CodeBlock { language: None },
         };
 
+        self.trigger_paragraph_change();
         Ok(())
     }
 
@@ -2370,6 +2408,7 @@ impl StructuredEditor {
             }
         }
 
+        self.trigger_paragraph_change();
         Ok(())
     }
 

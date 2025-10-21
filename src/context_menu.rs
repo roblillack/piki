@@ -120,16 +120,22 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         move |_| (actions.set_heading3)(),
     );
     menu.add(
+        "Paragraph Style/Quote\t",
+        quote_shortcut,
+        MenuFlag::Radio,
+        move |_| (actions.toggle_quote)(),
+    );
+    menu.add(
         "Paragraph Style/Code\t",
         code_block_shortcut,
         MenuFlag::Radio,
         move |_| (actions.toggle_code_block)(),
     );
     menu.add(
-        "Paragraph Style/Quote\t",
-        quote_shortcut,
+        "Paragraph Style/Numbered List\t",
+        ordered_list_shortcut,
         MenuFlag::Radio,
-        move |_| (actions.toggle_quote)(),
+        move |_| (actions.toggle_ordered_list)(),
     );
     menu.add(
         "Paragraph Style/List Item\t",
@@ -143,12 +149,6 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         MenuFlag::Radio,
         move |_| (actions.toggle_checklist)(),
     );
-    menu.add(
-        "Paragraph Style/Numbered List\t",
-        ordered_list_shortcut,
-        MenuFlag::Radio,
-        move |_| (actions.toggle_ordered_list)(),
-    );
 
     // Reflect current block selection in the radio group
     let labels = [
@@ -156,11 +156,11 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         "Paragraph Style/Heading 1\t",
         "Paragraph Style/Heading 2\t",
         "Paragraph Style/Heading 3\t",
-        "Paragraph Style/Code\t",
         "Paragraph Style/Quote\t",
+        "Paragraph Style/Code\t",
+        "Paragraph Style/Numbered List\t",
         "Paragraph Style/List Item\t",
         "Paragraph Style/Checklist Item\t",
-        "Paragraph Style/Numbered List\t",
     ];
     // Ensure radio flag is set on all items and clear Value by default
     for &label in &labels {
@@ -244,22 +244,16 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         move |_| (actions.toggle_italic)(),
     );
     menu.add(
-        "Toggle Code\t",
-        code_shortcut,
-        MenuFlag::Normal,
-        move |_| (actions.toggle_code)(),
-    );
-    menu.add(
-        "Toggle Strikethrough\t",
-        strike_shortcut,
-        MenuFlag::Normal,
-        move |_| (actions.toggle_strike)(),
-    );
-    menu.add(
         "Toggle Underline\t",
         underline_shortcut,
         MenuFlag::Normal,
         move |_| (actions.toggle_underline)(),
+    );
+    menu.add(
+        "Toggle Code\t",
+        code_shortcut,
+        MenuFlag::Normal,
+        move |_| (actions.toggle_code)(),
     );
     menu.add(
         "Toggle Highlight\t",
@@ -267,18 +261,12 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         MenuFlag::Normal,
         move |_| (actions.toggle_highlight)(),
     );
-
-    menu.add("_", Shortcut::None, MenuFlag::MenuDivider, |_| {});
-
     menu.add(
-        "Clear Formatting\t",
-        clear_shortcut,
+        "Toggle Strikethrough\t",
+        strike_shortcut,
         MenuFlag::Normal,
-        move |_| (actions.clear_formatting)(),
+        move |_| (actions.toggle_strike)(),
     );
-
-    menu.add("_", Shortcut::None, MenuFlag::MenuDivider, |_| {});
-
     // Edit Link
     #[cfg(target_os = "macos")]
     let edit_link_shortcut = Shortcut::Command | 'k';
@@ -291,7 +279,12 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         move |_| (actions.edit_link)(),
     );
 
-    menu.add("_", Shortcut::None, MenuFlag::MenuDivider, |_| {});
+    menu.add(
+        "_Clear Formatting\t",
+        clear_shortcut,
+        MenuFlag::Normal,
+        move |_| (actions.clear_formatting)(),
+    );
 
     // Clipboard
     #[cfg(target_os = "macos")]

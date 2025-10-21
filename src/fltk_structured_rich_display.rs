@@ -7,7 +7,6 @@ use crate::richtext::structured_rich_display::StructuredRichDisplay;
 use fltk::{app::MouseWheel, enums::*, prelude::*};
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::Arc;
 use std::time::Instant;
 
 /// FLTK wrapper for StructuredRichDisplay with scrollbar and event handling
@@ -17,6 +16,7 @@ pub struct FltkStructuredRichDisplay {
     link_cb: Rc<RefCell<Option<Box<dyn Fn(String) + 'static>>>>,
     hover_cb: Rc<RefCell<Option<Box<dyn Fn(Option<String>) + 'static>>>>,
     change_cb: Rc<RefCell<Option<Box<dyn FnMut() + 'static>>>>,
+    paragraph_cb: Rc<RefCell<Option<Box<dyn FnMut(BlockType) + 'static>>>>,
 }
 
 impl FltkStructuredRichDisplay {
@@ -46,6 +46,8 @@ impl FltkStructuredRichDisplay {
         let change_callback: Rc<RefCell<Option<Box<dyn FnMut() + 'static>>>> =
             Rc::new(RefCell::new(None));
         let hover_callback: Rc<RefCell<Option<Box<dyn Fn(Option<String>) + 'static>>>> =
+            Rc::new(RefCell::new(None));
+        let paragraph_callback: Rc<RefCell<Option<Box<dyn FnMut(BlockType) + 'static>>>> =
             Rc::new(RefCell::new(None));
 
         // Create vertical responsive scrollbar
@@ -2412,6 +2414,7 @@ impl FltkStructuredRichDisplay {
             link_cb: link_callback,
             hover_cb: hover_callback,
             change_cb: change_callback,
+            paragraph_cb: paragraph_callback,
         }
     }
 
@@ -2433,5 +2436,43 @@ impl FltkStructuredRichDisplay {
         if changed {
             self.group.redraw();
         }
+    }
+
+    pub fn notify_change(&self) {
+        if let Ok(mut cb_ref) = self.change_cb.try_borrow_mut() {
+            if let Some(cb) = &mut *cb_ref {
+                (cb)();
+            }
+        }
+        let mut group = self.group.clone();
+        group.redraw();
+    }
+
+    pub fn set_paragraph_callback(&self, cb: Option<Box<dyn FnMut(BlockType) + 'static>>) {
+        // *self.paragraph_cb.borrow_mut() = cb.clone();
+        self.display
+            .borrow_mut()
+            .editor_mut()
+            .set_paragraph_change_callback(cb);
+        // self.emit_paragraph_state();
+    }
+
+    pub fn emit_paragraph_state(&self) {
+        if let Some(block_type) = self.current_block_type() {
+            println!("Emitting paragraph type: {:?}", block_type);
+            if let Ok(mut cb_ref) = self.paragraph_cb.try_borrow_mut() {
+                if let Some(cb) = &mut *cb_ref {
+                    (cb)(block_type);
+                }
+            }
+        }
+    }
+
+    pub fn current_block_type(&self) -> Option<BlockType> {
+        let disp = self.display.borrow();
+        let editor = disp.editor();
+        let blocks = editor.document().blocks();
+        let idx = editor.cursor().block_index;
+        blocks.get(idx).map(|b| b.block_type.clone())
     }
 }

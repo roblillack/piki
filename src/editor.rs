@@ -1,8 +1,7 @@
-use crate::link_handler::{Link, extract_links, find_link_at_position};
+use crate::link_handler::{extract_links, find_link_at_position, Link};
 use fltk::text::PositionType;
 use fltk::{prelude::*, *};
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::any::Any;
 
 const DEFAULT_FONT_SIZE: i32 = 14;
 
@@ -174,6 +173,34 @@ impl MarkdownEditor {
     /// Manually trigger a full re-style of the current content
     pub fn restyle(&mut self) {
         self.update_links();
+    }
+
+    pub fn has_selection(&self) -> bool {
+        !self.buffer.selection_text().is_empty()
+    }
+
+    pub fn cut_selection(&mut self) -> Option<String> {
+        let selected = self.buffer.selection_text();
+        if selected.is_empty() {
+            None
+        } else {
+            self.editor.cut();
+            Some(selected)
+        }
+    }
+
+    pub fn copy_selection(&self) -> Option<String> {
+        let selected = self.buffer.selection_text();
+        if selected.is_empty() {
+            None
+        } else {
+            Some(selected)
+        }
+    }
+
+    pub fn paste_from_clipboard(&mut self) {
+        let mut editor_clone = self.editor.clone();
+        app::paste(&mut editor_clone);
     }
 
     /// Set read-only mode for the editor
@@ -458,6 +485,14 @@ impl fliki_rs::page_ui::PageUI for MarkdownEditor {
 
     fn restyle(&mut self) {
         self.restyle();
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }
 

@@ -1,12 +1,14 @@
 use crate::content::{ContentLoader, ContentProvider};
-use fltk::{enums::Color, prelude::*, window};
+use crate::richtext::structured_document::BlockType;
+use fltk::{enums::Color, window};
+use std::any::Any;
 
 /// A minimal UI abstraction layer for a page editor/viewer.
 ///
 /// It unifies the interactions needed by main.rs so different
 /// implementations (MarkdownEditor, TextDisplay, StructuredRichDisplay)
 /// can be swapped without changing app logic.
-pub trait PageUI: ContentProvider + ContentLoader {
+pub trait PageUI: ContentProvider + ContentLoader + 'static {
     // Subscribe to content change notifications (debounced by the app).
     fn on_change(&mut self, f: Box<dyn FnMut() + 'static>);
 
@@ -34,4 +36,11 @@ pub trait PageUI: ContentProvider + ContentLoader {
 
     // Optional periodic tick with ms since app start (no-op by default).
     fn tick(&mut self, _ms_since_start: u64) {}
+
+    // Downcasting support for accessing concrete implementations.
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+
+    // Paragraph style change notification (structured editors can override).
+    fn on_paragraph_style_change(&mut self, _f: Box<dyn FnMut(BlockType) + 'static>) {}
 }
