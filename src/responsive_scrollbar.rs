@@ -77,7 +77,7 @@ impl ResponsiveScrollbar {
                             3
                         };
                         let offset = if st.state == ScrollbarState::Awake {
-                            2
+                            3
                         } else {
                             w - sbw - 2
                         };
@@ -102,9 +102,9 @@ impl ResponsiveScrollbar {
                             fltk_draw::set_draw_color(rect_col);
                             fltk_draw::draw_rounded_rectf(
                                 x + offset,
-                                slider_y,
+                                slider_y + 1,
                                 sbw,
-                                slider_height,
+                                slider_height - 2,
                                 1,
                             );
                         }
@@ -147,11 +147,11 @@ impl ResponsiveScrollbar {
 
                             // Draw slider with proper 3D look
                             fltk_draw::draw_box(
-                                FrameType::UpBox,
+                                FrameType::ThinUpBox,
                                 x + 1,
-                                slider_y,
+                                slider_y + 1,
                                 w - 2,
-                                slider_height,
+                                slider_height - 2,
                                 rect_col,
                             );
                         }

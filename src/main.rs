@@ -18,10 +18,13 @@ use document::DocumentStore;
 use editor::MarkdownEditor;
 use fliki_rs::page_ui::PageUI;
 use fliki_rs::ui_adapters::StructuredRichUI;
+use fltk::enums::Color;
 use fltk::{prelude::*, *};
 use history::History;
 use plugin::{IndexPlugin, PluginRegistry};
 use std::cell::RefCell;
+#[cfg(target_os = "macos")]
+use std::os::macos::raw::stat;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
@@ -537,12 +540,12 @@ fn create_menu(
     menu_bar
 }
 
-fn load_page_helper(
+fn load_page_helper<PS: WidgetExt>(
     page_name: &str,
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
     active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    page_status: &Rc<RefCell<frame::Frame>>,
+    page_status: &Rc<RefCell<PS>>,
     save_status: &Rc<RefCell<frame::Frame>>,
     restore_scroll: Option<i32>,
 ) {
@@ -620,7 +623,7 @@ fn load_page_helper(
 
             // Determine page status text based on page type
             let page_text = if let Some(plugin_name) = page_name.strip_prefix('!') {
-                format!("Page: {} (plugin: {})", page_name, plugin_name)
+                format!("Plugin: {}", plugin_name)
             } else if content.is_empty() {
                 format!("Page: {} (new)", page_name)
             } else {
@@ -648,11 +651,11 @@ fn load_page_helper(
     }
 }
 
-fn navigate_back(
+fn navigate_back<PS: WidgetExt>(
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
     active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    page_status: &Rc<RefCell<frame::Frame>>,
+    page_status: &Rc<RefCell<PS>>,
     save_status: &Rc<RefCell<frame::Frame>>,
 ) {
     // Update current entry's scroll position before navigating
@@ -684,11 +687,11 @@ fn navigate_back(
     }
 }
 
-fn navigate_forward(
+fn navigate_forward<PS: WidgetExt>(
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
     active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    page_status: &Rc<RefCell<frame::Frame>>,
+    page_status: &Rc<RefCell<PS>>,
     save_status: &Rc<RefCell<frame::Frame>>,
 ) {
     // Update current entry's scroll position before navigating
@@ -741,8 +744,8 @@ fn main() {
     let app = app::App::default();
     let window_state_path = window_state::state_file_path().map(Rc::new);
     let mut wind = window::Window::default()
-        .with_size(660, 400)
-        .with_label("fliki-rs");
+        .with_size(400, 650) // Golden ratio 1:1.618 approx
+        .with_label("Piki");
 
     if let Some(path) = window_state_path.as_ref() {
         if let Some(saved_state) = window_state::load_state(path.as_path()) {
@@ -774,15 +777,27 @@ fn main() {
     )));
     let autosave_state = Rc::new(RefCell::new(AutoSaveState::new()));
 
+    #[cfg(target_os = "macos")]
+    let editor_padding = 0;
+    #[cfg(not(target_os = "macos"))]
+    let editor_padding = 5;
+
+    let statusbar_size = 25;
+    let statusbar_bgcolor = Color::from_rgb(136, 167, 246); // "rgba(136, 167, 246, 1)"
+    let statusbar_fgcolor = Color::White;
+
     // macOS uses system menu bar (no space needed), other platforms use window menu bar (25px)
     #[cfg(target_os = "macos")]
-    let (editor_y, editor_height) = (5, wind.h() - 30);
+    let (editor_y, editor_height) = (editor_padding, wind.h() - statusbar_size - editor_padding);
     #[cfg(not(target_os = "macos"))]
-    let (editor_y, editor_height) = (30, wind.h() - 55);
+    let (editor_y, editor_height) = (
+        25 + editor_padding,
+        wind.h() - statusbar_size - editor_padding - 25,
+    );
 
     // Create only the initially active editor (structured rich editor)
-    let editor_x = 5;
-    let editor_w = wind.w() - 10;
+    let editor_x = editor_padding;
+    let editor_w = wind.w() - 2 * editor_padding;
     let editor_h = editor_height;
     let rich_editor: Rc<RefCell<dyn PageUI>> = Rc::new(RefCell::new(StructuredRichUI::new(
         editor_x, editor_y, editor_w, editor_h, true,
@@ -791,19 +806,60 @@ fn main() {
     let is_structured: Rc<RefCell<bool>> = Rc::new(RefCell::new(true));
 
     // Create two status frames at the bottom: page status and save status
+    let mut statusbar =
+        frame::Frame::new(0, wind.h() - statusbar_size, wind.w(), statusbar_size, None);
+    statusbar.set_frame(enums::FrameType::FlatBox);
+    statusbar.set_color(statusbar_bgcolor);
+
     let page_status = Rc::new(RefCell::new({
-        let mut f = frame::Frame::new(5, wind.h() - 25, 400, 25, None);
+        let mut f = button::Button::new(
+            5,
+            wind.h() - statusbar_size,
+            wind.w() / 2 - 10,
+            statusbar_size,
+            None,
+        );
+        // let mut f = frame::Frame::new(5, wind.h() - 25, wind.w() / 2 - 10, 25, None);
         f.set_frame(enums::FrameType::FlatBox);
         f.set_label("...");
+        f.set_tooltip("Click to open page picker");
         f.set_align(enums::Align::Left | enums::Align::Inside);
+        f.set_label_size(fltk::app::font_size() - 1);
+        f.set_color(statusbar_bgcolor);
+        f.set_label_color(statusbar_fgcolor);
+        // f.handle_event(fltk::enums::Event::Enter);
+        let mut but2 = f.clone();
+        f.handle(move |_, evt| match evt {
+            enums::Event::Enter => {
+                // f.(enums::Cursor::Hand);
+                but2.set_color(Color::Black);
+                true
+            }
+            enums::Event::Leave => {
+                // app::set_cursor(enums::Cursor::Default);
+                but2.set_color(statusbar_bgcolor);
+                true
+            }
+            _ => false,
+        });
+
         f
     }));
 
     let save_status = Rc::new(RefCell::new({
-        let mut f = frame::Frame::new(400, wind.h() - 25, wind.w() - 400 - 5, 25, None);
+        let mut f = frame::Frame::new(
+            5 + wind.w() / 2,
+            wind.h() - statusbar_size,
+            wind.w() / 2 - 10,
+            statusbar_size,
+            None,
+        );
         f.set_frame(enums::FrameType::FlatBox);
         f.set_label("");
         f.set_align(enums::Align::Right | enums::Align::Inside);
+        f.set_label_size(fltk::app::font_size() - 1);
+        f.set_color(statusbar_bgcolor);
+        f.set_label_color(statusbar_fgcolor);
         f
     }));
 
@@ -934,19 +990,15 @@ fn main() {
         let page_status_for_click = page_status.clone();
         let save_status_for_click = save_status.clone();
         let wind_for_click = wind.clone();
-        page_status.borrow_mut().handle(move |_, ev| match ev {
-            enums::Event::Push => {
-                page_picker::show_page_picker(
-                    app_state.clone(),
-                    autosave_state.clone(),
-                    active_editor.clone(),
-                    page_status_for_click.clone(),
-                    save_status_for_click.clone(),
-                    &wind_for_click,
-                );
-                true
-            }
-            _ => false,
+        page_status.borrow_mut().set_callback(move |_| {
+            page_picker::show_page_picker(
+                app_state.clone(),
+                autosave_state.clone(),
+                active_editor.clone(),
+                page_status_for_click.clone(),
+                save_status_for_click.clone(),
+                &wind_for_click,
+            );
         });
     }
 
@@ -1011,11 +1063,11 @@ fn main() {
     app.run().unwrap();
 }
 
-fn wire_editor_callbacks(
+fn wire_editor_callbacks<PS: WidgetExt + 'static>(
     active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
     app_state: &Rc<RefCell<AppState>>,
-    page_status: &Rc<RefCell<frame::Frame>>,
+    page_status: &Rc<RefCell<PS>>,
     save_status: &Rc<RefCell<frame::Frame>>,
 ) {
     let editor_for_callback = active_editor.clone();

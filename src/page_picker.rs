@@ -7,11 +7,11 @@ use fltk::{self, prelude::*, window};
 use crate::autosave::AutoSaveState;
 
 /// Modal quick page picker with fuzzy filtering and keyboard navigation.
-pub fn show_page_picker(
+pub fn show_page_picker<PS: WidgetExt + 'static>(
     app_state: Rc<RefCell<super::AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
     active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    page_status: Rc<RefCell<fltk::frame::Frame>>,
+    page_status: Rc<RefCell<PS>>,
     save_status: Rc<RefCell<fltk::frame::Frame>>,
     parent: &window::Window,
 ) {
