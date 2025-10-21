@@ -1,4 +1,5 @@
 use crate::document::DocumentStore;
+use chrono::{DateTime, Local};
 use fliki_rs::content::ContentProvider;
 use std::time::SystemTime;
 
@@ -175,22 +176,8 @@ pub fn format_time_since(time: SystemTime) -> String {
 
 /// Format a time as an absolute date (YYYY-MM-DD)
 fn format_absolute_date(time: SystemTime) -> String {
-    use std::time::UNIX_EPOCH;
-
-    match time.duration_since(UNIX_EPOCH) {
-        Ok(duration) => {
-            let secs = duration.as_secs();
-            // Simple date calculation (not accounting for leap years perfectly, but close enough)
-            let days = secs / 86400;
-            let years_since_epoch = days / 365;
-            let year = 1970 + years_since_epoch;
-
-            // This is a simplified version - for production you'd use chrono
-            // For now, just show year and approximate date
-            format!("saved {}-xx-xx", year)
-        }
-        Err(_) => "saved (unknown date)".to_string(),
-    }
+    let datetime: DateTime<Local> = time.into();
+    format!("saved {}", datetime.format("%Y-%m-%d"))
 }
 
 #[cfg(test)]
