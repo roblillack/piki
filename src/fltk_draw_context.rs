@@ -1,5 +1,5 @@
 use crate::draw_context::{DrawContext, FontStyle, FontType};
-use fltk::{draw as fltk_draw, enums::*};
+use fltk::{draw as fltk_draw, enums::*, prelude::*};
 
 /// FLTK implementation of DrawContext
 pub struct FltkDrawContext {
@@ -13,6 +13,13 @@ impl FltkDrawContext {
             has_focus,
             is_active,
         }
+    }
+
+    pub fn from_widget_ptr<T: WidgetExt>(widget: &T) -> Self {
+        let has_focus = fltk::app::focus().map(|f| f.as_base_widget()).as_ref()
+            == Some(&widget.as_base_widget());
+
+        Self::new(has_focus, widget.active())
     }
 }
 

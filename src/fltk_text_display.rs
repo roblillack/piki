@@ -306,6 +306,7 @@ pub fn create_text_display_widget(
                     } else {
                         state.contains(fltk::enums::Shortcut::Ctrl)
                     };
+                    let shift = state.contains(fltk::enums::Shortcut::Shift);
 
                     let mut disp = text_display.borrow_mut();
 
@@ -345,14 +346,92 @@ pub fn create_text_display_widget(
                     } else {
                         match key {
                             Key::Left => {
-                                disp.move_left();
-                                disp.show_insert_position();
-                                true
+                                // Cmd-Left (macOS): Jump to start of line
+                                // Cmd-Shift-Left (macOS): Extend selection to start of line
+                                if ctrl_cmd {
+                                    let current_pos = disp.insert_position();
+                                    let line_start = disp.line_start(current_pos);
+
+                                    if shift {
+                                        // Extend selection to line start
+                                        if let Some(ref buffer) = disp.buffer() {
+                                            let mut buf = buffer.borrow_mut();
+                                            if buf.primary_selection().selected() {
+                                                // Already have selection - extend it
+                                                let sel_start = buf.primary_selection().start();
+                                                let sel_end = buf.primary_selection().end();
+                                                if current_pos == sel_end {
+                                                    // Cursor is at end - extend left
+                                                    buf.select(sel_start, line_start);
+                                                } else {
+                                                    // Cursor is at start - move start left
+                                                    buf.select(line_start, sel_end);
+                                                }
+                                            } else {
+                                                // No selection - create one from cursor to line start
+                                                buf.select(line_start, current_pos);
+                                            }
+                                        }
+                                        disp.set_insert_position(line_start);
+                                    } else {
+                                        // Just jump to line start
+                                        if let Some(ref buffer) = disp.buffer() {
+                                            buffer.borrow_mut().unselect();
+                                        }
+                                        disp.set_insert_position(line_start);
+                                    }
+                                    disp.show_insert_position();
+                                    true
+                                } else {
+                                    // Regular left arrow
+                                    disp.move_left();
+                                    disp.show_insert_position();
+                                    true
+                                }
                             }
                             Key::Right => {
-                                disp.move_right();
-                                disp.show_insert_position();
-                                true
+                                // Cmd-Right (macOS): Jump to end of line
+                                // Cmd-Shift-Right (macOS): Extend selection to end of line
+                                if ctrl_cmd {
+                                    let current_pos = disp.insert_position();
+                                    let line_end = disp.line_end(current_pos);
+
+                                    if shift {
+                                        // Extend selection to line end
+                                        if let Some(ref buffer) = disp.buffer() {
+                                            let mut buf = buffer.borrow_mut();
+                                            if buf.primary_selection().selected() {
+                                                // Already have selection - extend it
+                                                let sel_start = buf.primary_selection().start();
+                                                let sel_end = buf.primary_selection().end();
+                                                if current_pos == sel_start {
+                                                    // Cursor is at start - extend right
+                                                    buf.select(sel_start, line_end);
+                                                } else {
+                                                    // Cursor is at end - move end right
+                                                    buf.select(sel_start, line_end);
+                                                }
+                                            } else {
+                                                // No selection - create one from cursor to line end
+                                                buf.select(current_pos, line_end);
+                                            }
+                                        }
+                                        disp.set_insert_position(line_end);
+                                    } else {
+                                        // Just jump to line end
+                                        if let Some(ref buffer) = disp.buffer() {
+                                            buffer.borrow_mut().unselect();
+                                        }
+                                        disp.set_insert_position(line_end);
+                                    }
+                                    disp.show_insert_position();
+                                    true
+                                } else {
+                                    // Regular right arrow
+                                    disp.move_right();
+                                    disp.show_insert_position();
+                                    true
+                                }
                             }
                             Key::Up => {
                                 disp.move_up();

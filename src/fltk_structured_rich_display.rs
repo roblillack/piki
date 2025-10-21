@@ -81,10 +81,6 @@ impl FltkStructuredRichDisplay {
             let mut vscroll_draw = vscroll.clone();
             move |w| {
                 let mut disp = display.borrow_mut();
-                let has_focus = fltk::app::focus().map(|f| f.as_base_widget()).as_ref()
-                    == Some(&w.as_base_widget());
-                let is_active = w.active();
-                let mut ctx = FltkDrawContext::new(has_focus, is_active);
 
                 // Update scrollbar based on content
                 let content_height = disp.content_height();
@@ -104,7 +100,7 @@ impl FltkStructuredRichDisplay {
                 }
 
                 // Draw the display
-                disp.draw(&mut ctx);
+                disp.draw(&mut FltkDrawContext::from_widget_ptr(w));
 
                 // Draw children (scrollbar)
                 w.draw_children();
@@ -1266,14 +1262,10 @@ impl FltkStructuredRichDisplay {
                             display.borrow_mut().editor_mut().extend_selection_to(pos);
 
                             // Ensure the cursor (selection end) is visible after update
-                            let has_focus = fltk::app::focus().map(|f| f.as_base_widget()).as_ref()
-                                == Some(&w.as_base_widget());
-                            let is_active = w.active();
-                            let mut ctx = FltkDrawContext::new(has_focus, is_active);
                             display.borrow_mut().record_preferred_pos(pos);
                             let final_scroll = {
                                 let mut d = display.borrow_mut();
-                                d.ensure_cursor_visible(&mut ctx);
+                                d.ensure_cursor_visible(&mut FltkDrawContext::from_widget_ptr(w));
                                 d.scroll_offset()
                             };
                             vscroll_handle.set_value(final_scroll as f64);
@@ -2041,6 +2033,11 @@ impl FltkStructuredRichDisplay {
                                     #[cfg(not(target_os = "macos"))]
                                     let word_mod = state.contains(Shortcut::Ctrl)
                                         && !state.contains(Shortcut::Shift);
+                                    // Check for line navigation modifier (Cmd on macOS)
+                                    #[cfg(target_os = "macos")]
+                                    let line_mod = state.contains(Shortcut::Command);
+                                    #[cfg(not(target_os = "macos"))]
+                                    let line_mod = false;
 
                                     match key {
                                         Key::BackSpace => {
@@ -2076,96 +2073,98 @@ impl FltkStructuredRichDisplay {
                                             handled = true;
                                         }
                                         Key::Left => {
-                                            {
-                                                let editor = disp.editor_mut();
-                                                if word_mod {
-                                                    if shift_held {
-                                                        editor.move_word_left_extend();
+                                            if line_mod {
+                                                // Cmd-Left on macOS: Jump to line start
+                                                disp.move_cursor_visual_line_start(
+                                                    shift_held,
+                                                    &mut FltkDrawContext::from_widget_ptr(w),
+                                                );
+                                                // non-vertical action
+                                                did_horizontal = true;
+                                                handled = true;
+                                            } else {
+                                                {
+                                                    let editor = disp.editor_mut();
+                                                    if word_mod {
+                                                        if shift_held {
+                                                            editor.move_word_left_extend();
+                                                        } else {
+                                                            editor.move_word_left();
+                                                        }
                                                     } else {
-                                                        editor.move_word_left();
-                                                    }
-                                                } else {
-                                                    if shift_held {
-                                                        editor.move_cursor_left_extend();
-                                                    } else {
-                                                        editor.move_cursor_left();
+                                                        if shift_held {
+                                                            editor.move_cursor_left_extend();
+                                                        } else {
+                                                            editor.move_cursor_left();
+                                                        }
                                                     }
                                                 }
+                                                // non-vertical action
+                                                did_horizontal = true;
+                                                handled = true;
                                             }
-                                            // non-vertical action
-                                            did_horizontal = true;
-                                            handled = true;
                                         }
                                         Key::Right => {
-                                            {
-                                                let editor = disp.editor_mut();
-                                                if word_mod {
-                                                    if shift_held {
-                                                        editor.move_word_right_extend();
+                                            if line_mod {
+                                                // Cmd-Right on macOS: Jump to line end
+                                                disp.move_cursor_visual_line_end_precise(
+                                                    shift_held,
+                                                    &mut FltkDrawContext::from_widget_ptr(w),
+                                                );
+                                                // non-vertical action
+                                                did_horizontal = true;
+                                                handled = true;
+                                            } else {
+                                                {
+                                                    let editor = disp.editor_mut();
+                                                    if word_mod {
+                                                        if shift_held {
+                                                            editor.move_word_right_extend();
+                                                        } else {
+                                                            editor.move_word_right();
+                                                        }
                                                     } else {
-                                                        editor.move_word_right();
-                                                    }
-                                                } else {
-                                                    if shift_held {
-                                                        editor.move_cursor_right_extend();
-                                                    } else {
-                                                        editor.move_cursor_right();
+                                                        if shift_held {
+                                                            editor.move_cursor_right_extend();
+                                                        } else {
+                                                            editor.move_cursor_right();
+                                                        }
                                                     }
                                                 }
+                                                // non-vertical action
+                                                did_horizontal = true;
+                                                handled = true;
                                             }
-                                            // non-vertical action
-                                            did_horizontal = true;
-                                            handled = true;
                                         }
                                         Key::Up => {
                                             // Visual line-aware up movement using precise font metrics
-                                            let has_focus = fltk::app::focus()
-                                                .map(|f| f.as_base_widget())
-                                                .as_ref()
-                                                == Some(&w.as_base_widget());
-                                            let is_active = w.active();
-                                            let mut ctx =
-                                                FltkDrawContext::new(has_focus, is_active);
-                                            disp.move_cursor_visual_up(shift_held, &mut ctx);
+                                            disp.move_cursor_visual_up(
+                                                shift_held,
+                                                &mut FltkDrawContext::from_widget_ptr(w),
+                                            );
                                             handled = true;
                                         }
                                         Key::Down => {
                                             // Visual line-aware down movement using precise font metrics
-                                            let has_focus = fltk::app::focus()
-                                                .map(|f| f.as_base_widget())
-                                                .as_ref()
-                                                == Some(&w.as_base_widget());
-                                            let is_active = w.active();
-                                            let mut ctx =
-                                                FltkDrawContext::new(has_focus, is_active);
-                                            disp.move_cursor_visual_down(shift_held, &mut ctx);
+                                            disp.move_cursor_visual_down(
+                                                shift_held,
+                                                &mut FltkDrawContext::from_widget_ptr(w),
+                                            );
                                             handled = true;
                                         }
                                         Key::Home => {
-                                            let has_focus = fltk::app::focus()
-                                                .map(|f| f.as_base_widget())
-                                                .as_ref()
-                                                == Some(&w.as_base_widget());
-                                            let is_active = w.active();
-                                            let mut ctx =
-                                                FltkDrawContext::new(has_focus, is_active);
                                             disp.move_cursor_visual_line_start(
-                                                shift_held, &mut ctx,
+                                                shift_held,
+                                                &mut FltkDrawContext::from_widget_ptr(w),
                                             );
                                             // non-vertical action
                                             did_horizontal = true;
                                             handled = true;
                                         }
                                         Key::End => {
-                                            let has_focus = fltk::app::focus()
-                                                .map(|f| f.as_base_widget())
-                                                .as_ref()
-                                                == Some(&w.as_base_widget());
-                                            let is_active = w.active();
-                                            let mut ctx =
-                                                FltkDrawContext::new(has_focus, is_active);
                                             disp.move_cursor_visual_line_end_precise(
-                                                shift_held, &mut ctx,
+                                                shift_held,
+                                                &mut FltkDrawContext::from_widget_ptr(w),
                                             );
                                             // non-vertical action
                                             did_horizontal = true;
@@ -2264,21 +2263,15 @@ impl FltkStructuredRichDisplay {
 
                             if handled {
                                 // After handling an edit/cursor move, ensure cursor is visible
-                                // Create a draw context for measurements used by ensure_cursor_visible
-                                let has_focus =
-                                    fltk::app::focus().map(|f| f.as_base_widget()).as_ref()
-                                        == Some(&w.as_base_widget());
-                                let is_active = w.active();
-                                let mut ctx = FltkDrawContext::new(has_focus, is_active);
-
-                                // Adjust scroll to bring cursor into view
                                 let new_scroll = {
                                     let mut disp = display.borrow_mut();
                                     if did_horizontal {
                                         let cursor = disp.editor().cursor();
                                         disp.record_preferred_pos(cursor);
                                     }
-                                    disp.ensure_cursor_visible(&mut ctx);
+                                    disp.ensure_cursor_visible(
+                                        &mut FltkDrawContext::from_widget_ptr(w),
+                                    );
                                     disp.scroll_offset()
                                 };
 
