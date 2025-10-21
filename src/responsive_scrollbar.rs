@@ -178,7 +178,7 @@ impl ResponsiveScrollbar {
                         st.state = ScrollbarState::Awake;
                         st.last_wake_time = Instant::now();
                         sb.redraw();
-                        true // We handled this event
+                        true
                     }
                     Event::Move => {
                         // Keep updating hovered state while mouse is moving over it
@@ -187,14 +187,14 @@ impl ResponsiveScrollbar {
                             st.state = ScrollbarState::Hovered;
                             sb.redraw();
                         }
-                        true // We handled this event
+                        true
                     }
                     Event::Push | Event::Drag | Event::Released => {
                         // Ensure we're hovered during interaction
                         let mut st = state.borrow_mut();
                         st.state = ScrollbarState::Hovered;
                         sb.redraw();
-                        false // Let FLTK handle the scrollbar interaction
+                        true
                     }
                     _ => false,
                 }

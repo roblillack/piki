@@ -19,17 +19,17 @@ pub struct FltkStructuredRichDisplay {
     paragraph_cb: Rc<RefCell<Option<Box<dyn FnMut(BlockType) + 'static>>>>,
 }
 
+const SCROLLBAR_WIDTH: i32 = 15;
+
 impl FltkStructuredRichDisplay {
     pub fn new(x: i32, y: i32, w: i32, h: i32, edit_mode: bool) -> Self {
         let mut widget = fltk::group::Group::new(x, y, w, h, None);
-
-        let scrollbar_size = 15;
 
         // Create structured rich display
         let display = Rc::new(RefCell::new(StructuredRichDisplay::new(
             x,
             y,
-            w - scrollbar_size,
+            w - SCROLLBAR_WIDTH,
             h,
         )));
 
@@ -52,9 +52,9 @@ impl FltkStructuredRichDisplay {
 
         // Create vertical responsive scrollbar
         let mut vscroll = ResponsiveScrollbar::new(
-            x + w - scrollbar_size,
+            x + w - SCROLLBAR_WIDTH,
             y,
-            scrollbar_size,
+            SCROLLBAR_WIDTH,
             h,
             Color::from_rgb(255, 255, 245), // Match widget background
         );
@@ -1146,6 +1146,12 @@ impl FltkStructuredRichDisplay {
                         let x = fltk::app::event_x();
                         let y = fltk::app::event_y();
 
+                        // Don't process clicks on the scrollbar area
+                        if x >= w.x() + w.w() - SCROLLBAR_WIDTH {
+                            // Click is on scrollbar, let it handle the event
+                            return false;
+                        }
+
                         // Detect click count (FLTK event_clicks() returns true for multi-click)
                         let is_multi_click = fltk::app::event_clicks();
 
@@ -1231,6 +1237,12 @@ impl FltkStructuredRichDisplay {
                             let x = fltk::app::event_x();
                             let y = fltk::app::event_y();
 
+                            // Don't process drags on the scrollbar area
+                            if x >= w.x() + w.w() - SCROLLBAR_WIDTH {
+                                // Drag is on scrollbar, let it handle the event
+                                return false;
+                            }
+
                             // Auto-scroll when dragging near top/bottom edges
                             let mut disp = display.borrow_mut();
                             let mut new_scroll = disp.scroll_offset();
@@ -1276,8 +1288,13 @@ impl FltkStructuredRichDisplay {
                         // Hover handled above
                         true
                     }
-                    Event::Move | Event::Enter => {
+                    Event::Move | Event::Enter | Event::Leave => {
                         // Hover handled above
+                        let x = fltk::app::event_x();
+                        // Wake up the scrollbar if we're getting near it
+                        if (x >= w.x() + w.w() - 3 * SCROLLBAR_WIDTH) {
+                            vscroll_handle.wake();
+                        }
                         true
                     }
                     Event::MouseWheel => {
@@ -2388,13 +2405,14 @@ impl FltkStructuredRichDisplay {
             let display = display.clone();
             let mut vscroll_resize = vscroll.clone();
             let mut widget_resize = widget.clone();
-            let sb_size = scrollbar_size;
             move |_w, x, y, width, height| {
                 // Update display size
-                display.borrow_mut().resize(x, y, width - sb_size, height);
+                display
+                    .borrow_mut()
+                    .resize(x, y, width - SCROLLBAR_WIDTH, height);
 
                 // Reposition scrollbar
-                vscroll_resize.resize(x + width - sb_size, y, sb_size, height);
+                vscroll_resize.resize(x + width - SCROLLBAR_WIDTH, y, SCROLLBAR_WIDTH, height);
 
                 // Trigger redraw
                 widget_resize.redraw();
