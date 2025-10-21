@@ -37,6 +37,9 @@ impl FltkStructuredRichDisplay {
         let last_click_time = Rc::new(RefCell::new(Instant::now()));
         let last_click_count = Rc::new(RefCell::new(0));
 
+        // Track when a link click is in progress to prevent cursor repositioning
+        let link_click_in_progress = Rc::new(RefCell::new(false));
+
         // Set cursor visibility based on edit mode
         display.borrow_mut().set_cursor_visible(edit_mode);
 
@@ -112,6 +115,7 @@ impl FltkStructuredRichDisplay {
             let mut vscroll_handle = vscroll.clone();
             let click_time = last_click_time.clone();
             let click_count = last_click_count.clone();
+            let link_click_flag = link_click_in_progress.clone();
             let link_cb = link_callback.clone();
             let hover_cb = hover_callback.clone();
             let change_cb = change_callback.clone();
@@ -1197,6 +1201,8 @@ impl FltkStructuredRichDisplay {
                             d.find_link_at(x_local, y_local)
                         };
                         if let Some((_, destination)) = mouse_link {
+                            // Set flag to prevent drag events during link navigation
+                            *link_click_flag.borrow_mut() = true;
                             if let Some(cb) = &*link_cb.borrow() {
                                 cb(destination);
                                 return true;
@@ -1232,6 +1238,11 @@ impl FltkStructuredRichDisplay {
                         true
                     }
                     Event::Drag => {
+                        // Skip drag events if a link click is in progress
+                        if *link_click_flag.borrow() {
+                            return true;
+                        }
+
                         // In edit mode, handle drag selection and auto-scroll
                         if edit_mode {
                             let x = fltk::app::event_x();
@@ -1286,6 +1297,11 @@ impl FltkStructuredRichDisplay {
                             w.redraw();
                         }
                         // Hover handled above
+                        true
+                    }
+                    Event::Released => {
+                        // Clear link click flag on mouse release
+                        *link_click_flag.borrow_mut() = false;
                         true
                     }
                     Event::Move | Event::Enter | Event::Leave => {
