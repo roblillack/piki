@@ -578,7 +578,7 @@ fn wire_editor_callbacks(
 
             if should_save {
                 if let Ok(mut sb) = statusbar_clone.try_borrow_mut() {
-                    sb.set_status("Saving...");
+                    sb.set_status("Saving …");
                     app::redraw();
                 }
 

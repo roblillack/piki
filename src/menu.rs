@@ -144,7 +144,7 @@ fn populate_menu<M>(
         Shortcut::Ctrl
     };
     let new_shortcut = cmd | 'n';
-    let open_shortcut = cmd | 'o';
+    let gotopage_shortcut = cmd | 'p';
 
     let back_shortcut = if cfg!(target_os = "macos") {
         Shortcut::Command | '['
@@ -190,7 +190,7 @@ fn populate_menu<M>(
         let statusbar = statusbar.clone();
         let wind_ref = wind_ref.clone();
         menu_bar.add(
-            "Page/New...",
+            "Page/New Page …",
             new_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
@@ -212,8 +212,8 @@ fn populate_menu<M>(
         let statusbar = statusbar.clone();
         let wind_ref = wind_ref.clone();
         menu_bar.add(
-            "Page/Open...",
-            open_shortcut,
+            "Page/_Go to Page …",
+            gotopage_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
                 if let Ok(w) = wind_ref.try_borrow() {
@@ -239,12 +239,7 @@ fn populate_menu<M>(
             back_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
-                navigate_back(
-                    &app_state,
-                    &autosave_state,
-                    &active_editor,
-                    &statusbar,
-                );
+                navigate_back(&app_state, &autosave_state, &active_editor, &statusbar);
             },
         );
     }
@@ -255,16 +250,11 @@ fn populate_menu<M>(
         let active_editor = active_editor.clone();
         let statusbar = statusbar.clone();
         menu_bar.add(
-            "Page/Forward",
+            "Page/_Forward",
             forward_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
-                navigate_forward(
-                    &app_state,
-                    &autosave_state,
-                    &active_editor,
-                    &statusbar,
-                );
+                navigate_forward(&app_state, &autosave_state, &active_editor, &statusbar);
             },
         );
     }
@@ -275,7 +265,7 @@ fn populate_menu<M>(
         let active_editor = active_editor.clone();
         let statusbar = statusbar.clone();
         menu_bar.add(
-            "Page/Go to frontpage",
+            "Page/Go to Frontpage",
             frontpage_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
@@ -292,25 +282,26 @@ fn populate_menu<M>(
     }
 
     {
+        #[cfg(not(target_os = "macos"))]
+        let label = "Page/_Go to Index";
+        // No separator on macOS for this item,
+        // as there's not going to be a Quit item below it.
+        #[cfg(target_os = "macos")]
+        let label = "Page/Go to Index";
         let app_state = app_state.clone();
         let autosave_state = autosave_state.clone();
         let active_editor = active_editor.clone();
         let statusbar = statusbar.clone();
-        menu_bar.add(
-            "Page/Go to index",
-            index_shortcut,
-            menu::MenuFlag::Normal,
-            move |_| {
-                load_page_helper(
-                    "!index",
-                    &app_state,
-                    &autosave_state,
-                    &active_editor,
-                    &statusbar,
-                    None,
-                );
-            },
-        );
+        menu_bar.add(label, index_shortcut, menu::MenuFlag::Normal, move |_| {
+            load_page_helper(
+                "!index",
+                &app_state,
+                &autosave_state,
+                &active_editor,
+                &statusbar,
+                None,
+            );
+        });
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -1198,12 +1189,7 @@ fn switch_editor(
     }
     *is_structured.borrow_mut() = want_structured;
 
-    wire_editor_callbacks(
-        active_editor,
-        autosave_state,
-        app_state,
-        statusbar,
-    );
+    wire_editor_callbacks(active_editor, autosave_state, app_state, statusbar);
 
     if let Ok(state) = app_state.try_borrow() {
         let current_page = state.current_page.clone();

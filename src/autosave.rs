@@ -55,7 +55,7 @@ impl AutoSaveState {
     /// Get the status text for display
     pub fn get_status_text(&self) -> String {
         if self.is_saving {
-            return "Saving...".to_string();
+            return "Saving …".to_string();
         }
 
         if let Some(save_time) = self.last_save_time {
