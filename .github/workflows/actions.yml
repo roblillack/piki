@@ -1,0 +1,26 @@
+on: push
+name: Clippy Linting
+
+#env:
+#    RUSTFLAGS: "-D warnings"
+
+jobs:
+  clippy:
+    name: Run Clippy Lints
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install Clippy
+        run: rustup component add clippy
+
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
