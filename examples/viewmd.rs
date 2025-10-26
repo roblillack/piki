@@ -1,11 +1,9 @@
 // viewmd_structured - Markdown file viewer with structured editor
 // Usage: cargo run --example viewmd_structured [--edit] <filename>
 
-use fliki_rs::draw_context::{FontStyle, FontType};
 use fliki_rs::fltk_structured_rich_display::FltkStructuredRichDisplay;
-use fliki_rs::richtext::markdown_converter::{document_to_markdown, markdown_to_document};
+use fliki_rs::richtext::markdown_converter::markdown_to_document;
 use fliki_rs::richtext::structured_document::DocumentPosition;
-use fltk::enums::Font;
 use fltk::{prelude::*, *};
 use std::env;
 use std::fs;
@@ -68,9 +66,6 @@ fn main() {
     );
     let mut display_widget = structured.group.clone();
     let display = structured.display.clone();
-
-    // Create menu bar if in edit mode (after display is created)
-    let mut format_menu: Option<menu::MenuBar> = None;
 
     if edit_mode {
         let mut menu_bar = menu::MenuBar::new(0, 0, 800, 25, None);
@@ -186,7 +181,7 @@ fn main() {
             move |_| {
                 // Determine initial values
                 let (init_target, init_text, mode_existing_link, selection_mode, link_pos) = {
-                    let mut d = display_for_menu.borrow_mut();
+                    let d = display_for_menu.borrow_mut();
                     if let Some((b, i)) = d.hovered_link() {
                         let doc = d.editor().document();
                         let block = &doc.blocks()[b];
@@ -212,7 +207,7 @@ fn main() {
                 };
 
                 // Determine center rectangle from parent widget (fallback to screen handled by helper)
-                let mut dw_for_center = widget_for_menu.clone();
+                let dw_for_center = widget_for_menu.clone();
                 let parent = dw_for_center.parent().unwrap_or(dw_for_center.clone());
                 let center_rect = Some((parent.x(), parent.y(), parent.w(), parent.h()));
 
@@ -392,7 +387,7 @@ fn main() {
         // Keep paragraph style radio selection in sync with cursor
         {
             use fliki_rs::richtext::structured_document::BlockType;
-            let mut mb = menu_bar.clone();
+            let mb = menu_bar.clone();
             let disp = display.clone();
             app::add_timeout3(0.25, move |h| {
                 let current = {
@@ -453,8 +448,6 @@ fn main() {
                 }
             },
         );
-
-        format_menu = Some(menu_bar);
     }
 
     // Convert markdown to structured document

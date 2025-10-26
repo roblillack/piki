@@ -286,14 +286,16 @@ fn main() {
 
     if let Some(path) = window_state_path.as_ref()
         && let Some(saved_state) = window_state::load_state(path.as_path())
-            && saved_state.width > 0 && saved_state.height > 0 {
-                wind.resize(
-                    saved_state.x,
-                    saved_state.y,
-                    saved_state.width,
-                    saved_state.height,
-                );
-            }
+        && saved_state.width > 0
+        && saved_state.height > 0
+    {
+        wind.resize(
+            saved_state.x,
+            saved_state.y,
+            saved_state.width,
+            saved_state.height,
+        );
+    }
 
     // #[cfg(target_os = "macos")]
     // wind.set_color(Color::White);
@@ -503,10 +505,12 @@ fn main() {
             // Update the status text
             if let (Ok(as_state), Ok(mut sb)) =
                 (autosave_ref.try_borrow(), statusbar_ref.try_borrow_mut())
-                && !as_state.is_saving && as_state.last_save_time.is_some() {
-                    sb.set_status(&as_state.get_status_text());
-                    app::redraw();
-                }
+                && !as_state.is_saving
+                && as_state.last_save_time.is_some()
+            {
+                sb.set_status(&as_state.get_status_text());
+                app::redraw();
+            }
 
             // Repeat every second
             app::repeat_timeout3(SAVE_STATUS_UPDATE_INTERVAL_SECS, handle);
@@ -520,9 +524,10 @@ fn main() {
         app::add_timeout3(0.1, move |handle| {
             let ms = start.elapsed().as_millis() as u64;
             if let Ok(ed_ptr) = editor_ref.try_borrow()
-                && let Ok(mut ed) = (*ed_ptr).try_borrow_mut() {
-                    ed.tick(ms);
-                }
+                && let Ok(mut ed) = (*ed_ptr).try_borrow_mut()
+            {
+                ed.tick(ms);
+            }
             app::repeat_timeout3(0.1, handle);
         });
     }

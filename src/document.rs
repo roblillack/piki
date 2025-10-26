@@ -50,25 +50,6 @@ impl DocumentStore {
         })
     }
 
-    /// List all markdown files in the directory (non-recursive, immediate children only)
-    pub fn list_documents(&self) -> Result<Vec<String>, String> {
-        let mut docs = Vec::new();
-
-        let entries = fs::read_dir(&self.base_path)
-            .map_err(|e| format!("Failed to read directory: {}", e))?;
-
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("md")
-                && let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                    docs.push(name.to_string());
-                }
-        }
-
-        docs.sort();
-        Ok(docs)
-    }
-
     /// Recursively list all markdown files in the directory and subdirectories
     /// Returns relative paths from base_path (e.g., "project-a/standup")
     pub fn list_all_documents(&self) -> Result<Vec<String>, String> {

@@ -723,10 +723,10 @@ fn perform_copy(
 
     if let Some(Some(text)) = with_markdown_editor(active_editor, is_structured, false, |editor| {
         editor.copy_selection()
-    })
-        && !text.is_empty() {
-            app::copy(&text);
-        }
+    }) && !text.is_empty()
+    {
+        app::copy(&text);
+    }
 }
 
 fn perform_paste(
@@ -745,8 +745,7 @@ fn perform_paste(
         editor.paste_from_clipboard();
     })
     .is_some()
-    {
-    }
+    {}
 }
 
 fn perform_clear_formatting(
@@ -755,10 +754,10 @@ fn perform_clear_formatting(
 ) {
     if let Some(changed) = with_structured_editor(active_editor, is_structured, true, |editor| {
         editor.clear_formatting()
-    })
-        && changed {
-            app::redraw();
-        }
+    }) && changed
+    {
+        app::redraw();
+    }
 }
 
 fn perform_edit_link(
@@ -939,9 +938,10 @@ where
         let editor_rc = active_ptr.clone();
         drop(active_ptr);
         if let Ok(editor) = editor_rc.try_borrow()
-            && let Some(structured) = editor.as_any().downcast_ref::<StructuredRichUI>() {
-                return Some(f(structured));
-            }
+            && let Some(structured) = editor.as_any().downcast_ref::<StructuredRichUI>()
+        {
+            return Some(f(structured));
+        }
     }
     None
 }
@@ -1012,12 +1012,12 @@ fn update_format_menu_state<M: MenuExt>(
             with_structured_editor_ref(active_editor, is_structured, |editor| {
                 (editor.current_block_type(), editor.is_readonly())
             })
-        {
-            readonly = ro;
-            if let Some(block_type) = block {
-                current_label = paragraph_label_for_block(&block_type);
-            }
+    {
+        readonly = ro;
+        if let Some(block_type) = block {
+            current_label = paragraph_label_for_block(&block_type);
         }
+    }
 
     for &label in PARAGRAPH_ITEMS {
         if let Some(mut item) = menu.find_item(label) {
@@ -1032,9 +1032,10 @@ fn update_format_menu_state<M: MenuExt>(
 
     if structured_active
         && let Some(label) = current_label
-            && let Some(mut item) = menu.find_item(label) {
-                item.set();
-            }
+        && let Some(mut item) = menu.find_item(label)
+    {
+        item.set();
+    }
 
     for &label in INLINE_ITEMS {
         if let Some(mut item) = menu.find_item(label) {

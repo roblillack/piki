@@ -174,7 +174,9 @@ impl FltkStructuredRichDisplay {
                                 let mut disp = display.borrow_mut();
                                 if let Some(block_idx) = disp.checklist_marker_hit(local_x, local_y)
                                 {
-                                    disp.editor_mut().toggle_checkmark_at(block_idx).unwrap_or_default()
+                                    disp.editor_mut()
+                                        .toggle_checkmark_at(block_idx)
+                                        .unwrap_or_default()
                                 } else {
                                     false
                                 }
@@ -308,8 +310,7 @@ impl FltkStructuredRichDisplay {
                                             let cur = ed.cursor();
                                             let doc = ed.document();
                                             let blocks = doc.blocks();
-                                            if !blocks.is_empty()
-                                                && cur.block_index < blocks.len()
+                                            if !blocks.is_empty() && cur.block_index < blocks.len()
                                             {
                                                 !matches!(
                                                     blocks[cur.block_index].block_type,
@@ -540,7 +541,9 @@ impl FltkStructuredRichDisplay {
                                             }
                                         };
 
-                                        let center_rect = w_for_dialog.window().map(|parent| (parent.x(), parent.y(), parent.w(), parent.h()));
+                                        let center_rect = w_for_dialog.window().map(|parent| {
+                                            (parent.x(), parent.y(), parent.w(), parent.h())
+                                        });
 
                                         let opts = crate::link_editor::LinkEditOptions {
                                             init_target,
@@ -599,536 +602,6 @@ impl FltkStructuredRichDisplay {
                             };
 
                             crate::context_menu::show_context_menu(x, y, actions);
-                            return true;
-
-                            // Paragraph Style submenu
-                            // Platform-specific shortcuts for paragraph and headings
-                            #[cfg(target_os = "macos")]
-                            let para_shortcut =
-                                fltk::enums::Shortcut::Command | fltk::enums::Shortcut::Alt | '0';
-                            #[cfg(not(target_os = "macos"))]
-                            let para_shortcut =
-                                fltk::enums::Shortcut::Ctrl | fltk::enums::Shortcut::Alt | '0';
-
-                            #[cfg(target_os = "macos")]
-                            let h1_shortcut =
-                                fltk::enums::Shortcut::Command | fltk::enums::Shortcut::Alt | '1';
-                            #[cfg(not(target_os = "macos"))]
-                            let h1_shortcut =
-                                fltk::enums::Shortcut::Ctrl | fltk::enums::Shortcut::Alt | '1';
-
-                            #[cfg(target_os = "macos")]
-                            let h2_shortcut =
-                                fltk::enums::Shortcut::Command | fltk::enums::Shortcut::Alt | '2';
-                            #[cfg(not(target_os = "macos"))]
-                            let h2_shortcut =
-                                fltk::enums::Shortcut::Ctrl | fltk::enums::Shortcut::Alt | '2';
-
-                            #[cfg(target_os = "macos")]
-                            let h3_shortcut =
-                                fltk::enums::Shortcut::Command | fltk::enums::Shortcut::Alt | '3';
-                            #[cfg(not(target_os = "macos"))]
-                            let h3_shortcut =
-                                fltk::enums::Shortcut::Ctrl | fltk::enums::Shortcut::Alt | '3';
-
-                            // Dummy menu to satisfy subsequent unreachable menu.add calls
-                            let mut menu = fltk::menu::MenuButton::default();
-
-                            menu.add(
-                                "Paragraph Style/Paragraph\t",
-                                para_shortcut,
-                                fltk::menu::MenuFlag::Normal,
-                                {
-                                    let display = display.clone();
-                                    let mut w_clone = w.clone();
-                                    let change_cb = change_cb.clone();
-                                    move |_| {
-                                        display
-                                            .borrow_mut()
-                                            .editor_mut()
-                                            .set_block_type(BlockType::Paragraph)
-                                            .ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_clone.redraw();
-                                    }
-                                },
-                            );
-
-                            menu.add(
-                                "Paragraph Style/Heading 1\t",
-                                h1_shortcut,
-                                fltk::menu::MenuFlag::Normal,
-                                {
-                                    let display = display.clone();
-                                    let mut w_clone = w.clone();
-                                    let change_cb = change_cb.clone();
-                                    move |_| {
-                                        display
-                                            .borrow_mut()
-                                            .editor_mut()
-                                            .set_block_type(BlockType::Heading { level: 1 })
-                                            .ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_clone.redraw();
-                                    }
-                                },
-                            );
-
-                            menu.add(
-                                "Paragraph Style/Heading 2\t",
-                                h2_shortcut,
-                                fltk::menu::MenuFlag::Normal,
-                                {
-                                    let display = display.clone();
-                                    let mut w_clone = w.clone();
-                                    let change_cb = change_cb.clone();
-                                    move |_| {
-                                        display
-                                            .borrow_mut()
-                                            .editor_mut()
-                                            .set_block_type(BlockType::Heading { level: 2 })
-                                            .ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_clone.redraw();
-                                    }
-                                },
-                            );
-
-                            menu.add(
-                                "Paragraph Style/Heading 3\t",
-                                h3_shortcut,
-                                fltk::menu::MenuFlag::Normal,
-                                {
-                                    let display = display.clone();
-                                    let mut w_clone = w.clone();
-                                    let change_cb = change_cb.clone();
-                                    move |_| {
-                                        display
-                                            .borrow_mut()
-                                            .editor_mut()
-                                            .set_block_type(BlockType::Heading { level: 3 })
-                                            .ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_clone.redraw();
-                                    }
-                                },
-                            );
-
-                            #[cfg(target_os = "macos")]
-                            let list_shortcut =
-                                fltk::enums::Shortcut::Command | fltk::enums::Shortcut::Shift | '8';
-                            #[cfg(not(target_os = "macos"))]
-                            let list_shortcut =
-                                fltk::enums::Shortcut::Ctrl | fltk::enums::Shortcut::Shift | '8';
-
-                            menu.add(
-                                "Paragraph Style/List Item\t",
-                                list_shortcut,
-                                fltk::menu::MenuFlag::Normal,
-                                {
-                                    let display = display.clone();
-                                    let mut w_clone = w.clone();
-                                    let change_cb = change_cb.clone();
-                                    move |_| {
-                                        display
-                                            .borrow_mut()
-                                            .editor_mut()
-                                            .set_block_type(BlockType::ListItem {
-                                                ordered: false,
-                                                number: None,
-                                                checkbox: None,
-                                            })
-                                            .ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_clone.redraw();
-                                    }
-                                },
-                            );
-
-                            // Inline styles
-                            #[cfg(target_os = "macos")]
-                            let bold_shortcut = fltk::enums::Shortcut::Command | 'b';
-                            #[cfg(not(target_os = "macos"))]
-                            let bold_shortcut = fltk::enums::Shortcut::Ctrl | 'b';
-
-                            menu.add(
-                                "Toggle Bold\t",
-                                bold_shortcut,
-                                fltk::menu::MenuFlag::Normal,
-                                {
-                                    let display = display.clone();
-                                    let mut w_clone = w.clone();
-                                    let change_cb = change_cb.clone();
-                                    move |_| {
-                                        display.borrow_mut().editor_mut().toggle_bold().ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_clone.redraw();
-                                    }
-                                },
-                            );
-
-                            #[cfg(target_os = "macos")]
-                            let italic_shortcut = fltk::enums::Shortcut::Command | 'i';
-                            #[cfg(not(target_os = "macos"))]
-                            let italic_shortcut = fltk::enums::Shortcut::Ctrl | 'i';
-
-                            menu.add(
-                                "Toggle Italic\t",
-                                italic_shortcut,
-                                fltk::menu::MenuFlag::Normal,
-                                {
-                                    let display = display.clone();
-                                    let mut w_clone = w.clone();
-                                    let change_cb = change_cb.clone();
-                                    move |_| {
-                                        display.borrow_mut().editor_mut().toggle_italic().ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_clone.redraw();
-                                    }
-                                },
-                            );
-
-                            #[cfg(target_os = "macos")]
-                            let code_shortcut =
-                                fltk::enums::Shortcut::Command | fltk::enums::Shortcut::Shift | 'c';
-                            #[cfg(not(target_os = "macos"))]
-                            let code_shortcut =
-                                fltk::enums::Shortcut::Ctrl | fltk::enums::Shortcut::Shift | 'c';
-
-                            menu.add(
-                                "Toggle Code\t",
-                                code_shortcut,
-                                fltk::menu::MenuFlag::Normal,
-                                {
-                                    let display = display.clone();
-                                    let mut w_clone = w.clone();
-                                    let change_cb = change_cb.clone();
-                                    move |_| {
-                                        display.borrow_mut().editor_mut().toggle_code().ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_clone.redraw();
-                                    }
-                                },
-                            );
-
-                            #[cfg(target_os = "macos")]
-                            let strike_shortcut =
-                                fltk::enums::Shortcut::Command | fltk::enums::Shortcut::Shift | 'x';
-                            #[cfg(not(target_os = "macos"))]
-                            let strike_shortcut =
-                                fltk::enums::Shortcut::Ctrl | fltk::enums::Shortcut::Shift | 'x';
-
-                            menu.add(
-                                "Toggle Strikethrough\t",
-                                strike_shortcut,
-                                fltk::menu::MenuFlag::Normal,
-                                {
-                                    let display = display.clone();
-                                    let mut w_clone = w.clone();
-                                    let change_cb = change_cb.clone();
-                                    move |_| {
-                                        display
-                                            .borrow_mut()
-                                            .editor_mut()
-                                            .toggle_strikethrough()
-                                            .ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_clone.redraw();
-                                    }
-                                },
-                            );
-
-                            #[cfg(target_os = "macos")]
-                            let underline_shortcut = fltk::enums::Shortcut::Command | 'u';
-                            #[cfg(not(target_os = "macos"))]
-                            let underline_shortcut = fltk::enums::Shortcut::Ctrl | 'u';
-
-                            menu.add(
-                                "Toggle Underline\t",
-                                underline_shortcut,
-                                fltk::menu::MenuFlag::Normal,
-                                {
-                                    let display = display.clone();
-                                    let mut w_clone = w.clone();
-                                    let change_cb = change_cb.clone();
-                                    move |_| {
-                                        display.borrow_mut().editor_mut().toggle_underline().ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_clone.redraw();
-                                    }
-                                },
-                            );
-
-                            #[cfg(target_os = "macos")]
-                            let highlight_shortcut =
-                                fltk::enums::Shortcut::Command | fltk::enums::Shortcut::Shift | 'h';
-                            #[cfg(not(target_os = "macos"))]
-                            let highlight_shortcut =
-                                fltk::enums::Shortcut::Ctrl | fltk::enums::Shortcut::Shift | 'h';
-
-                            menu.add(
-                                "Toggle Highlight\t",
-                                highlight_shortcut,
-                                fltk::menu::MenuFlag::Normal,
-                                {
-                                    let display = display.clone();
-                                    let mut w_clone = w.clone();
-                                    let change_cb = change_cb.clone();
-                                    move |_| {
-                                        display.borrow_mut().editor_mut().toggle_highlight().ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_clone.redraw();
-                                    }
-                                },
-                            );
-
-                            // Separator
-                            menu.add(
-                                "Clear Formatting\t",
-                                {
-                                    #[cfg(target_os = "macos")]
-                                    {
-                                        fltk::enums::Shortcut::Command | '\\'
-                                    }
-                                    #[cfg(not(target_os = "macos"))]
-                                    {
-                                        fltk::enums::Shortcut::Ctrl | '\\'
-                                    }
-                                },
-                                fltk::menu::MenuFlag::Normal,
-                                {
-                                    let display = display.clone();
-                                    let mut w_clone = w.clone();
-                                    let change_cb = change_cb.clone();
-                                    move |_| {
-                                        display.borrow_mut().editor_mut().clear_formatting().ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_clone.redraw();
-                                    }
-                                },
-                            );
-
-                            menu.add(
-                                "_",
-                                fltk::enums::Shortcut::None,
-                                fltk::menu::MenuFlag::MenuDivider,
-                                |_| {},
-                            );
-
-                            // Edit Link (Cmd/Ctrl-K)
-                            #[cfg(target_os = "macos")]
-                            let edit_link_shortcut = fltk::enums::Shortcut::Command | 'k';
-                            #[cfg(not(target_os = "macos"))]
-                            let edit_link_shortcut = fltk::enums::Shortcut::Ctrl | 'k';
-
-                            menu.add(
-                                "Edit Link…\t",
-                                edit_link_shortcut,
-                                fltk::menu::MenuFlag::Normal,
-                                {
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_for_dialog = w.clone();
-                                    move |_| {
-                                        // Determine initial state: hovered link, selection, or empty
-                                        let (
-                                            init_target,
-                                            init_text,
-                                            mode_existing_link,
-                                            selection_mode,
-                                            link_pos,
-                                        ) = {
-                                            let disp = display.borrow_mut();
-                                            if let Some((b, i)) = disp.hovered_link() {
-                                                let doc = disp.editor().document();
-                                                let block = &doc.blocks()[b];
-                                                if let InlineContent::Link { link, content } =
-                                                    &block.content[i]
-                                                {
-                                                    let text = content
-                                                        .iter()
-                                                        .map(|c| c.to_plain_text())
-                                                        .collect::<String>();
-                                                    (
-                                                        link.destination.clone(),
-                                                        text,
-                                                        true,
-                                                        false,
-                                                        Some((b, i)),
-                                                    )
-                                                } else {
-                                                    (
-                                                        String::new(),
-                                                        String::new(),
-                                                        false,
-                                                        false,
-                                                        None,
-                                                    )
-                                                }
-                                            } else if let Some((a, b)) = disp.editor().selection() {
-                                                let text = disp.editor().text_in_range(a, b);
-                                                (String::new(), text, false, true, None)
-                                            } else {
-                                                (String::new(), String::new(), false, false, None)
-                                            }
-                                        };
-
-                                        let center_rect = w_for_dialog.window().map(|parent| (parent.x(), parent.y(), parent.w(), parent.h()));
-
-                                        let opts = crate::link_editor::LinkEditOptions {
-                                            init_target,
-                                            init_text: init_text.clone(),
-                                            mode_existing_link,
-                                            selection_mode,
-                                            center_rect,
-                                        };
-
-                                        // Use shared link editor dialog
-                                        let display_cb = display.clone();
-                                        let change_cb_ref = change_cb.clone();
-                                        let w_for_redraw = w_for_dialog.clone();
-                                        crate::link_editor::show_link_editor(
-                                            opts,
-                                            move |dest: String, txt: String| {
-                                                let mut disp = display_cb.borrow_mut();
-                                                let editor = disp.editor_mut();
-                                                if let Some((b, i)) = link_pos {
-                                                    editor.edit_link_at(b, i, &dest, &txt).ok();
-                                                } else if !txt.is_empty() {
-                                                    if editor.selection().is_some() {
-                                                        editor
-                                                            .replace_selection_with_link(
-                                                                &dest, &txt,
-                                                            )
-                                                            .ok();
-                                                    } else {
-                                                        editor
-                                                            .insert_link_at_cursor(&dest, &txt)
-                                                            .ok();
-                                                    }
-                                                }
-                                                drop(disp);
-                                                if let Some(cb) = &mut *change_cb_ref.borrow_mut() {
-                                                    (cb)();
-                                                }
-                                                let mut w_local = w_for_redraw.clone();
-                                                w_local.redraw();
-                                            },
-                                            Some({
-                                                let display_rm = display.clone();
-                                                let change_cb_rm = change_cb.clone();
-                                                let w_for_rm = w_for_dialog.clone();
-                                                move || {
-                                                    if let Some((b, i)) = link_pos {
-                                                        let mut disp = display_rm.borrow_mut();
-                                                        disp.editor_mut().remove_link_at(b, i).ok();
-                                                        drop(disp);
-                                                        if let Some(cb) =
-                                                            &mut *change_cb_rm.borrow_mut()
-                                                        {
-                                                            (cb)();
-                                                        }
-                                                    }
-                                                    let mut w_local = w_for_rm.clone();
-                                                    w_local.redraw();
-                                                }
-                                            }),
-                                        );
-                                    }
-                                },
-                            );
-
-                            // Edit operations
-                            let has_selection = display.borrow().editor().selection().is_some();
-
-                            #[cfg(target_os = "macos")]
-                            let cut_shortcut = fltk::enums::Shortcut::Command | 'x';
-                            #[cfg(not(target_os = "macos"))]
-                            let cut_shortcut = fltk::enums::Shortcut::Ctrl | 'x';
-
-                            menu.add("Cut\t", cut_shortcut, fltk::menu::MenuFlag::Normal, {
-                                let display = display.clone();
-                                let mut w_clone = w.clone();
-                                let change_cb = change_cb.clone();
-                                move |_| {
-                                    if let Ok(text) = display.borrow_mut().editor_mut().cut() {
-                                        fltk::app::copy(&text);
-                                    }
-                                    if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                        (cb)();
-                                    }
-                                    w_clone.redraw();
-                                }
-                            });
-
-                            if !has_selection {
-                                let idx = menu.find_index("Cut\t");
-                                if idx >= 0 {
-                                    menu.set_mode(idx, fltk::menu::MenuFlag::Inactive);
-                                }
-                            }
-
-                            #[cfg(target_os = "macos")]
-                            let copy_shortcut = fltk::enums::Shortcut::Command | 'c';
-                            #[cfg(not(target_os = "macos"))]
-                            let copy_shortcut = fltk::enums::Shortcut::Ctrl | 'c';
-
-                            menu.add("Copy\t", copy_shortcut, fltk::menu::MenuFlag::Normal, {
-                                let display = display.clone();
-                                move |_| {
-                                    let text = display.borrow().editor().copy();
-                                    if !text.is_empty() {
-                                        fltk::app::copy(&text);
-                                    }
-                                }
-                            });
-
-                            if !has_selection {
-                                let idx = menu.find_index("Copy\t");
-                                if idx >= 0 {
-                                    menu.set_mode(idx, fltk::menu::MenuFlag::Inactive);
-                                }
-                            }
-
-                            #[cfg(target_os = "macos")]
-                            let paste_shortcut = fltk::enums::Shortcut::Command | 'v';
-                            #[cfg(not(target_os = "macos"))]
-                            let paste_shortcut = fltk::enums::Shortcut::Ctrl | 'v';
-
-                            // Paste via FLTK paste event so we can read text in Event::Paste
-                            menu.add("Paste\t", paste_shortcut, fltk::menu::MenuFlag::Normal, {
-                                let mut w_clone = w.clone();
-                                move |_m: &mut fltk::menu::MenuButton| {
-                                    fltk::app::paste(&mut w_clone);
-                                }
-                            });
-
-                            // Show the menu
-                            menu.popup();
                             return true;
                         }
 
@@ -1377,7 +850,9 @@ impl FltkStructuredRichDisplay {
                                 drop(disp); // release borrow before creating UI
 
                                 // Center rectangle from the current window (fallback handled in helper)
-                                let center_rect = w.window().map(|parent| (parent.x(), parent.y(), parent.w(), parent.h()));
+                                let center_rect = w
+                                    .window()
+                                    .map(|parent| (parent.x(), parent.y(), parent.w(), parent.h()));
 
                                 let opts = crate::link_editor::LinkEditOptions {
                                     init_target,
@@ -1453,8 +928,7 @@ impl FltkStructuredRichDisplay {
                                             let cur = ed.cursor();
                                             let doc = ed.document();
                                             let blocks = doc.blocks();
-                                            if !blocks.is_empty()
-                                                && cur.block_index < blocks.len()
+                                            if !blocks.is_empty() && cur.block_index < blocks.len()
                                             {
                                                 blocks[cur.block_index].block_type.clone()
                                             } else {
@@ -1740,12 +1214,14 @@ impl FltkStructuredRichDisplay {
                                                 };
 
                                                 let center_rect =
-                                                    w_for_dialog.window().map(|parent| (
+                                                    w_for_dialog.window().map(|parent| {
+                                                        (
                                                             parent.x(),
                                                             parent.y(),
                                                             parent.w(),
                                                             parent.h(),
-                                                        ));
+                                                        )
+                                                    });
 
                                                 let opts = crate::link_editor::LinkEditOptions {
                                                     init_target,
@@ -1987,10 +1463,9 @@ impl FltkStructuredRichDisplay {
                                         .editor_mut()
                                         .toggle_current_checkmark()
                                         .unwrap_or(false);
-                                    if changed
-                                        && let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
+                                    if changed && let Some(cb) = &mut *change_cb.borrow_mut() {
+                                        (cb)();
+                                    }
                                     handled = true;
                                 }
                                 // Cmd/Ctrl-Alt-1..3: set heading level 1..3
@@ -2237,17 +1712,19 @@ impl FltkStructuredRichDisplay {
                                                                     delete_bytes
                                                                 ),
                                                                 Ok(true)
-                                                            ) {
-                                                                text_changed = true;
-                                                                did_horizontal = true;
-                                                            }
-                                                    }
-
-                                                    if !text_input.is_empty()
-                                                        && editor.insert_text(&text_input).is_ok() {
+                                                            )
+                                                        {
                                                             text_changed = true;
                                                             did_horizontal = true;
                                                         }
+                                                    }
+
+                                                    if !text_input.is_empty()
+                                                        && editor.insert_text(&text_input).is_ok()
+                                                    {
+                                                        text_changed = true;
+                                                        did_horizontal = true;
+                                                    }
                                                 }
 
                                                 if text_changed {
@@ -2437,9 +1914,10 @@ impl FltkStructuredRichDisplay {
 
     pub fn notify_change(&self) {
         if let Ok(mut cb_ref) = self.change_cb.try_borrow_mut()
-            && let Some(cb) = &mut *cb_ref {
-                (cb)();
-            }
+            && let Some(cb) = &mut *cb_ref
+        {
+            (cb)();
+        }
         let mut group = self.group.clone();
         group.redraw();
     }
@@ -2457,9 +1935,10 @@ impl FltkStructuredRichDisplay {
         if let Some(block_type) = self.current_block_type() {
             println!("Emitting paragraph type: {:?}", block_type);
             if let Ok(mut cb_ref) = self.paragraph_cb.try_borrow_mut()
-                && let Some(cb) = &mut *cb_ref {
-                    (cb)(block_type);
-                }
+                && let Some(cb) = &mut *cb_ref
+            {
+                (cb)(block_type);
+            }
         }
     }
 

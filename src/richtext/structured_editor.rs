@@ -201,20 +201,22 @@ impl StructuredEditor {
         let mut indices: Vec<usize> = (start_idx..=end_idx).collect();
 
         if let Some(&last) = indices.last()
-            && start_idx != end_idx && last == end_idx {
-                let include_end = if end.offset == 0 {
-                    self.document
-                        .blocks()
-                        .get(end_idx)
-                        .map(|block| block.is_empty())
-                        .unwrap_or(false)
-                } else {
-                    true
-                };
-                if !include_end {
-                    indices.pop();
-                }
+            && start_idx != end_idx
+            && last == end_idx
+        {
+            let include_end = if end.offset == 0 {
+                self.document
+                    .blocks()
+                    .get(end_idx)
+                    .map(|block| block.is_empty())
+                    .unwrap_or(false)
+            } else {
+                true
+            };
+            if !include_end {
+                indices.pop();
             }
+        }
 
         indices.sort_unstable();
         indices.dedup();
@@ -256,7 +258,7 @@ impl StructuredEditor {
         }
 
         // Move end forward to end of word
-        let mut chars = text[end..].char_indices();
+        let chars = text[end..].char_indices();
         for (_, ch) in chars {
             if ch.is_whitespace() || ch.is_ascii_punctuation() {
                 break;
@@ -694,12 +696,13 @@ impl StructuredEditor {
             // Delete a single character within this block, respecting UTF-8 and nested links
             if let Some(prev_grapheme_start) =
                 self.document.previous_grapheme_offset(block_index, offset)
-                && prev_grapheme_start < offset {
-                    let blocks = self.document.blocks_mut();
-                    let block = &mut blocks[block_index];
-                    block.delete_text_range(prev_grapheme_start, offset);
-                    self.cursor.offset = prev_grapheme_start;
-                }
+                && prev_grapheme_start < offset
+            {
+                let blocks = self.document.blocks_mut();
+                let block = &mut blocks[block_index];
+                block.delete_text_range(prev_grapheme_start, offset);
+                self.cursor.offset = prev_grapheme_start;
+            }
         }
         self.normalize_cursor();
         Ok(())
@@ -1504,11 +1507,7 @@ impl StructuredEditor {
             let styled = Self::map_style_on_runs(selected, &mut apply_style);
             let blocks = self.document.blocks_mut();
             let block_mut = &mut blocks[start.block_index];
-            block_mut.content = before
-                .into_iter()
-                .chain(styled)
-                .chain(after)
-                .collect();
+            block_mut.content = before.into_iter().chain(styled).chain(after).collect();
         }
 
         // Middle blocks
@@ -1534,11 +1533,7 @@ impl StructuredEditor {
             let styled = Self::map_style_on_runs(selected, &mut apply_style);
             let blocks = self.document.blocks_mut();
             let block_mut = &mut blocks[end.block_index];
-            block_mut.content = before
-                .into_iter()
-                .chain(styled)
-                .chain(after)
-                .collect();
+            block_mut.content = before.into_iter().chain(styled).chain(after).collect();
         }
 
         Ok(())
@@ -2054,9 +2049,10 @@ impl StructuredEditor {
                 let result = self.set_block_type(BlockType::Paragraph);
                 if result.is_ok()
                     && let Some(&last_idx) = selection_blocks.last()
-                        && last_idx + 1 < block_count {
-                            self.renumber_ordered_from(last_idx + 1, 1);
-                        }
+                    && last_idx + 1 < block_count
+                {
+                    self.renumber_ordered_from(last_idx + 1, 1);
+                }
                 return result;
             }
 
@@ -2396,10 +2392,11 @@ impl StructuredEditor {
 
         if ordered_conversion
             && let Some(last_idx) = target_blocks.last().copied()
-                && last_idx + 1 < block_count {
-                    let next_number = ordered_start_number + target_blocks.len() as u64;
-                    self.renumber_ordered_from(last_idx + 1, next_number);
-                }
+            && last_idx + 1 < block_count
+        {
+            let next_number = ordered_start_number + target_blocks.len() as u64;
+            self.renumber_ordered_from(last_idx + 1, next_number);
+        }
 
         self.trigger_paragraph_change();
         Ok(())
@@ -2466,11 +2463,7 @@ impl StructuredEditor {
             let cleared = Self::map_style_on_runs(selected, &mut clear);
             let blocks = self.document.blocks_mut();
             let block_mut = &mut blocks[block_index];
-            block_mut.content = before
-                .into_iter()
-                .chain(cleared)
-                .chain(after)
-                .collect();
+            block_mut.content = before.into_iter().chain(cleared).chain(after).collect();
             return Ok(());
         }
 
@@ -2495,11 +2488,7 @@ impl StructuredEditor {
             let cleared = Self::map_style_on_runs(selected, &mut clear);
             let blocks = self.document.blocks_mut();
             let block_mut = &mut blocks[start.block_index];
-            block_mut.content = before
-                .into_iter()
-                .chain(cleared)
-                .chain(after)
-                .collect();
+            block_mut.content = before.into_iter().chain(cleared).chain(after).collect();
         }
 
         // Middle blocks
@@ -2525,11 +2514,7 @@ impl StructuredEditor {
             let cleared = Self::map_style_on_runs(selected, &mut clear);
             let blocks = self.document.blocks_mut();
             let block_mut = &mut blocks[end.block_index];
-            block_mut.content = before
-                .into_iter()
-                .chain(cleared)
-                .chain(after)
-                .collect();
+            block_mut.content = before.into_iter().chain(cleared).chain(after).collect();
         }
 
         Ok(())
@@ -2679,19 +2664,20 @@ impl StructuredEditor {
         // Handle split within a text run
         if idx < content.len()
             && let Some(InlineContent::Text(run)) = content.get(idx)
-                && content_offset > 0 {
-                    if content_offset == run.len() {
-                        // Cursor at end of run - entire run goes to left
-                        left.push(InlineContent::Text(run.clone()));
-                        right.remove(0);
-                    } else if content_offset < run.len() {
-                        // Cursor in middle of run - split it
-                        let (left_run, right_run) = run.split_at(content_offset);
-                        left.push(InlineContent::Text(left_run));
-                        right.remove(0);
-                        right.insert(0, InlineContent::Text(right_run));
-                    }
-                }
+            && content_offset > 0
+        {
+            if content_offset == run.len() {
+                // Cursor at end of run - entire run goes to left
+                left.push(InlineContent::Text(run.clone()));
+                right.remove(0);
+            } else if content_offset < run.len() {
+                // Cursor in middle of run - split it
+                let (left_run, right_run) = run.split_at(content_offset);
+                left.push(InlineContent::Text(left_run));
+                right.remove(0);
+                right.insert(0, InlineContent::Text(right_run));
+            }
+        }
 
         (left, right)
     }
