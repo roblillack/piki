@@ -131,7 +131,7 @@ impl FltkStructuredRichDisplay {
                     let y = fltk::app::event_y();
                     // Determine desired hover: prefer mouse link, otherwise cursor-adjacent link
                     let (desired_hover, desired_target, mouse_over) = {
-                        let mut d = display.borrow_mut();
+                        let d = display.borrow_mut();
                         let mouse_hit = d.find_link_at(x - w.x(), y - w.y());
                         if let Some((id, dest)) = mouse_hit {
                             (Some(id), Some(dest), true)
@@ -174,10 +174,7 @@ impl FltkStructuredRichDisplay {
                                 let mut disp = display.borrow_mut();
                                 if let Some(block_idx) = disp.checklist_marker_hit(local_x, local_y)
                                 {
-                                    match disp.editor_mut().toggle_checkmark_at(block_idx) {
-                                        Ok(changed) => changed,
-                                        Err(_) => false,
-                                    }
+                                    disp.editor_mut().toggle_checkmark_at(block_idx).unwrap_or_default()
                                 } else {
                                     false
                                 }
@@ -213,13 +210,13 @@ impl FltkStructuredRichDisplay {
                                 let cur = ed.cursor();
                                 let doc = ed.document();
                                 let blocks = doc.blocks();
-                                if !blocks.is_empty() && (cur.block_index as usize) < blocks.len() {
-                                    blocks[cur.block_index as usize].block_type.clone()
+                                if !blocks.is_empty() && cur.block_index < blocks.len() {
+                                    blocks[cur.block_index].block_type.clone()
                                 } else {
                                     BlockType::Paragraph
                                 }
                             };
-                            let mut w_for_actions = w.clone();
+                            let w_for_actions = w.clone();
                             let actions = crate::context_menu::MenuActions {
                                 has_selection,
                                 current_block,
@@ -312,10 +309,10 @@ impl FltkStructuredRichDisplay {
                                             let doc = ed.document();
                                             let blocks = doc.blocks();
                                             if !blocks.is_empty()
-                                                && (cur.block_index as usize) < blocks.len()
+                                                && cur.block_index < blocks.len()
                                             {
                                                 !matches!(
-                                                    blocks[cur.block_index as usize].block_type,
+                                                    blocks[cur.block_index].block_type,
                                                     BlockType::BlockQuote
                                                 )
                                             } else {
@@ -508,7 +505,7 @@ impl FltkStructuredRichDisplay {
                                             selection_mode,
                                             link_pos,
                                         ) = {
-                                            let mut disp = display.borrow_mut();
+                                            let disp = display.borrow_mut();
                                             if let Some((b, i)) = disp.hovered_link() {
                                                 let doc = disp.editor().document();
                                                 let block = &doc.blocks()[b];
@@ -543,13 +540,7 @@ impl FltkStructuredRichDisplay {
                                             }
                                         };
 
-                                        let center_rect = if let Some(parent) =
-                                            w_for_dialog.window()
-                                        {
-                                            Some((parent.x(), parent.y(), parent.w(), parent.h()))
-                                        } else {
-                                            None
-                                        };
+                                        let center_rect = w_for_dialog.window().map(|parent| (parent.x(), parent.y(), parent.w(), parent.h()));
 
                                         let opts = crate::link_editor::LinkEditOptions {
                                             init_target,
@@ -971,7 +962,7 @@ impl FltkStructuredRichDisplay {
                                             selection_mode,
                                             link_pos,
                                         ) = {
-                                            let mut disp = display.borrow_mut();
+                                            let disp = display.borrow_mut();
                                             if let Some((b, i)) = disp.hovered_link() {
                                                 let doc = disp.editor().document();
                                                 let block = &doc.blocks()[b];
@@ -1006,13 +997,7 @@ impl FltkStructuredRichDisplay {
                                             }
                                         };
 
-                                        let center_rect = if let Some(parent) =
-                                            w_for_dialog.window()
-                                        {
-                                            Some((parent.x(), parent.y(), parent.w(), parent.h()))
-                                        } else {
-                                            None
-                                        };
+                                        let center_rect = w_for_dialog.window().map(|parent| (parent.x(), parent.y(), parent.w(), parent.h()));
 
                                         let opts = crate::link_editor::LinkEditOptions {
                                             init_target,
@@ -1265,7 +1250,7 @@ impl FltkStructuredRichDisplay {
                                 new_scroll = (new_scroll - delta).max(0);
                             } else if y > bottom_edge {
                                 let delta = (y - bottom_edge).max(4);
-                                new_scroll = new_scroll + delta;
+                                new_scroll += delta;
                             }
 
                             if new_scroll != disp.scroll_offset() {
@@ -1308,7 +1293,7 @@ impl FltkStructuredRichDisplay {
                         // Hover handled above
                         let x = fltk::app::event_x();
                         // Wake up the scrollbar if we're getting near it
-                        if (x >= w.x() + w.w() - 3 * SCROLLBAR_WIDTH) {
+                        if x >= w.x() + w.w() - 3 * SCROLLBAR_WIDTH {
                             vscroll_handle.wake();
                         }
                         true
@@ -1360,7 +1345,7 @@ impl FltkStructuredRichDisplay {
                                 && (key == Key::from_char('k') || key == Key::from_char('K'))
                             {
                                 // Gather current context: hovered link or selection
-                                let mut disp = display.borrow_mut();
+                                let disp = display.borrow_mut();
                                 let hovered = disp.hovered_link();
                                 let (
                                     init_target,
@@ -1392,11 +1377,7 @@ impl FltkStructuredRichDisplay {
                                 drop(disp); // release borrow before creating UI
 
                                 // Center rectangle from the current window (fallback handled in helper)
-                                let center_rect = if let Some(parent) = w.window() {
-                                    Some((parent.x(), parent.y(), parent.w(), parent.h()))
-                                } else {
-                                    None
-                                };
+                                let center_rect = w.window().map(|parent| (parent.x(), parent.y(), parent.w(), parent.h()));
 
                                 let opts = crate::link_editor::LinkEditOptions {
                                     init_target,
@@ -1463,7 +1444,7 @@ impl FltkStructuredRichDisplay {
 
                                     let has_selection =
                                         display.borrow().editor().selection().is_some();
-                                    let mut w_for_actions = w.clone();
+                                    let w_for_actions = w.clone();
                                     let actions = crate::context_menu::MenuActions {
                                         has_selection,
                                         current_block: {
@@ -1473,9 +1454,9 @@ impl FltkStructuredRichDisplay {
                                             let doc = ed.document();
                                             let blocks = doc.blocks();
                                             if !blocks.is_empty()
-                                                && (cur.block_index as usize) < blocks.len()
+                                                && cur.block_index < blocks.len()
                                             {
-                                                blocks[cur.block_index as usize].block_type.clone()
+                                                blocks[cur.block_index].block_type.clone()
                                             } else {
                                                 BlockType::Paragraph
                                             }
@@ -1712,7 +1693,7 @@ impl FltkStructuredRichDisplay {
                                                     selection_mode,
                                                     link_pos,
                                                 ) = {
-                                                    let mut disp = display.borrow_mut();
+                                                    let disp = display.borrow_mut();
                                                     if let Some((b, i)) = disp.hovered_link() {
                                                         let doc = disp.editor().document();
                                                         let block = &doc.blocks()[b];
@@ -1759,16 +1740,12 @@ impl FltkStructuredRichDisplay {
                                                 };
 
                                                 let center_rect =
-                                                    if let Some(parent) = w_for_dialog.window() {
-                                                        Some((
+                                                    w_for_dialog.window().map(|parent| (
                                                             parent.x(),
                                                             parent.y(),
                                                             parent.w(),
                                                             parent.h(),
-                                                        ))
-                                                    } else {
-                                                        None
-                                                    };
+                                                        ));
 
                                                 let opts = crate::link_editor::LinkEditOptions {
                                                     init_target,
@@ -2010,11 +1987,10 @@ impl FltkStructuredRichDisplay {
                                         .editor_mut()
                                         .toggle_current_checkmark()
                                         .unwrap_or(false);
-                                    if changed {
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                    if changed
+                                        && let Some(cb) = &mut *change_cb.borrow_mut() {
                                             (cb)();
                                         }
-                                    }
                                     handled = true;
                                 }
                                 // Cmd/Ctrl-Alt-1..3: set heading level 1..3
@@ -2124,12 +2100,10 @@ impl FltkStructuredRichDisplay {
                                                         } else {
                                                             editor.move_word_left();
                                                         }
+                                                    } else if shift_held {
+                                                        editor.move_cursor_left_extend();
                                                     } else {
-                                                        if shift_held {
-                                                            editor.move_cursor_left_extend();
-                                                        } else {
-                                                            editor.move_cursor_left();
-                                                        }
+                                                        editor.move_cursor_left();
                                                     }
                                                 }
                                                 // non-vertical action
@@ -2156,12 +2130,10 @@ impl FltkStructuredRichDisplay {
                                                         } else {
                                                             editor.move_word_right();
                                                         }
+                                                    } else if shift_held {
+                                                        editor.move_cursor_right_extend();
                                                     } else {
-                                                        if shift_held {
-                                                            editor.move_cursor_right_extend();
-                                                        } else {
-                                                            editor.move_cursor_right();
-                                                        }
+                                                        editor.move_cursor_right();
                                                     }
                                                 }
                                                 // non-vertical action
@@ -2259,8 +2231,8 @@ impl FltkStructuredRichDisplay {
 
                                                     if let Some(del) = compose_result {
                                                         let delete_bytes = del.max(0) as usize;
-                                                        if delete_bytes > 0 {
-                                                            if matches!(
+                                                        if delete_bytes > 0
+                                                            && matches!(
                                                                 editor.delete_backward_bytes(
                                                                     delete_bytes
                                                                 ),
@@ -2269,15 +2241,13 @@ impl FltkStructuredRichDisplay {
                                                                 text_changed = true;
                                                                 did_horizontal = true;
                                                             }
-                                                        }
                                                     }
 
-                                                    if !text_input.is_empty() {
-                                                        if editor.insert_text(&text_input).is_ok() {
+                                                    if !text_input.is_empty()
+                                                        && editor.insert_text(&text_input).is_ok() {
                                                             text_changed = true;
                                                             did_horizontal = true;
                                                         }
-                                                    }
                                                 }
 
                                                 if text_changed {
@@ -2382,7 +2352,7 @@ impl FltkStructuredRichDisplay {
                     Event::Focus => {
                         // On focus, re-evaluate hover from cursor position
                         let (desired_hover, desired_target) = {
-                            let mut d = display.borrow_mut();
+                            let d = display.borrow_mut();
                             if let Some((id, dest)) = d.find_link_near_cursor() {
                                 (Some(id), Some(dest))
                             } else {
@@ -2466,11 +2436,10 @@ impl FltkStructuredRichDisplay {
     }
 
     pub fn notify_change(&self) {
-        if let Ok(mut cb_ref) = self.change_cb.try_borrow_mut() {
-            if let Some(cb) = &mut *cb_ref {
+        if let Ok(mut cb_ref) = self.change_cb.try_borrow_mut()
+            && let Some(cb) = &mut *cb_ref {
                 (cb)();
             }
-        }
         let mut group = self.group.clone();
         group.redraw();
     }
@@ -2487,11 +2456,10 @@ impl FltkStructuredRichDisplay {
     pub fn emit_paragraph_state(&self) {
         if let Some(block_type) = self.current_block_type() {
             println!("Emitting paragraph type: {:?}", block_type);
-            if let Ok(mut cb_ref) = self.paragraph_cb.try_borrow_mut() {
-                if let Some(cb) = &mut *cb_ref {
+            if let Ok(mut cb_ref) = self.paragraph_cb.try_borrow_mut()
+                && let Some(cb) = &mut *cb_ref {
                     (cb)(block_type);
                 }
-            }
         }
     }
 

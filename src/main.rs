@@ -132,12 +132,12 @@ fn load_page_helper(
             // Otherwise, scroll to top for normal navigation
             let final_scroll_pos = if let Some(scroll_pos) = restore_scroll {
                 let active = active_editor.borrow();
-                let mut ed = (&*active).borrow_mut();
+                let mut ed = (*active).borrow_mut();
                 ed.set_scroll_pos(scroll_pos);
                 scroll_pos
             } else {
                 let active = active_editor.borrow();
-                let mut ed = (&*active).borrow_mut();
+                let mut ed = (*active).borrow_mut();
                 ed.set_scroll_pos(0);
                 0
             };
@@ -284,9 +284,9 @@ fn main() {
         .with_size(400, 650) // Golden ratio 1:1.618 approx
         .with_label("Piki");
 
-    if let Some(path) = window_state_path.as_ref() {
-        if let Some(saved_state) = window_state::load_state(path.as_path()) {
-            if saved_state.width > 0 && saved_state.height > 0 {
+    if let Some(path) = window_state_path.as_ref()
+        && let Some(saved_state) = window_state::load_state(path.as_path())
+            && saved_state.width > 0 && saved_state.height > 0 {
                 wind.resize(
                     saved_state.x,
                     saved_state.y,
@@ -294,8 +294,6 @@ fn main() {
                     saved_state.height,
                 );
             }
-        }
-    }
 
     // #[cfg(target_os = "macos")]
     // wind.set_color(Color::White);
@@ -505,12 +503,10 @@ fn main() {
             // Update the status text
             if let (Ok(as_state), Ok(mut sb)) =
                 (autosave_ref.try_borrow(), statusbar_ref.try_borrow_mut())
-            {
-                if !as_state.is_saving && as_state.last_save_time.is_some() {
+                && !as_state.is_saving && as_state.last_save_time.is_some() {
                     sb.set_status(&as_state.get_status_text());
                     app::redraw();
                 }
-            }
 
             // Repeat every second
             app::repeat_timeout3(SAVE_STATUS_UPDATE_INTERVAL_SECS, handle);
@@ -523,11 +519,10 @@ fn main() {
         let editor_ref = active_editor.clone();
         app::add_timeout3(0.1, move |handle| {
             let ms = start.elapsed().as_millis() as u64;
-            if let Ok(ed_ptr) = editor_ref.try_borrow() {
-                if let Ok(mut ed) = (&*ed_ptr).try_borrow_mut() {
+            if let Ok(ed_ptr) = editor_ref.try_borrow()
+                && let Ok(mut ed) = (*ed_ptr).try_borrow_mut() {
                     ed.tick(ms);
                 }
-            }
             app::repeat_timeout3(0.1, handle);
         });
     }
@@ -553,7 +548,7 @@ fn wire_editor_callbacks(
         let editor_clone = editor_for_callback.clone();
         app::awake_callback(move || {
             if let Ok(ed_ptr) = editor_clone.try_borrow() {
-                let mut ed_ref = (&*ed_ptr).borrow_mut();
+                let mut ed_ref = (*ed_ptr).borrow_mut();
                 ed_ref.restyle();
             }
         });
@@ -584,7 +579,7 @@ fn wire_editor_callbacks(
                     autosave_clone.try_borrow_mut(),
                     app_state_clone.try_borrow(),
                 ) {
-                    let ed_ref = (&*ed_ptr).borrow();
+                    let ed_ref = (*ed_ptr).borrow();
                     match as_state.trigger_save(&*ed_ref, &app_st.store) {
                         Ok(()) => {
                             if let Ok(mut sb) = statusbar_clone.try_borrow_mut() {

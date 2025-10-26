@@ -355,7 +355,7 @@ pub fn parse_block(text: &str, start_pos: usize) -> Option<ASTNode> {
             }
 
             Event::End(_tag_end) => {
-                if node_stack.len() >= 1 {
+                if !node_stack.is_empty() {
                     let completed_node = node_stack.pop().unwrap();
                     let mut completed_node = completed_node;
                     completed_node.char_end = start_pos + range.end;

@@ -243,7 +243,7 @@ impl StructuredRichDisplay {
         let blocks = self.editor.document().blocks().to_vec();
 
         for (block_idx, block) in blocks.iter().enumerate() {
-            current_y = self.layout_block(&block, block_idx, current_y, content_width, ctx);
+            current_y = self.layout_block(block, block_idx, current_y, content_width, ctx);
         }
 
         self.layout_valid = true;
@@ -375,11 +375,7 @@ impl StructuredRichDisplay {
             if line.block_index == cursor.block_index {
                 let dist = if cursor.offset < line.char_start {
                     line.char_start - cursor.offset
-                } else if cursor.offset >= line.char_end {
-                    cursor.offset - line.char_end
-                } else {
-                    0
-                };
+                } else { cursor.offset.saturating_sub(line.char_end) };
                 candidate = match candidate {
                     Some((_, best_dist)) if best_dist <= dist => candidate,
                     _ => Some((i, dist)),
@@ -637,7 +633,7 @@ impl StructuredRichDisplay {
                     let line_width =
                         ctx.text_width(line, f.font_type, f.font_style, f.font_size) as i32;
                     let line_len = line.len();
-                    let mut runs = vec![VisualRun {
+                    let runs = vec![VisualRun {
                         text: (*line).to_string(),
                         x: code_start_x,
                         width: line_width,
@@ -976,9 +972,9 @@ impl StructuredRichDisplay {
 
                 // Merge bullet with first line
                 if !content_runs.is_empty() && !content_runs[0].is_empty() {
-                    let first_wrap = content_wraps.get(0).copied().unwrap_or(false);
-                    let first_range = content_ranges.get(0).copied().unwrap_or((0, 0));
-                    runs.extend(content_runs[0].drain(..));
+                    let first_wrap = content_wraps.first().copied().unwrap_or(false);
+                    let first_range = content_ranges.first().copied().unwrap_or((0, 0));
+                    runs.append(&mut content_runs[0]);
 
                     // Calculate char range from content runs (skip bullet)
                     let char_start = runs
@@ -1120,7 +1116,7 @@ impl StructuredRichDisplay {
         base_font: FontSettings,
         text_style: &TextStyle,
     ) -> ResolvedRunStyle {
-        let mut settings = if text_style.code {
+        let settings = if text_style.code {
             self.theme.code_text
         } else {
             base_font
@@ -1199,7 +1195,7 @@ impl StructuredRichDisplay {
             _ => self.theme.plain_text,
         };
 
-        let mut push_line = |lines: &mut Vec<Vec<VisualRun>>,
+        let push_line = |lines: &mut Vec<Vec<VisualRun>>,
                              ranges: &mut Vec<(usize, usize)>,
                              wraps: &mut Vec<bool>,
                              current_line: &mut Vec<VisualRun>,
@@ -1290,7 +1286,7 @@ impl StructuredRichDisplay {
                                 && text[word_end..]
                                     .chars()
                                     .next()
-                                    .map_or(false, |c| c.is_whitespace() && c != '\n')
+                                    .is_some_and(|c| c.is_whitespace() && c != '\n')
                             {
                                 word_end += text[word_end..].chars().next().unwrap().len_utf8();
                             }
@@ -1513,8 +1509,8 @@ impl StructuredRichDisplay {
 
             // If this line belongs to a BlockQuote, draw a vertical bar to the left.
             // We draw a short segment per line to keep implementation simple.
-            if let Some(block) = self.editor.document().blocks().get(line.block_index) {
-                if let BlockType::BlockQuote = block.block_type {
+            if let Some(block) = self.editor.document().blocks().get(line.block_index)
+                && let BlockType::BlockQuote = block.block_type {
                     // Position the bar slightly left of the quote text indent (start_x + 20)
                     let bar_x = self.x + self.theme.padding_horizontal + 12;
                     let bar_y1 = self.y + line.y - self.scroll_offset;
@@ -1522,11 +1518,10 @@ impl StructuredRichDisplay {
                     ctx.set_color(self.theme.quote_bar_color);
                     ctx.draw_line(bar_x, bar_y1, bar_x, bar_y2);
                 }
-            }
 
             for run in &line.runs {
                 // Check if this run is part of a hovered link
-                let is_hovered = self.hovered_link.map_or(false, |(block_idx, inline_idx)| {
+                let is_hovered = self.hovered_link.is_some_and(|(block_idx, inline_idx)| {
                     run.block_index == block_idx && run.inline_index == Some(inline_idx)
                 });
 
@@ -1602,8 +1597,8 @@ impl StructuredRichDisplay {
 
                 // Draw selection highlight (if run is selected)
                 // Draw AFTER hover so the selection rectangle is on top
-                if let Some((sel_start, sel_end)) = self.get_run_selection_range(run) {
-                    if sel_end > sel_start {
+                if let Some((sel_start, sel_end)) = self.get_run_selection_range(run)
+                    && sel_end > sel_start {
                         // Measure the text before and within selection
                         let text_before = if sel_start < run.text.len() {
                             &run.text[..sel_start]
@@ -1640,7 +1635,6 @@ impl StructuredRichDisplay {
                         );
                         ctx.set_color(run.font_color); // Restore text color
                     }
-                }
 
                 ctx.draw_text(&run.text, draw_x, draw_y);
 
@@ -1664,8 +1658,8 @@ impl StructuredRichDisplay {
         }
 
         // Draw cursor (only when widget has keyboard focus)
-        if self.cursor_visible && ctx.has_focus() && self.blink_on {
-            if let Some((cx, cy, ch)) = self.get_cursor_visual_position(ctx) {
+        if self.cursor_visible && ctx.has_focus() && self.blink_on
+            && let Some((cx, cy, ch)) = self.get_cursor_visual_position(ctx) {
                 let screen_y = self.y + cy - self.scroll_offset;
                 let screen_x = self.x + cx;
 
@@ -1674,7 +1668,6 @@ impl StructuredRichDisplay {
                     ctx.draw_line(screen_x, screen_y, screen_x, screen_y + ch);
                 }
             }
-        }
 
         ctx.pop_clip();
     }
@@ -1766,9 +1759,9 @@ impl StructuredRichDisplay {
                     let marker_end_x = run.x + checklist.box_size;
                     // Allow a small tolerance around the marker for easier clicking
                     let tolerance = 2;
-                    if x >= marker_start_x - tolerance && x <= marker_end_x + tolerance {
-                        if let Some(block) = blocks.get(line.block_index) {
-                            if matches!(
+                    if x >= marker_start_x - tolerance && x <= marker_end_x + tolerance
+                        && let Some(block) = blocks.get(line.block_index)
+                            && matches!(
                                 block.block_type,
                                 BlockType::ListItem {
                                     checkbox: Some(_),
@@ -1777,8 +1770,6 @@ impl StructuredRichDisplay {
                             ) {
                                 return Some(line.block_index);
                             }
-                        }
-                    }
                 }
             }
         }
@@ -1903,8 +1894,8 @@ impl StructuredRichDisplay {
                             let doc = self.editor.document();
                             if run.block_index < doc.block_count() {
                                 let block = &doc.blocks()[run.block_index];
-                                if inline_idx < block.content.len() {
-                                    if let InlineContent::Link { link, .. } =
+                                if inline_idx < block.content.len()
+                                    && let InlineContent::Link { link, .. } =
                                         &block.content[inline_idx]
                                     {
                                         return Some((
@@ -1912,7 +1903,6 @@ impl StructuredRichDisplay {
                                             link.destination.clone(),
                                         ));
                                     }
-                                }
                             }
                         }
                     }

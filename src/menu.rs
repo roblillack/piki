@@ -222,7 +222,7 @@ fn populate_menu<M>(
                         autosave_state.clone(),
                         active_editor.clone(),
                         statusbar.clone(),
-                        &*w,
+                        &w,
                     );
                 }
             },
@@ -723,11 +723,10 @@ fn perform_copy(
 
     if let Some(Some(text)) = with_markdown_editor(active_editor, is_structured, false, |editor| {
         editor.copy_selection()
-    }) {
-        if !text.is_empty() {
+    })
+        && !text.is_empty() {
             app::copy(&text);
         }
-    }
 }
 
 fn perform_paste(
@@ -747,7 +746,6 @@ fn perform_paste(
     })
     .is_some()
     {
-        return;
     }
 }
 
@@ -757,11 +755,10 @@ fn perform_clear_formatting(
 ) {
     if let Some(changed) = with_structured_editor(active_editor, is_structured, true, |editor| {
         editor.clear_formatting()
-    }) {
-        if changed {
+    })
+        && changed {
             app::redraw();
         }
-    }
 }
 
 fn perform_edit_link(
@@ -941,11 +938,10 @@ where
     if let Ok(active_ptr) = active_editor.try_borrow() {
         let editor_rc = active_ptr.clone();
         drop(active_ptr);
-        if let Ok(editor) = editor_rc.try_borrow() {
-            if let Some(structured) = editor.as_any().downcast_ref::<StructuredRichUI>() {
+        if let Ok(editor) = editor_rc.try_borrow()
+            && let Some(structured) = editor.as_any().downcast_ref::<StructuredRichUI>() {
                 return Some(f(structured));
             }
-        }
     }
     None
 }
@@ -1011,8 +1007,8 @@ fn update_format_menu_state<M: MenuExt>(
     let mut readonly = true;
     let mut current_label: Option<&'static str> = None;
 
-    if structured_active {
-        if let Some((block, ro)) =
+    if structured_active
+        && let Some((block, ro)) =
             with_structured_editor_ref(active_editor, is_structured, |editor| {
                 (editor.current_block_type(), editor.is_readonly())
             })
@@ -1022,7 +1018,6 @@ fn update_format_menu_state<M: MenuExt>(
                 current_label = paragraph_label_for_block(&block_type);
             }
         }
-    }
 
     for &label in PARAGRAPH_ITEMS {
         if let Some(mut item) = menu.find_item(label) {
@@ -1035,13 +1030,11 @@ fn update_format_menu_state<M: MenuExt>(
         }
     }
 
-    if structured_active {
-        if let Some(label) = current_label {
-            if let Some(mut item) = menu.find_item(label) {
+    if structured_active
+        && let Some(label) = current_label
+            && let Some(mut item) = menu.find_item(label) {
                 item.set();
             }
-        }
-    }
 
     for &label in INLINE_ITEMS {
         if let Some(mut item) = menu.find_item(label) {
@@ -1121,7 +1114,7 @@ fn instantiate_editor(
         editor
             .borrow_mut()
             .set_bg_color(enums::Color::from_rgb(255, 255, 245));
-        editor.borrow().set_resizable(&mut *win);
+        editor.borrow().set_resizable(&mut win);
         win.end();
         editor
     } else {

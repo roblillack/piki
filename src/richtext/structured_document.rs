@@ -11,6 +11,7 @@ pub type ElementId = usize;
 
 /// Text styling (semantic, not syntactic)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub struct TextStyle {
     pub bold: bool,
     pub italic: bool,
@@ -20,18 +21,6 @@ pub struct TextStyle {
     pub highlight: bool,
 }
 
-impl Default for TextStyle {
-    fn default() -> Self {
-        TextStyle {
-            bold: false,
-            italic: false,
-            code: false,
-            strikethrough: false,
-            underline: false,
-            highlight: false,
-        }
-    }
-}
 
 impl TextStyle {
     pub fn plain() -> Self {
@@ -263,7 +252,7 @@ impl Block {
                         if local_start > 0 {
                             let (left, right) = run.split_at(local_start);
                             // right may still contain part to delete; adjust it
-                            let mut right_run = right;
+                            let right_run = right;
                             let del_len = local_end.saturating_sub(local_start);
                             if del_len >= right_run.len() {
                                 // delete entire right
@@ -707,9 +696,9 @@ impl StructuredDocument {
         // Delete head of end block and capture its remaining content
         let mut tail_content: Vec<InlineContent> = {
             let block = &mut self.blocks[b.block_index];
-            let right = block.split_content_at(b.offset);
+            
             // At this point, block contains left/head, right is tail we want to keep
-            right
+            block.split_content_at(b.offset)
         };
 
         // Remove blocks between start+1 and end inclusive of the original end head block
@@ -725,8 +714,7 @@ impl StructuredDocument {
         // Append tail_content to the (now) start block
         if !tail_content.is_empty() {
             self.blocks[a.block_index]
-                .content
-                .extend(tail_content.drain(..));
+                .content.append(&mut tail_content);
         }
         self.blocks[a.block_index].normalize_content();
     }
@@ -800,7 +788,7 @@ impl StructuredDocument {
         // Append the trailing content to the last affected block
         if !trailing_right.is_empty() {
             let target = last_block_index;
-            self.blocks[target].content.extend(trailing_right.drain(..));
+            self.blocks[target].content.append(&mut trailing_right);
         }
         self.blocks[last_block_index].normalize_content();
     }

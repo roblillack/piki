@@ -77,7 +77,7 @@ impl DrawContext for FltkDrawContext {
 
     fn text_width(&mut self, text: &str, font: FontType, style: FontStyle, size: u8) -> f64 {
         self.set_font(font, style, size);
-        fltk_draw::width(text) as f64
+        fltk_draw::width(text)
     }
 
     fn text_height(&self, font: FontType, style: FontStyle, size: u8) -> i32 {

@@ -72,12 +72,12 @@ impl Plugin for IndexPlugin {
                 let category = &doc[..slash_pos];
                 grouped
                     .entry(category.to_string())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(doc.clone());
             } else {
                 grouped
                     .entry("Root".to_string())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(doc.clone());
             }
         }

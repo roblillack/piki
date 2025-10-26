@@ -36,8 +36,8 @@ pub struct Theme {
     pub code_text: FontSettings,
 }
 
-impl Theme {
-    pub fn default() -> Self {
+impl Default for Theme {
+    fn default() -> Self {
         Self {
             background_color: 0xFFFFF5FF,      // Off-white background
             selection_color: 0xB4D5FEFF,       // Light blue selection color

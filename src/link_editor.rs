@@ -2,11 +2,12 @@ use fltk::{
     button,
     enums::{Align, CallbackTrigger, Event, Key},
     input,
-    prelude::{GroupExt, InputExt, WidgetBase, WidgetExt, WindowExt},
+    prelude::{GroupExt, InputExt, WidgetBase, WidgetExt},
     window,
 };
 
 /// Options to configure the link editor dialog.
+#[derive(Default)]
 pub struct LinkEditOptions {
     /// Initial link target (URL/destination) to show in the dialog.
     pub init_target: String,
@@ -20,17 +21,6 @@ pub struct LinkEditOptions {
     pub center_rect: Option<(i32, i32, i32, i32)>,
 }
 
-impl Default for LinkEditOptions {
-    fn default() -> Self {
-        Self {
-            init_target: String::new(),
-            init_text: String::new(),
-            mode_existing_link: false,
-            selection_mode: false,
-            center_rect: None,
-        }
-    }
-}
 
 /// Show a link editor dialog and wire Save/Remove actions.
 /// - `on_save(dest, text)` is invoked when Save is pressed and inputs validate.
@@ -81,8 +71,8 @@ where
     // Live validation callbacks
     {
         let mut save_btn_v = save_btn.clone();
-        let mut tgt_v = target_input.clone();
-        let mut txt_v = text_input_w.clone();
+        let tgt_v = target_input.clone();
+        let txt_v = text_input_w.clone();
         let require_text = initial_text_required;
         let validate_cb = move |_i: &mut input::Input| {
             let target_ok = !tgt_v.value().trim().is_empty();
@@ -107,8 +97,8 @@ where
     let mut win_for_save = win.clone();
     let mut win_for_remove = win.clone();
     let mut win_for_cancel = win.clone();
-    let mut target_input_s = target_input.clone();
-    let mut text_input_s = text_input_w.clone();
+    let target_input_s = target_input.clone();
+    let text_input_s = text_input_w.clone();
     let init_text_s = opts.init_text.clone();
 
     save_btn.set_callback(move |_| {

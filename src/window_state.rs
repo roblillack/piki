@@ -2,7 +2,7 @@ use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
-    io::{self, ErrorKind},
+    io::{self},
     path::{Path, PathBuf},
 };
 
@@ -44,7 +44,7 @@ pub fn save_state(path: &Path, geometry: &WindowGeometry) -> io::Result<()> {
     }
 
     let toml = toml::to_string_pretty(geometry).map_err(|err| {
-        io::Error::new(ErrorKind::Other, format!("toml serialization error: {err}"))
+        io::Error::other(format!("toml serialization error: {err}"))
     })?;
 
     fs::write(path, toml)

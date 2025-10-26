@@ -47,7 +47,7 @@ pub fn show_page_picker(
         move |items: &Vec<String>, selected_index: Option<usize>| {
             list.clear();
             for s in items {
-                list.add(&s);
+                list.add(s);
             }
             if let Some(idx) = selected_index {
                 if !items.is_empty() {
@@ -134,7 +134,7 @@ pub fn show_page_picker(
             // Reset selection to top
             list.clear();
             for s in results.borrow().iter() {
-                list.add(&s);
+                list.add(s);
             }
             if list.size() > 0 {
                 list.select(1);

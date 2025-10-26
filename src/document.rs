@@ -57,15 +57,12 @@ impl DocumentStore {
         let entries = fs::read_dir(&self.base_path)
             .map_err(|e| format!("Failed to read directory: {}", e))?;
 
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("md") {
-                    if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                        docs.push(name.to_string());
-                    }
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("md")
+                && let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                    docs.push(name.to_string());
                 }
-            }
         }
 
         docs.sort();

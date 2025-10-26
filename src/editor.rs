@@ -28,7 +28,7 @@ pub struct MarkdownEditor {
 
 impl MarkdownEditor {
     pub fn new(x: i32, y: i32, w: i32, h: i32) -> Self {
-        let mut buffer = text::TextBuffer::default();
+        let buffer = text::TextBuffer::default();
         let style_buffer = text::TextBuffer::default();
         let mut editor = text::TextEditor::new(x, y, w, h, None);
 
@@ -301,8 +301,8 @@ impl MarkdownEditor {
 
         while i < chars.len() {
             // Code spans `code`
-            if chars[i] == '`' {
-                if let Some(end) = chars[i + 1..].iter().position(|&c| c == '`') {
+            if chars[i] == '`'
+                && let Some(end) = chars[i + 1..].iter().position(|&c| c == '`') {
                     let end_idx = i + 1 + end;
                     for j in i..=end_idx {
                         if line_start + j < styles.len() {
@@ -312,11 +312,10 @@ impl MarkdownEditor {
                     i = end_idx + 1;
                     continue;
                 }
-            }
 
             // Bold **text**
-            if i + 1 < chars.len() && chars[i] == '*' && chars[i + 1] == '*' {
-                if let Some(end) = find_delimiter(&chars[i + 2..], "**") {
+            if i + 1 < chars.len() && chars[i] == '*' && chars[i + 1] == '*'
+                && let Some(end) = find_delimiter(&chars[i + 2..], "**") {
                     let end_idx = i + 2 + end;
                     for j in i..=end_idx + 1 {
                         if line_start + j < styles.len() {
@@ -326,11 +325,10 @@ impl MarkdownEditor {
                     i = end_idx + 2;
                     continue;
                 }
-            }
 
             // Italic *text*
-            if chars[i] == '*' {
-                if let Some(end) = chars[i + 1..].iter().position(|&c| c == '*') {
+            if chars[i] == '*'
+                && let Some(end) = chars[i + 1..].iter().position(|&c| c == '*') {
                     let end_idx = i + 1 + end;
                     for j in i..=end_idx {
                         if line_start + j < styles.len() {
@@ -340,7 +338,6 @@ impl MarkdownEditor {
                     i = end_idx + 1;
                     continue;
                 }
-            }
 
             i += 1;
         }
@@ -505,12 +502,6 @@ fn find_delimiter(chars: &[char], delim: &str) -> Option<usize> {
     let delim_chars: Vec<char> = delim.chars().collect();
     let delim_len = delim_chars.len();
 
-    for i in 0..chars.len() {
-        if i + delim_len <= chars.len() {
-            if chars[i..i + delim_len] == delim_chars[..] {
-                return Some(i);
-            }
-        }
-    }
-    None
+    (0..chars.len()).find(|&i| i + delim_len <= chars.len()
+            && chars[i..i + delim_len] == delim_chars[..])
 }

@@ -8,6 +8,7 @@ pub type NodeId = usize;
 
 /// Text styling attributes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub struct TextStyle {
     pub bold: bool,
     pub italic: bool,
@@ -17,18 +18,6 @@ pub struct TextStyle {
     pub highlight: bool,
 }
 
-impl Default for TextStyle {
-    fn default() -> Self {
-        TextStyle {
-            bold: false,
-            italic: false,
-            code: false,
-            strikethrough: false,
-            underline: false,
-            highlight: false,
-        }
-    }
-}
 
 /// Alignment options for text
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
