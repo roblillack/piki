@@ -44,3 +44,112 @@ jobs:
 
       - name: Run Tests
         run: cargo test --all-targets --all-features
+
+  build:
+    name: Build ${{ matrix.platform.name }} (${{ matrix.platform.arch }})
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          # Linux x64
+          - name: Linux
+            runner: ubuntu-latest
+            arch: x86_64
+            target: x86_64-unknown-linux-gnu
+            deps: sudo apt install -y libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev libwayland-dev libxkbcommon-dev libdbus-1-dev
+            artifact_name: fliki-rs-linux-x86_64
+
+          # Linux ARM64
+          - name: Linux
+            runner: ubuntu-latest
+            arch: aarch64
+            target: aarch64-unknown-linux-gnu
+            deps: sudo apt install -y libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev libwayland-dev libxkbcommon-dev libdbus-1-dev gcc-aarch64-linux-gnu
+            artifact_name: fliki-rs-linux-aarch64
+
+          # macOS x64 (Intel)
+          - name: macOS
+            runner: macos-13
+            arch: x86_64
+            target: x86_64-apple-darwin
+            deps: echo "No additional dependencies needed for macOS"
+            artifact_name: fliki-rs-macos-x86_64
+
+          # macOS ARM64 (Apple Silicon)
+          - name: macOS
+            runner: macos-latest
+            arch: aarch64
+            target: aarch64-apple-darwin
+            deps: echo "No additional dependencies needed for macOS"
+            artifact_name: fliki-rs-macos-aarch64
+
+          # Windows x64
+          - name: Windows
+            runner: windows-latest
+            arch: x86_64
+            target: x86_64-pc-windows-msvc
+            deps: echo "No additional dependencies needed for Windows"
+            artifact_name: fliki-rs-windows-x86_64.exe
+
+          # Windows ARM64
+          - name: Windows
+            runner: windows-latest
+            arch: aarch64
+            target: aarch64-pc-windows-msvc
+            deps: echo "No additional dependencies needed for Windows"
+            artifact_name: fliki-rs-windows-aarch64.exe
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install platform dependencies
+        run: ${{ matrix.platform.deps }}
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          target: ${{ matrix.platform.target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: ${{ runner.os }}-${{ matrix.platform.target }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.platform.target }}
+
+      - name: Prepare artifact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p artifacts
+          cp target/${{ matrix.platform.target }}/release/fliki-rs artifacts/${{ matrix.platform.artifact_name }}
+
+      - name: Prepare artifact (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir artifacts
+          cp target/${{ matrix.platform.target }}/release/fliki-rs.exe artifacts/${{ matrix.platform.artifact_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.platform.artifact_name }}
+          path: artifacts/${{ matrix.platform.artifact_name }}
+          if-no-files-found: error
