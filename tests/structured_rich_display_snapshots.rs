@@ -6,7 +6,6 @@ use fliki_rs::draw_context::{FontStyle, FontType};
 use fliki_rs::richtext::markdown_converter::markdown_to_document;
 use fliki_rs::richtext::structured_document::DocumentPosition;
 use fliki_rs::richtext::structured_rich_display::StructuredRichDisplay;
-use fliki_rs::sourceedit::text_display::{StyleTableEntry, style_attr};
 
 use crate::svg_draw_context::SvgDrawContext;
 

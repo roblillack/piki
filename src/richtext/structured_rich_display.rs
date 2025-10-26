@@ -7,7 +7,6 @@ use super::structured_editor::*;
 use crate::draw_context::DrawContext;
 use crate::draw_context::FontStyle;
 use crate::draw_context::FontType;
-use crate::sourceedit::text_display::StyleTableEntry;
 use crate::theme::{FontSettings, Theme};
 
 /// Layout information for a rendered line
@@ -104,9 +103,6 @@ pub struct StructuredRichDisplay {
     // Scrolling
     scroll_offset: i32,
 
-    // Styling
-    style_table: Vec<StyleTableEntry>,
-
     // Cursor display
     cursor_visible: bool,
     // Cursor blink state
@@ -134,7 +130,6 @@ impl StructuredRichDisplay {
             layout_lines: Vec::new(),
             layout_valid: false,
             scroll_offset: 0,
-            style_table: Vec::new(),
             cursor_visible: true,
             blink_on: true,
             blink_period_ms: 1000, // 1s full period (500ms on/off)
@@ -1982,7 +1977,6 @@ mod tests {
     use crate::richtext::structured_document::{
         Block, BlockType, DocumentPosition, InlineContent, StructuredDocument, TextRun,
     };
-    use crate::sourceedit::text_display::StyleTableEntry;
 
     #[derive(Default)]
     struct TestDrawContext {
@@ -2042,21 +2036,6 @@ mod tests {
         fn is_active(&self) -> bool {
             true
         }
-    }
-
-    fn basic_style_table() -> Vec<StyleTableEntry> {
-        let mut styles = Vec::with_capacity(11);
-        for _ in 0..11 {
-            styles.push(StyleTableEntry {
-                color: 0x000000FF,
-                font: FontType::Code,
-                style: FontStyle::Regular,
-                size: 14,
-                attr: 0,
-                bgcolor: 0,
-            });
-        }
-        styles
     }
 
     fn make_display_with_block(block: Block) -> StructuredRichDisplay {

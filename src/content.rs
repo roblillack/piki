@@ -11,18 +11,6 @@ pub trait ContentProvider {
     fn get_content(&self) -> String;
 }
 
-// Implementation for Rc<RefCell<TextDisplay>> (FLTK integration)
-impl ContentProvider for Rc<RefCell<crate::sourceedit::text_display::TextDisplay>> {
-    fn get_content(&self) -> String {
-        let disp = self.borrow();
-        if let Some(buf_rc) = disp.buffer() {
-            buf_rc.borrow().text()
-        } else {
-            String::new()
-        }
-    }
-}
-
 // Implementation for Rc<RefCell<StructuredRichDisplay>> using markdown conversion
 impl ContentProvider
     for Rc<RefCell<crate::richtext::structured_rich_display::StructuredRichDisplay>>
@@ -40,22 +28,6 @@ impl ContentProvider
 pub trait ContentLoader {
     fn set_content_from_markdown(&mut self, markdown: &str);
 }
-
-// Loader for Rc<RefCell<TextDisplay>> by setting/creating its TextBuffer
-impl ContentLoader for crate::sourceedit::text_display::TextDisplay {
-    fn set_content_from_markdown(&mut self, markdown: &str) {
-        use crate::sourceedit::text_buffer::TextBuffer;
-        if let Some(buf_rc) = self.buffer() {
-            buf_rc.borrow_mut().set_text(markdown);
-        } else {
-            let mut buf = TextBuffer::new();
-            buf.set_text(markdown);
-            let rc = Rc::new(RefCell::new(buf));
-            self.set_buffer(rc);
-        }
-    }
-}
-
 // Loader for Rc<RefCell<StructuredRichDisplay>> by converting markdown to StructuredDocument
 impl ContentLoader for crate::richtext::structured_rich_display::StructuredRichDisplay {
     fn set_content_from_markdown(&mut self, markdown: &str) {

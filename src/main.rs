@@ -3,14 +3,12 @@ mod document;
 pub mod draw_context;
 mod editor;
 pub mod fltk_draw_context;
-pub mod fltk_text_display;
 mod history;
 mod link_handler;
 mod menu;
 mod page_picker;
 mod plugin;
 pub mod responsive_scrollbar;
-pub mod sourceedit;
 mod statusbar;
 mod window_state;
 
