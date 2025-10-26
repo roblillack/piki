@@ -1758,7 +1758,7 @@ impl StructuredRichDisplay {
     pub fn tick(&mut self, ms_since_start: u64) -> bool {
         // Compute a simple square-wave blink: 500ms on, 500ms off
         let half_period = (self.blink_period_ms / 2).max(1);
-        let new_on = (ms_since_start / half_period) % 2 == 0;
+        let new_on = (ms_since_start / half_period).is_multiple_of(2);
         if new_on != self.blink_on {
             self.blink_on = new_on;
             return true;
