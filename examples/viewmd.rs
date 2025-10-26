@@ -396,8 +396,8 @@ fn main() {
                     let cur = ed.cursor();
                     let doc = ed.document();
                     let blocks = doc.blocks();
-                    if !blocks.is_empty() && (cur.block_index as usize) < blocks.len() {
-                        blocks[cur.block_index as usize].block_type.clone()
+                    if !blocks.is_empty() && cur.block_index < blocks.len() {
+                        blocks[cur.block_index].block_type.clone()
                     } else {
                         BlockType::Paragraph
                     }
@@ -411,9 +411,7 @@ fn main() {
                         3 => Some("Paragraph Style/Heading 3\t"),
                         _ => None,
                     },
-                    BlockType::ListItem {
-                        ordered, ..
-                    } => Some(if ordered {
+                    BlockType::ListItem { ordered, .. } => Some(if ordered {
                         "Paragraph Style/Numbered List\t"
                     } else {
                         "Paragraph Style/List Item\t"

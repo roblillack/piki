@@ -2267,7 +2267,9 @@ impl StructuredEditor {
                     // Start numbering from current_number + 1
                     let start_num = current_number.unwrap_or(1) + 1;
                     let blocks = self.document.blocks_mut();
-                    for (n, block) in (start_num..).zip(blocks.iter_mut().take(next_end + 1).skip(next_start)) {
+                    for (n, block) in
+                        (start_num..).zip(blocks.iter_mut().take(next_end + 1).skip(next_start))
+                    {
                         block.block_type = BlockType::ListItem {
                             ordered: true,
                             number: Some(n),
@@ -2549,7 +2551,12 @@ impl StructuredEditor {
             let blocks = self.document.blocks();
             let mut result = String::new();
 
-            for (block_idx, block) in blocks.iter().enumerate().take(end.block_index.min(blocks.len() - 1) + 1).skip(start.block_index) {
+            for (block_idx, block) in blocks
+                .iter()
+                .enumerate()
+                .take(end.block_index.min(blocks.len() - 1) + 1)
+                .skip(start.block_index)
+            {
                 let text = block.to_plain_text();
 
                 if block_idx == start.block_index {

@@ -907,8 +907,8 @@ impl FltkStructuredRichDisplay {
                                 let open_context_menu = {
                                     let is_menu_key = key == Key::Menu;
                                     // Detect Shift+F10
-                                    let shift_f10 = state.contains(Shortcut::Shift)
-                                        && key == Key::F10;
+                                    let shift_f10 =
+                                        state.contains(Shortcut::Shift) && key == Key::F10;
                                     is_menu_key || shift_f10
                                 };
 

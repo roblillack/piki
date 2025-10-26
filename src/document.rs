@@ -59,11 +59,7 @@ impl DocumentStore {
     }
 
     /// Helper function to recursively walk directories
-    fn walk_directory(
-        dir: &PathBuf,
-        prefix: &str,
-        docs: &mut Vec<String>,
-    ) -> Result<(), String> {
+    fn walk_directory(dir: &PathBuf, prefix: &str, docs: &mut Vec<String>) -> Result<(), String> {
         let entries = fs::read_dir(dir)
             .map_err(|e| format!("Failed to read directory '{}': {}", dir.display(), e))?;
 

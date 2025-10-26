@@ -428,10 +428,7 @@ impl Document {
         Self::find_node_at_position_recursive(&self.root, pos)
     }
 
-    fn find_node_at_position_recursive(
-        node: &ASTNode,
-        pos: usize,
-    ) -> Option<&ASTNode> {
+    fn find_node_at_position_recursive(node: &ASTNode, pos: usize) -> Option<&ASTNode> {
         if !node.contains_position(pos) {
             return None;
         }
