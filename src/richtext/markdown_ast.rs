@@ -7,8 +7,7 @@ use std::fmt;
 pub type NodeId = usize;
 
 /// Text styling attributes
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TextStyle {
     pub bold: bool,
     pub italic: bool,
@@ -17,7 +16,6 @@ pub struct TextStyle {
     pub underline: bool,
     pub highlight: bool,
 }
-
 
 /// Alignment options for text
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

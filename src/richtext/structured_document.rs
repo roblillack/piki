@@ -10,8 +10,7 @@ use unicode_segmentation::UnicodeSegmentation;
 pub type ElementId = usize;
 
 /// Text styling (semantic, not syntactic)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TextStyle {
     pub bold: bool,
     pub italic: bool,
@@ -20,7 +19,6 @@ pub struct TextStyle {
     pub underline: bool,
     pub highlight: bool,
 }
-
 
 impl TextStyle {
     pub fn plain() -> Self {
@@ -696,7 +694,7 @@ impl StructuredDocument {
         // Delete head of end block and capture its remaining content
         let mut tail_content: Vec<InlineContent> = {
             let block = &mut self.blocks[b.block_index];
-            
+
             // At this point, block contains left/head, right is tail we want to keep
             block.split_content_at(b.offset)
         };
@@ -713,8 +711,7 @@ impl StructuredDocument {
 
         // Append tail_content to the (now) start block
         if !tail_content.is_empty() {
-            self.blocks[a.block_index]
-                .content.append(&mut tail_content);
+            self.blocks[a.block_index].content.append(&mut tail_content);
         }
         self.blocks[a.block_index].normalize_content();
     }

@@ -375,7 +375,9 @@ impl StructuredRichDisplay {
             if line.block_index == cursor.block_index {
                 let dist = if cursor.offset < line.char_start {
                     line.char_start - cursor.offset
-                } else { cursor.offset.saturating_sub(line.char_end) };
+                } else {
+                    cursor.offset.saturating_sub(line.char_end)
+                };
                 candidate = match candidate {
                     Some((_, best_dist)) if best_dist <= dist => candidate,
                     _ => Some((i, dist)),
@@ -1196,11 +1198,11 @@ impl StructuredRichDisplay {
         };
 
         let push_line = |lines: &mut Vec<Vec<VisualRun>>,
-                             ranges: &mut Vec<(usize, usize)>,
-                             wraps: &mut Vec<bool>,
-                             current_line: &mut Vec<VisualRun>,
-                             default_offset: usize,
-                             wrapped: bool| {
+                         ranges: &mut Vec<(usize, usize)>,
+                         wraps: &mut Vec<bool>,
+                         current_line: &mut Vec<VisualRun>,
+                         default_offset: usize,
+                         wrapped: bool| {
             let (start, end) = if let Some(first) = current_line.first() {
                 let last_end = current_line
                     .last()
@@ -1510,14 +1512,15 @@ impl StructuredRichDisplay {
             // If this line belongs to a BlockQuote, draw a vertical bar to the left.
             // We draw a short segment per line to keep implementation simple.
             if let Some(block) = self.editor.document().blocks().get(line.block_index)
-                && let BlockType::BlockQuote = block.block_type {
-                    // Position the bar slightly left of the quote text indent (start_x + 20)
-                    let bar_x = self.x + self.theme.padding_horizontal + 12;
-                    let bar_y1 = self.y + line.y - self.scroll_offset;
-                    let bar_y2 = bar_y1 + line.height;
-                    ctx.set_color(self.theme.quote_bar_color);
-                    ctx.draw_line(bar_x, bar_y1, bar_x, bar_y2);
-                }
+                && let BlockType::BlockQuote = block.block_type
+            {
+                // Position the bar slightly left of the quote text indent (start_x + 20)
+                let bar_x = self.x + self.theme.padding_horizontal + 12;
+                let bar_y1 = self.y + line.y - self.scroll_offset;
+                let bar_y2 = bar_y1 + line.height;
+                ctx.set_color(self.theme.quote_bar_color);
+                ctx.draw_line(bar_x, bar_y1, bar_x, bar_y2);
+            }
 
             for run in &line.runs {
                 // Check if this run is part of a hovered link
@@ -1598,43 +1601,33 @@ impl StructuredRichDisplay {
                 // Draw selection highlight (if run is selected)
                 // Draw AFTER hover so the selection rectangle is on top
                 if let Some((sel_start, sel_end)) = self.get_run_selection_range(run)
-                    && sel_end > sel_start {
-                        // Measure the text before and within selection
-                        let text_before = if sel_start < run.text.len() {
-                            &run.text[..sel_start]
-                        } else {
-                            &run.text
-                        };
-                        let text_selected = if sel_end <= run.text.len() {
-                            &run.text[sel_start..sel_end]
-                        } else if sel_start < run.text.len() {
-                            &run.text[sel_start..]
-                        } else {
-                            ""
-                        };
+                    && sel_end > sel_start
+                {
+                    // Measure the text before and within selection
+                    let text_before = if sel_start < run.text.len() {
+                        &run.text[..sel_start]
+                    } else {
+                        &run.text
+                    };
+                    let text_selected = if sel_end <= run.text.len() {
+                        &run.text[sel_start..sel_end]
+                    } else if sel_start < run.text.len() {
+                        &run.text[sel_start..]
+                    } else {
+                        ""
+                    };
 
-                        let before_width = ctx.text_width(
-                            text_before,
-                            run.font_type,
-                            run.font_style,
-                            run.font_size,
-                        ) as i32;
-                        let sel_width = ctx.text_width(
-                            text_selected,
-                            run.font_type,
-                            run.font_style,
-                            run.font_size,
-                        ) as i32;
+                    let before_width =
+                        ctx.text_width(text_before, run.font_type, run.font_style, run.font_size)
+                            as i32;
+                    let sel_width =
+                        ctx.text_width(text_selected, run.font_type, run.font_style, run.font_size)
+                            as i32;
 
-                        ctx.set_color(self.theme.selection_color);
-                        ctx.draw_rect_filled(
-                            draw_x + before_width,
-                            line_top,
-                            sel_width,
-                            line.height,
-                        );
-                        ctx.set_color(run.font_color); // Restore text color
-                    }
+                    ctx.set_color(self.theme.selection_color);
+                    ctx.draw_rect_filled(draw_x + before_width, line_top, sel_width, line.height);
+                    ctx.set_color(run.font_color); // Restore text color
+                }
 
                 ctx.draw_text(&run.text, draw_x, draw_y);
 
@@ -1658,16 +1651,19 @@ impl StructuredRichDisplay {
         }
 
         // Draw cursor (only when widget has keyboard focus)
-        if self.cursor_visible && ctx.has_focus() && self.blink_on
-            && let Some((cx, cy, ch)) = self.get_cursor_visual_position(ctx) {
-                let screen_y = self.y + cy - self.scroll_offset;
-                let screen_x = self.x + cx;
+        if self.cursor_visible
+            && ctx.has_focus()
+            && self.blink_on
+            && let Some((cx, cy, ch)) = self.get_cursor_visual_position(ctx)
+        {
+            let screen_y = self.y + cy - self.scroll_offset;
+            let screen_x = self.x + cx;
 
-                if screen_y >= self.y && screen_y < self.y + self.h {
-                    ctx.set_color(self.theme.cursor_color);
-                    ctx.draw_line(screen_x, screen_y, screen_x, screen_y + ch);
-                }
+            if screen_y >= self.y && screen_y < self.y + self.h {
+                ctx.set_color(self.theme.cursor_color);
+                ctx.draw_line(screen_x, screen_y, screen_x, screen_y + ch);
             }
+        }
 
         ctx.pop_clip();
     }
@@ -1759,17 +1755,19 @@ impl StructuredRichDisplay {
                     let marker_end_x = run.x + checklist.box_size;
                     // Allow a small tolerance around the marker for easier clicking
                     let tolerance = 2;
-                    if x >= marker_start_x - tolerance && x <= marker_end_x + tolerance
+                    if x >= marker_start_x - tolerance
+                        && x <= marker_end_x + tolerance
                         && let Some(block) = blocks.get(line.block_index)
-                            && matches!(
-                                block.block_type,
-                                BlockType::ListItem {
-                                    checkbox: Some(_),
-                                    ..
-                                }
-                            ) {
-                                return Some(line.block_index);
+                        && matches!(
+                            block.block_type,
+                            BlockType::ListItem {
+                                checkbox: Some(_),
+                                ..
                             }
+                        )
+                    {
+                        return Some(line.block_index);
+                    }
                 }
             }
         }
@@ -1897,12 +1895,12 @@ impl StructuredRichDisplay {
                                 if inline_idx < block.content.len()
                                     && let InlineContent::Link { link, .. } =
                                         &block.content[inline_idx]
-                                    {
-                                        return Some((
-                                            (run.block_index, inline_idx),
-                                            link.destination.clone(),
-                                        ));
-                                    }
+                                {
+                                    return Some((
+                                        (run.block_index, inline_idx),
+                                        link.destination.clone(),
+                                    ));
+                                }
                             }
                         }
                     }

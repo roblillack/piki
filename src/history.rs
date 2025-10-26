@@ -53,9 +53,10 @@ impl History {
     /// Update the scroll position of the current entry
     pub fn update_scroll_position(&mut self, scroll_position: i32) {
         if let Some(idx) = self.current_index
-            && let Some(entry) = self.entries.get_mut(idx) {
-                entry.scroll_position = scroll_position;
-            }
+            && let Some(entry) = self.entries.get_mut(idx)
+        {
+            entry.scroll_position = scroll_position;
+        }
     }
 
     /// Check if we can navigate back
@@ -80,10 +81,11 @@ impl History {
     /// Returns the entry we should navigate to, or None if we can't go back
     pub fn go_back(&mut self) -> Option<&HistoryEntry> {
         if let Some(idx) = self.current_index
-            && idx > 0 {
-                self.current_index = Some(idx - 1);
-                return self.entries.get(idx - 1);
-            }
+            && idx > 0
+        {
+            self.current_index = Some(idx - 1);
+            return self.entries.get(idx - 1);
+        }
         None
     }
 
@@ -91,10 +93,11 @@ impl History {
     /// Returns the entry we should navigate to, or None if we can't go forward
     pub fn go_forward(&mut self) -> Option<&HistoryEntry> {
         if let Some(idx) = self.current_index
-            && idx < self.entries.len() - 1 {
-                self.current_index = Some(idx + 1);
-                return self.entries.get(idx + 1);
-            }
+            && idx < self.entries.len() - 1
+        {
+            self.current_index = Some(idx + 1);
+            return self.entries.get(idx + 1);
+        }
         None
     }
 

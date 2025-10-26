@@ -189,10 +189,10 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         } else {
             "Paragraph Style/List Item\t"
         }),
+    } && let Some(mut item) = menu.find_item(lbl)
+    {
+        item.set();
     }
-        && let Some(mut item) = menu.find_item(lbl) {
-            item.set();
-        }
 
     // Inline style accelerators
     #[cfg(target_os = "macos")]

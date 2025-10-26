@@ -408,10 +408,11 @@ fn ast_node_to_inline_content(node: &ASTNode) -> Vec<InlineContent> {
                     highlight: style.highlight,
                 };
                 if let Some(InlineContent::Text(existing)) = content.last_mut()
-                    && existing.style == text_style {
-                        existing.text.push_str(text);
-                        continue;
-                    }
+                    && existing.style == text_style
+                {
+                    existing.text.push_str(text);
+                    continue;
+                }
                 content.push(InlineContent::Text(TextRun::new(text, text_style)));
             }
             NodeType::WikiLink { destination: _ } => {}
@@ -451,9 +452,10 @@ fn ast_node_to_inline_content(node: &ASTNode) -> Vec<InlineContent> {
     for idx in 1..content.len() {
         if matches!(content[idx - 1], InlineContent::HardBreak)
             && let InlineContent::Text(run) = &mut content[idx]
-                && run.text.starts_with(' ') {
-                    run.text.remove(0);
-                }
+            && run.text.starts_with(' ')
+        {
+            run.text.remove(0);
+        }
     }
 
     content

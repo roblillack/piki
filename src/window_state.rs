@@ -43,9 +43,8 @@ pub fn save_state(path: &Path, geometry: &WindowGeometry) -> io::Result<()> {
         fs::create_dir_all(parent)?;
     }
 
-    let toml = toml::to_string_pretty(geometry).map_err(|err| {
-        io::Error::other(format!("toml serialization error: {err}"))
-    })?;
+    let toml = toml::to_string_pretty(geometry)
+        .map_err(|err| io::Error::other(format!("toml serialization error: {err}")))?;
 
     fs::write(path, toml)
 }
