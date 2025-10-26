@@ -2,7 +2,6 @@
 
 pub mod svg_draw_context;
 
-use fliki_rs::draw_context::{FontStyle, FontType};
 use fliki_rs::richtext::markdown_converter::markdown_to_document;
 use fliki_rs::richtext::structured_document::DocumentPosition;
 use fliki_rs::richtext::structured_rich_display::StructuredRichDisplay;

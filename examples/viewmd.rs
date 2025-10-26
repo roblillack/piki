@@ -421,11 +421,10 @@ fn main() {
                         "Paragraph Style/List Item\t"
                     }),
                     _ => None,
-                } {
-                    if let Some(mut item) = mb.find_item(selected) {
+                }
+                    && let Some(mut item) = mb.find_item(selected) {
                         item.set();
                     }
-                }
 
                 app::repeat_timeout3(0.25, h);
             });
@@ -487,7 +486,7 @@ fn main() {
     // Register link click callback to load markdown files
     {
         let display_ref = display.clone();
-        let mut win_handle = wind.clone();
+        let win_handle = wind.clone();
         structured.set_link_callback(Some(Box::new(move |destination: String| {
             use std::path::Path;
             let path = Path::new(&destination);

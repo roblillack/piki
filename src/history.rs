@@ -162,7 +162,7 @@ mod tests {
 
         // Add more than MAX_HISTORY_SIZE entries
         for i in 0..150 {
-            history.push(format!("page{}", i), i as i32);
+            history.push(format!("page{}", i), i);
         }
 
         // Should only keep the last 100

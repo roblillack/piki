@@ -3346,7 +3346,7 @@ mod tests {
             .collect();
         assert!(parts0.len() >= 2);
         assert_eq!(parts0[0].0, "Fir");
-        assert_eq!(parts0[0].1, false);
+        assert!(!parts0[0].1);
         assert!(parts0[1].1); // bold
 
         // Middle block entire should be bold

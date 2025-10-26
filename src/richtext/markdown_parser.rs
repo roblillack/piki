@@ -423,7 +423,7 @@ mod tests {
         let text = "# Heading 1\n\nSome text.";
         let doc = parse_markdown(text);
 
-        assert!(doc.root.children.len() >= 1);
+        assert!(!doc.root.children.is_empty());
         assert!(matches!(
             doc.root.children[0].node_type,
             NodeType::Heading { level: 1 }
