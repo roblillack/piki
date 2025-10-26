@@ -36,6 +36,13 @@ impl LayoutLine {
     }
 }
 
+struct InlineContentLayout {
+    lines: Vec<Vec<VisualRun>>,
+    line_ranges: Vec<(usize, usize)>,
+    line_wraps: Vec<bool>,
+    y_after: i32,
+}
+
 /// Checklist marker rendering metadata
 #[derive(Debug, Clone)]
 struct ChecklistVisual {
@@ -958,17 +965,22 @@ impl StructuredRichDisplay {
                 }];
 
                 // Layout the content with proper text indentation
-                let (mut content_runs, content_ranges, content_wraps, _y_after) = self
-                    .layout_inline_content(
-                        &block.content,
-                        &block.block_type,
-                        block_idx,
-                        y,
-                        content_start_x,
-                        width - (content_start_x - start_x),
-                        default_line_height,
-                        ctx,
-                    );
+                let layout = self.layout_inline_content(
+                    &block.content,
+                    &block.block_type,
+                    block_idx,
+                    y,
+                    content_start_x,
+                    width - (content_start_x - start_x),
+                    default_line_height,
+                    ctx,
+                );
+                let (mut content_runs, content_ranges, content_wraps, _y_after) = (
+                    layout.lines,
+                    layout.line_ranges,
+                    layout.line_wraps,
+                    layout.y_after,
+                );
 
                 let mut current_y = y;
 
@@ -1056,7 +1068,7 @@ impl StructuredRichDisplay {
         line_height: i32,
         ctx: &mut dyn DrawContext,
     ) -> i32 {
-        let (lines, line_ranges, line_wraps, _y_after) = self.layout_inline_content(
+        let layout = self.layout_inline_content(
             &block.content,
             &block.block_type,
             block_idx,
@@ -1065,6 +1077,12 @@ impl StructuredRichDisplay {
             width,
             line_height,
             ctx,
+        );
+        let (lines, line_ranges, line_wraps, _y_after) = (
+            layout.lines,
+            layout.line_ranges,
+            layout.line_wraps,
+            layout.y_after,
         );
 
         let mut current_y = y;
@@ -1177,7 +1195,7 @@ impl StructuredRichDisplay {
         width: i32,
         line_height: i32,
         ctx: &mut dyn DrawContext,
-    ) -> (Vec<Vec<VisualRun>>, Vec<(usize, usize)>, Vec<bool>, i32) {
+    ) -> InlineContentLayout {
         let mut lines: Vec<Vec<VisualRun>> = Vec::new();
         let mut line_wraps: Vec<bool> = Vec::new();
         let mut line_ranges: Vec<(usize, usize)> = Vec::new();
@@ -1429,12 +1447,12 @@ impl StructuredRichDisplay {
             );
         }
 
-        (
+        InlineContentLayout {
             lines,
             line_ranges,
             line_wraps,
-            if is_empty { y } else { current_y },
-        )
+            y_after: if is_empty { y } else { current_y },
+        }
     }
 
     /// Check if a visual run intersects with the current selection

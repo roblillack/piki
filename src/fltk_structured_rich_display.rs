@@ -9,14 +9,18 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
 
+type Callback<T> = Rc<RefCell<Option<Box<dyn Fn(T) + 'static>>>>;
+type MutCallback<T> = Rc<RefCell<Option<Box<dyn FnMut(T) + 'static>>>>;
+type MutCallback0 = Rc<RefCell<Option<Box<dyn FnMut() + 'static>>>>;
+
 /// FLTK wrapper for StructuredRichDisplay with scrollbar and event handling
 pub struct FltkStructuredRichDisplay {
     pub group: fltk::group::Group,
     pub display: Rc<RefCell<StructuredRichDisplay>>,
-    link_cb: Rc<RefCell<Option<Box<dyn Fn(String) + 'static>>>>,
-    hover_cb: Rc<RefCell<Option<Box<dyn Fn(Option<String>) + 'static>>>>,
-    change_cb: Rc<RefCell<Option<Box<dyn FnMut() + 'static>>>>,
-    paragraph_cb: Rc<RefCell<Option<Box<dyn FnMut(BlockType) + 'static>>>>,
+    link_cb: Callback<String>,
+    hover_cb: Callback<Option<String>>,
+    change_cb: MutCallback0,
+    paragraph_cb: MutCallback<BlockType>,
 }
 
 const SCROLLBAR_WIDTH: i32 = 15;
@@ -44,14 +48,10 @@ impl FltkStructuredRichDisplay {
         display.borrow_mut().set_cursor_visible(edit_mode);
 
         // Callbacks holders
-        let link_callback: Rc<RefCell<Option<Box<dyn Fn(String) + 'static>>>> =
-            Rc::new(RefCell::new(None));
-        let change_callback: Rc<RefCell<Option<Box<dyn FnMut() + 'static>>>> =
-            Rc::new(RefCell::new(None));
-        let hover_callback: Rc<RefCell<Option<Box<dyn Fn(Option<String>) + 'static>>>> =
-            Rc::new(RefCell::new(None));
-        let paragraph_callback: Rc<RefCell<Option<Box<dyn FnMut(BlockType) + 'static>>>> =
-            Rc::new(RefCell::new(None));
+        let link_callback: Callback<String> = Rc::new(RefCell::new(None));
+        let change_callback: MutCallback0 = Rc::new(RefCell::new(None));
+        let hover_callback: Callback<Option<String>> = Rc::new(RefCell::new(None));
+        let paragraph_callback: MutCallback<BlockType> = Rc::new(RefCell::new(None));
 
         // Create vertical responsive scrollbar
         let mut vscroll = ResponsiveScrollbar::new(

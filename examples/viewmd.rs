@@ -421,10 +421,10 @@ fn main() {
                         "Paragraph Style/List Item\t"
                     }),
                     _ => None,
+                } && let Some(mut item) = mb.find_item(selected)
+                {
+                    item.set();
                 }
-                    && let Some(mut item) = mb.find_item(selected) {
-                        item.set();
-                    }
 
                 app::repeat_timeout3(0.25, h);
             });
