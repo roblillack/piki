@@ -792,124 +792,6 @@ impl StructuredRichDisplay {
                         }
                     }
 
-                    #[cfg(test)]
-                    mod tests {
-                        use super::*;
-                        use crate::draw_context::{FontStyle, FontType};
-                        use crate::richtext::structured_document::{
-                            Block, DocumentPosition, InlineContent, StructuredDocument, TextRun,
-                        };
-
-                        struct TestCtx {
-                            focus: bool,
-                            active: bool,
-                        }
-
-                        impl TestCtx {
-                            fn new() -> Self {
-                                Self {
-                                    focus: true,
-                                    active: true,
-                                }
-                            }
-                        }
-
-                        impl DrawContext for TestCtx {
-                            fn set_color(&mut self, _color: u32) {}
-                            fn set_font(&mut self, _font: FontType, _style: FontStyle, _size: u8) {}
-                            fn draw_text(&mut self, _text: &str, _x: i32, _y: i32) {}
-                            fn draw_rect_filled(&mut self, _x: i32, _y: i32, _w: i32, _h: i32) {}
-                            fn draw_line(&mut self, _x1: i32, _y1: i32, _x2: i32, _y2: i32) {}
-                            fn text_width(
-                                &mut self,
-                                text: &str,
-                                _font: FontType,
-                                _style: FontStyle,
-                                _size: u8,
-                            ) -> f64 {
-                                text.chars().count() as f64 * 8.0
-                            }
-                            fn text_height(
-                                &self,
-                                _font: FontType,
-                                _style: FontStyle,
-                                size: u8,
-                            ) -> i32 {
-                                size as i32 + 4
-                            }
-                            fn text_descent(
-                                &self,
-                                _font: FontType,
-                                _style: FontStyle,
-                                _size: u8,
-                            ) -> i32 {
-                                4
-                            }
-                            fn push_clip(&mut self, _x: i32, _y: i32, _w: i32, _h: i32) {}
-                            fn pop_clip(&mut self) {}
-                            fn color_average(&self, c1: u32, _c2: u32, _weight: f32) -> u32 {
-                                c1
-                            }
-                            fn color_contrast(&self, fg: u32, _bg: u32) -> u32 {
-                                fg
-                            }
-                            fn color_inactive(&self, c: u32) -> u32 {
-                                c
-                            }
-                            fn has_focus(&self) -> bool {
-                                self.focus
-                            }
-                            fn is_active(&self) -> bool {
-                                self.active
-                            }
-                        }
-
-                        #[test]
-                        fn hard_break_blank_line_has_nonzero_offset() {
-                            let mut display = StructuredRichDisplay::new(0, 0, 400, 200);
-                            let mut doc = StructuredDocument::new();
-                            let mut block = Block::paragraph(0);
-                            block
-                                .content
-                                .push(InlineContent::Text(TextRun::plain("Hello")));
-                            block.content.push(InlineContent::HardBreak);
-                            block.content.push(InlineContent::HardBreak);
-                            block
-                                .content
-                                .push(InlineContent::Text(TextRun::plain("World")));
-                            doc.add_block(block);
-
-                            {
-                                let editor = display.editor_mut();
-                                *editor.document_mut() = doc;
-                                editor.set_cursor(DocumentPosition::new(0, 0));
-                            }
-
-                            let mut ctx = TestCtx::new();
-                            display.layout_valid = false;
-                            display.layout(&mut ctx);
-
-                            assert!(
-                                display.layout_lines.len() >= 3,
-                                "expected at least three visual lines, got {}",
-                                display.layout_lines.len()
-                            );
-
-                            let zero_len_offsets: Vec<usize> = display
-                                .layout_lines
-                                .iter()
-                                .filter(|line| line.char_start == line.char_end)
-                                .map(|line| line.char_start)
-                                .collect();
-
-                            assert!(
-                                zero_len_offsets.iter().any(|&offset| offset > 0),
-                                "expected a zero-length line with non-zero offset, got offsets {:?}",
-                                zero_len_offsets
-                            );
-                        }
-                    }
-
                     // Pad width is width of the largest label text (max_num + ". ")
                     let max_label = format!("{}. ", max_num);
                     let label_pad_width = ctx.text_width(
@@ -1971,6 +1853,7 @@ impl StructuredRichDisplay {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::draw_context::{FontStyle, FontType};
     use crate::richtext::structured_document::{
         Block, BlockType, DocumentPosition, InlineContent, StructuredDocument, TextRun,
     };
@@ -1978,11 +1861,15 @@ mod tests {
     #[derive(Default)]
     struct TestDrawContext {
         focus: bool,
+        active: bool,
     }
 
     impl TestDrawContext {
         fn new_with_focus() -> Self {
-            Self { focus: true }
+            Self {
+                focus: true,
+                active: true,
+            }
         }
     }
 
@@ -2031,7 +1918,7 @@ mod tests {
         }
 
         fn is_active(&self) -> bool {
-            true
+            self.active
         }
     }
 
@@ -2277,5 +2164,50 @@ mod tests {
         let (start_x, start_y, _) = display.get_cursor_visual_position(&mut ctx).unwrap();
         assert_eq!(start_y, second_line_y);
         assert_eq!(start_x, second_line_base_x);
+    }
+
+    #[test]
+    fn hard_break_blank_line_has_nonzero_offset() {
+        let mut display = StructuredRichDisplay::new(0, 0, 400, 200);
+        let mut doc = StructuredDocument::new();
+        let mut block = Block::paragraph(0);
+        block
+            .content
+            .push(InlineContent::Text(TextRun::plain("Hello")));
+        block.content.push(InlineContent::HardBreak);
+        block.content.push(InlineContent::HardBreak);
+        block
+            .content
+            .push(InlineContent::Text(TextRun::plain("World")));
+        doc.add_block(block);
+
+        {
+            let editor = display.editor_mut();
+            *editor.document_mut() = doc;
+            editor.set_cursor(DocumentPosition::new(0, 0));
+        }
+
+        let mut ctx = TestDrawContext::new_with_focus();
+        display.layout_valid = false;
+        display.layout(&mut ctx);
+
+        assert!(
+            display.layout_lines.len() >= 3,
+            "expected at least three visual lines, got {}",
+            display.layout_lines.len()
+        );
+
+        let zero_len_offsets: Vec<usize> = display
+            .layout_lines
+            .iter()
+            .filter(|line| line.char_start == line.char_end)
+            .map(|line| line.char_start)
+            .collect();
+
+        assert!(
+            zero_len_offsets.iter().any(|&offset| offset > 0),
+            "expected a zero-length line with non-zero offset, got offsets {:?}",
+            zero_len_offsets
+        );
     }
 }
