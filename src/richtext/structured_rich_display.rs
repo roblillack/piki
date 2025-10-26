@@ -72,7 +72,7 @@ struct VisualRun {
     background_color: Option<u32>,
     underline: bool,
     strikethrough: bool,
-    highlight: bool,
+    // Highlight not necessary, as we'll have a non-None background_color for that
 }
 
 #[derive(Clone, Copy)]
@@ -84,7 +84,7 @@ struct ResolvedRunStyle {
     background_color: Option<u32>,
     underline: bool,
     strikethrough: bool,
-    highlight: bool,
+    // Highlight not necessary, as we'll have a non-None background_color for that
 }
 
 /// Rich Text Display for Structured Documents
@@ -648,7 +648,6 @@ impl StructuredRichDisplay {
                         background_color: f.background_color,
                         underline: false,
                         strikethrough: false,
-                        highlight: false,
                         block_index: block_idx,
                         char_range: (0, line_len),
                         inline_index: None,
@@ -952,7 +951,6 @@ impl StructuredRichDisplay {
                     background_color: self.theme.plain_text.background_color,
                     underline: false,
                     strikethrough: false,
-                    highlight: false,
                     block_index: block_idx,
                     char_range: (0, 0),
                     inline_index: None,
@@ -1168,7 +1166,6 @@ impl StructuredRichDisplay {
             background_color,
             underline: text_style.underline,
             strikethrough: text_style.strikethrough,
-            highlight,
         }
     }
 
@@ -1283,7 +1280,6 @@ impl StructuredRichDisplay {
                                     background_color: style.background_color,
                                     underline: style.underline,
                                     strikethrough: style.strikethrough,
-                                    highlight: style.highlight,
                                     block_index: block_idx,
                                     char_range: (char_offset, char_offset + space_end),
                                     inline_index: Some(inline_idx),
@@ -1336,7 +1332,6 @@ impl StructuredRichDisplay {
                                 background_color: style.background_color,
                                 underline: style.underline,
                                 strikethrough: style.strikethrough,
-                                highlight: style.highlight,
                                 block_index: block_idx,
                                 char_range: (char_offset + word_start, char_offset + word_end),
                                 inline_index: Some(inline_idx),
@@ -1394,7 +1389,6 @@ impl StructuredRichDisplay {
                         background_color: style.background_color,
                         underline: style.underline,
                         strikethrough: style.strikethrough,
-                        highlight: style.highlight,
                         block_index: block_idx,
                         char_range: (char_offset, char_offset + text.len()),
                         inline_index: Some(inline_idx),
