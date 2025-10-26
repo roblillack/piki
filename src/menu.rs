@@ -163,7 +163,8 @@ fn populate_menu<M>(
 
     let frontpage_shortcut = cmd | Shortcut::Alt | 'f';
     let index_shortcut = cmd | Shortcut::Alt | 'i';
-    let _quit_shortcut = cmd | 'q';
+    #[cfg(not(target_os = "macos"))]
+    let quit_shortcut = cmd | 'q';
     let cut_shortcut = cmd | 'x';
     let copy_shortcut = cmd | 'c';
     let paste_shortcut = cmd | 'v';
