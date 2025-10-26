@@ -406,16 +406,16 @@ impl Document {
 
     /// Find a node by ID (depth-first search)
     pub fn find_node(&self, id: NodeId) -> Option<&ASTNode> {
-        self.find_node_recursive(&self.root, id)
+        Self::find_node_recursive(&self.root, id)
     }
 
-    fn find_node_recursive<'a>(&'a self, node: &'a ASTNode, id: NodeId) -> Option<&'a ASTNode> {
+    fn find_node_recursive(node: &ASTNode, id: NodeId) -> Option<&ASTNode> {
         if node.id == id {
             return Some(node);
         }
 
         for child in &node.children {
-            if let Some(found) = self.find_node_recursive(child, id) {
+            if let Some(found) = Self::find_node_recursive(child, id) {
                 return Some(found);
             }
         }
@@ -425,21 +425,20 @@ impl Document {
 
     /// Find node at a specific character position
     pub fn find_node_at_position(&self, pos: usize) -> Option<&ASTNode> {
-        self.find_node_at_position_recursive(&self.root, pos)
+        Self::find_node_at_position_recursive(&self.root, pos)
     }
 
-    fn find_node_at_position_recursive<'a>(
-        &'a self,
-        node: &'a ASTNode,
+    fn find_node_at_position_recursive(
+        node: &ASTNode,
         pos: usize,
-    ) -> Option<&'a ASTNode> {
+    ) -> Option<&ASTNode> {
         if !node.contains_position(pos) {
             return None;
         }
 
         // Check children first (most specific match)
         for child in &node.children {
-            if let Some(found) = self.find_node_at_position_recursive(child, pos) {
+            if let Some(found) = Self::find_node_at_position_recursive(child, pos) {
                 return Some(found);
             }
         }

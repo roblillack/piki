@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 const MAX_HISTORY_SIZE: usize = 100;
 
 #[derive(Debug, Clone)]

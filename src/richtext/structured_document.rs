@@ -326,7 +326,7 @@ impl Block {
     /// The left part remains in self.
     pub fn split_content_at(&mut self, offset: usize) -> Vec<InlineContent> {
         fn split_vec(
-            content: &Vec<InlineContent>,
+            content: &[InlineContent],
             offset: usize,
         ) -> (Vec<InlineContent>, Vec<InlineContent>) {
             let mut left: Vec<InlineContent> = Vec::new();

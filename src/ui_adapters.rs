@@ -40,8 +40,8 @@ impl StructuredRichUI {
     }
 
     pub fn paste_from_clipboard(&mut self) {
-        let mut group = self.0.group.clone();
-        app::paste(&mut group);
+        let group = self.0.group.clone();
+        app::paste(&group);
     }
 
     pub fn clear_formatting(&mut self) -> bool {

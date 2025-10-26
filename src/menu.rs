@@ -65,6 +65,7 @@ const INLINE_ITEMS: &[&str] = &[
 ];
 
 #[cfg(target_os = "macos")]
+#[allow(clippy::too_many_arguments)]
 pub fn setup_menu(
     app_state: Rc<RefCell<AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
@@ -94,6 +95,7 @@ pub fn setup_menu(
 }
 
 #[cfg(not(target_os = "macos"))]
+#[allow(clippy::too_many_arguments)]
 pub fn setup_menu(
     app_state: Rc<RefCell<AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
@@ -123,6 +125,7 @@ pub fn setup_menu(
     menu_bar
 }
 
+#[allow(clippy::too_many_arguments)]
 fn populate_menu<M>(
     menu_bar: &mut M,
     app_state: Rc<RefCell<AppState>>,
@@ -160,7 +163,7 @@ fn populate_menu<M>(
 
     let frontpage_shortcut = cmd | Shortcut::Alt | 'f';
     let index_shortcut = cmd | Shortcut::Alt | 'i';
-    let quit_shortcut = cmd | 'q';
+    let _quit_shortcut = cmd | 'q';
     let cut_shortcut = cmd | 'x';
     let copy_shortcut = cmd | 'c';
     let paste_shortcut = cmd | 'v';

@@ -1688,8 +1688,8 @@ impl StructuredEditor {
             };
 
             let blocks = self.document.blocks_mut();
-            for i in start..=end {
-                blocks[i].block_type = BlockType::ListItem {
+            for block in blocks.iter_mut().take(end + 1).skip(start) {
+                block.block_type = BlockType::ListItem {
                     ordered: false,
                     number: None,
                     checkbox: None,
@@ -1745,8 +1745,8 @@ impl StructuredEditor {
             };
 
             let blocks = self.document.blocks_mut();
-            for i in start..=end {
-                blocks[i].block_type = BlockType::ListItem {
+            for block in blocks.iter_mut().take(end + 1).skip(start) {
+                block.block_type = BlockType::ListItem {
                     ordered: false,
                     number: None,
                     checkbox: None,
@@ -1865,8 +1865,8 @@ impl StructuredEditor {
                 };
 
                 let blocks = self.document.blocks_mut();
-                for i in start..=end {
-                    blocks[i].block_type = BlockType::ListItem {
+                for block in blocks.iter_mut().take(end + 1).skip(start) {
+                    block.block_type = BlockType::ListItem {
                         ordered: false,
                         number: None,
                         checkbox: Some(false),
@@ -1924,8 +1924,8 @@ impl StructuredEditor {
                 };
 
                 let blocks = self.document.blocks_mut();
-                for i in start..=end {
-                    blocks[i].block_type = BlockType::ListItem {
+                for block in blocks.iter_mut().take(end + 1).skip(start) {
+                    block.block_type = BlockType::ListItem {
                         ordered: false,
                         number: None,
                         checkbox: Some(false),
@@ -2077,7 +2077,7 @@ impl StructuredEditor {
         match current_type {
             BlockType::ListItem { ordered: true, .. } => {
                 // We are inside an ordered run. Capture run bounds first.
-                let (run_start, run_end, _first_num) = {
+                let (_run_start, run_end, _first_num) = {
                     let blocks = self.document.blocks();
                     // Find run start
                     let mut start = block_index;
@@ -2123,9 +2123,9 @@ impl StructuredEditor {
                 if block_index < run_end {
                     let mut n: u64 = 1;
                     let blocks = self.document.blocks_mut();
-                    for i in (block_index + 1)..=run_end {
-                        if let BlockType::ListItem { ordered: true, .. } = blocks[i].block_type {
-                            blocks[i].block_type = BlockType::ListItem {
+                    for block in blocks.iter_mut().take(run_end + 1).skip(block_index + 1) {
+                        if let BlockType::ListItem { ordered: true, .. } = block.block_type {
+                            block.block_type = BlockType::ListItem {
                                 ordered: true,
                                 number: Some(n),
                                 checkbox: None,
@@ -2166,15 +2166,13 @@ impl StructuredEditor {
                     (start, end)
                 };
 
-                let mut num = 1u64;
                 let blocks = self.document.blocks_mut();
-                for i in start..=end {
-                    blocks[i].block_type = BlockType::ListItem {
+                for (num, block) in (1u64..).zip(blocks.iter_mut().take(end + 1).skip(start)) {
+                    block.block_type = BlockType::ListItem {
                         ordered: true,
                         number: Some(num),
                         checkbox: None,
                     };
-                    num += 1;
                 }
                 self.trigger_paragraph_change();
                 Ok(())
@@ -2267,15 +2265,14 @@ impl StructuredEditor {
                     };
 
                     // Start numbering from current_number + 1
-                    let mut n = current_number.unwrap_or(1) + 1;
+                    let start_num = current_number.unwrap_or(1) + 1;
                     let blocks = self.document.blocks_mut();
-                    for i in next_start..=next_end {
-                        blocks[i].block_type = BlockType::ListItem {
+                    for (n, block) in (start_num..).zip(blocks.iter_mut().take(next_end + 1).skip(next_start)) {
+                        block.block_type = BlockType::ListItem {
                             ordered: true,
                             number: Some(n),
                             checkbox: None,
                         };
-                        n += 1;
                     }
                 }
                 self.trigger_paragraph_change();
@@ -2552,8 +2549,7 @@ impl StructuredEditor {
             let blocks = self.document.blocks();
             let mut result = String::new();
 
-            for block_idx in start.block_index..=end.block_index.min(blocks.len() - 1) {
-                let block = &blocks[block_idx];
+            for (block_idx, block) in blocks.iter().enumerate().take(end.block_index.min(blocks.len() - 1) + 1).skip(start.block_index) {
                 let text = block.to_plain_text();
 
                 if block_idx == start.block_index {
@@ -2646,11 +2642,6 @@ impl StructuredEditor {
         (content.len(), 0)
     }
 
-    /// Find the content element and offset within it for a given block offset
-    fn find_content_at_offset(&self, content: &[InlineContent], offset: usize) -> (usize, usize) {
-        Self::find_content_at_offset_static(content, offset)
-    }
-
     /// Split content at a given offset (static version)
     fn split_content_at_static(
         content: &[InlineContent],
@@ -2680,15 +2671,6 @@ impl StructuredEditor {
         }
 
         (left, right)
-    }
-
-    /// Split content at a given offset
-    fn split_content_at(
-        &self,
-        content: &[InlineContent],
-        offset: usize,
-    ) -> (Vec<InlineContent>, Vec<InlineContent>) {
-        Self::split_content_at_static(content, offset)
     }
 
     /// Recursively apply a style-mapping function to all text runs in a vector of inline content

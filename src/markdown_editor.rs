@@ -9,6 +9,7 @@ const DEFAULT_FONT_SIZE: i32 = 14;
 const STYLE_PLAIN: char = 'A';
 const STYLE_BOLD: char = 'B';
 const STYLE_ITALIC: char = 'C';
+#[allow(dead_code)]
 const STYLE_BOLD_ITALIC: char = 'D';
 const STYLE_CODE: char = 'E';
 const STYLE_LINK: char = 'F';
@@ -16,6 +17,7 @@ const STYLE_HEADER1: char = 'G';
 const STYLE_HEADER2: char = 'H';
 const STYLE_HEADER3: char = 'I';
 const STYLE_QUOTE: char = 'J';
+#[allow(dead_code)]
 const STYLE_DIMMED: char = 'K';
 
 pub struct MarkdownEditor {
@@ -163,6 +165,7 @@ impl MarkdownEditor {
         self.update_links();
     }
 
+    #[allow(dead_code)]
     pub fn has_selection(&self) -> bool {
         !self.buffer.selection_text().is_empty()
     }
@@ -187,8 +190,8 @@ impl MarkdownEditor {
     }
 
     pub fn paste_from_clipboard(&mut self) {
-        let mut editor_clone = self.editor.clone();
-        app::paste(&mut editor_clone);
+        let editor_clone = self.editor.clone();
+        app::paste(&editor_clone);
     }
 
     /// Set read-only mode for the editor
@@ -230,8 +233,8 @@ impl MarkdownEditor {
 
         // Apply link styling
         for link in &self.links {
-            for i in link.start..link.end.min(len) {
-                styles[i] = STYLE_LINK as u8;
+            for style in styles.iter_mut().take(link.end.min(len)).skip(link.start) {
+                *style = STYLE_LINK as u8;
             }
         }
 
@@ -246,34 +249,34 @@ impl MarkdownEditor {
 
         // Headers
         if line.starts_with("# ") {
-            for i in line_start..line_end {
-                styles[i] = STYLE_HEADER1 as u8;
+            for style in styles.iter_mut().take(line_end).skip(line_start) {
+                *style = STYLE_HEADER1 as u8;
             }
             return;
         } else if line.starts_with("## ") {
-            for i in line_start..line_end {
-                styles[i] = STYLE_HEADER2 as u8;
+            for style in styles.iter_mut().take(line_end).skip(line_start) {
+                *style = STYLE_HEADER2 as u8;
             }
             return;
         } else if line.starts_with("### ") {
-            for i in line_start..line_end {
-                styles[i] = STYLE_HEADER3 as u8;
+            for style in styles.iter_mut().take(line_end).skip(line_start) {
+                *style = STYLE_HEADER3 as u8;
             }
             return;
         }
 
         // Blockquotes
         if line.starts_with("> ") {
-            for i in line_start..line_end {
-                styles[i] = STYLE_QUOTE as u8;
+            for style in styles.iter_mut().take(line_end).skip(line_start) {
+                *style = STYLE_QUOTE as u8;
             }
             return;
         }
 
         // Code blocks (indented with 4 spaces or tab)
         if line.starts_with("    ") || line.starts_with("\t") {
-            for i in line_start..line_end {
-                styles[i] = STYLE_CODE as u8;
+            for style in styles.iter_mut().take(line_end).skip(line_start) {
+                *style = STYLE_CODE as u8;
             }
             return;
         }

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use regex::Regex;
 

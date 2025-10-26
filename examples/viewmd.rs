@@ -412,11 +412,9 @@ fn main() {
                         _ => None,
                     },
                     BlockType::ListItem {
-                        ordered, checkbox, ..
+                        ordered, ..
                     } => Some(if ordered {
                         "Paragraph Style/Numbered List\t"
-                    } else if checkbox.is_some() {
-                        "Paragraph Style/List Item\t"
                     } else {
                         "Paragraph Style/List Item\t"
                     }),

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::document::DocumentStore;
 use std::collections::HashMap;
 

@@ -341,7 +341,7 @@ fn ast_node_to_blocks(node: &ASTNode, doc: &mut StructuredDocument) {
 }
 
 /// Convert an AST node to a Block
-fn ast_node_to_block(node: &ASTNode, doc: &mut StructuredDocument) -> Option<Block> {
+fn ast_node_to_block(node: &ASTNode, _doc: &mut StructuredDocument) -> Option<Block> {
     let id = 0; // Will be assigned by document
 
     match &node.node_type {

@@ -26,6 +26,7 @@ struct ResponsiveScrollbarState {
 }
 
 /// Responsive scrollbar wrapper
+#[derive(Clone)]
 pub struct ResponsiveScrollbar {
     scrollbar: Scrollbar,
     state: Rc<RefCell<ResponsiveScrollbarState>>,
@@ -92,7 +93,7 @@ impl ResponsiveScrollbar {
 
                             // Calculate slider position
                             let pos_frac = if range > 0.0 {
-                                ((val - min) / range).max(0.0).min(1.0)
+                                ((val - min) / range).clamp(0.0, 1.0)
                             } else {
                                 0.0
                             };
@@ -139,7 +140,7 @@ impl ResponsiveScrollbar {
 
                             // Calculate slider position
                             let pos_frac = if range > 0.0 {
-                                ((val - min) / range).max(0.0).min(1.0)
+                                ((val - min) / range).clamp(0.0, 1.0)
                             } else {
                                 0.0
                             };
@@ -294,14 +295,6 @@ impl ResponsiveScrollbar {
     /// Get the slider size
     pub fn slider_size(&self) -> f32 {
         self.scrollbar.slider_size()
-    }
-
-    /// Clone the scrollbar
-    pub fn clone(&self) -> Self {
-        Self {
-            scrollbar: self.scrollbar.clone(),
-            state: self.state.clone(),
-        }
     }
 
     /// Set a callback for when the scrollbar value changes

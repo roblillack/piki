@@ -11,7 +11,7 @@ use crate::theme::{FontSettings, Theme};
 
 /// Layout information for a rendered line
 #[derive(Debug, Clone)]
-struct LayoutLine {
+pub struct LayoutLine {
     /// Y position of the line's baseline
     y: i32,
     /// Height of the line
@@ -29,12 +29,7 @@ struct LayoutLine {
     runs: Vec<VisualRun>,
 }
 
-impl LayoutLine {
-    /// Check if the line has no text runs
-    fn is_empty(&self) -> bool {
-        self.runs.is_empty()
-    }
-}
+impl LayoutLine {}
 
 struct InlineContentLayout {
     lines: Vec<Vec<VisualRun>>,
@@ -431,7 +426,7 @@ impl StructuredRichDisplay {
             return;
         }
 
-        let cursor = self.editor.cursor();
+        let _cursor = self.editor.cursor();
         let cur_idx = match self.current_line_index_for_cursor() {
             Some(i) => i,
             None => {
@@ -470,7 +465,7 @@ impl StructuredRichDisplay {
             return;
         }
 
-        let cursor = self.editor.cursor();
+        let _cursor = self.editor.cursor();
         let cur_idx = match self.current_line_index_for_cursor() {
             Some(i) => i,
             None => {
@@ -1058,6 +1053,7 @@ impl StructuredRichDisplay {
     }
 
     /// Layout an inline block (paragraph, heading, etc.)
+    #[allow(clippy::too_many_arguments)]
     fn layout_inline_block(
         &mut self,
         block: &Block,
@@ -1185,6 +1181,7 @@ impl StructuredRichDisplay {
 
     /// Layout inline content with word wrapping
     /// Returns (lines of runs, final_y)
+    #[allow(clippy::too_many_arguments)]
     fn layout_inline_content(
         &mut self,
         content: &[InlineContent],

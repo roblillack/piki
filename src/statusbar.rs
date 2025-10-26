@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use fltk::{prelude::*, *};
 
 /// Helper function to create a brighter version of a color

@@ -54,13 +54,12 @@ impl DocumentStore {
     /// Returns relative paths from base_path (e.g., "project-a/standup")
     pub fn list_all_documents(&self) -> Result<Vec<String>, String> {
         let mut docs = Vec::new();
-        self.walk_directory(&self.base_path, "", &mut docs)?;
+        Self::walk_directory(&self.base_path, "", &mut docs)?;
         Ok(docs)
     }
 
     /// Helper function to recursively walk directories
     fn walk_directory(
-        &self,
         dir: &PathBuf,
         prefix: &str,
         docs: &mut Vec<String>,
@@ -68,29 +67,27 @@ impl DocumentStore {
         let entries = fs::read_dir(dir)
             .map_err(|e| format!("Failed to read directory '{}': {}", dir.display(), e))?;
 
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
+        for entry in entries.flatten() {
+            let path = entry.path();
 
-                if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md") {
-                    if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                        let full_name = if prefix.is_empty() {
-                            name.to_string()
-                        } else {
-                            format!("{}/{}", prefix, name)
-                        };
-                        docs.push(full_name);
-                    }
-                } else if path.is_dir() {
-                    // Recursively walk subdirectories
-                    if let Some(dir_name) = path.file_name().and_then(|s| s.to_str()) {
-                        let new_prefix = if prefix.is_empty() {
-                            dir_name.to_string()
-                        } else {
-                            format!("{}/{}", prefix, dir_name)
-                        };
-                        self.walk_directory(&path, &new_prefix, docs)?;
-                    }
+            if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md") {
+                if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                    let full_name = if prefix.is_empty() {
+                        name.to_string()
+                    } else {
+                        format!("{}/{}", prefix, name)
+                    };
+                    docs.push(full_name);
+                }
+            } else if path.is_dir() {
+                // Recursively walk subdirectories
+                if let Some(dir_name) = path.file_name().and_then(|s| s.to_str()) {
+                    let new_prefix = if prefix.is_empty() {
+                        dir_name.to_string()
+                    } else {
+                        format!("{}/{}", prefix, dir_name)
+                    };
+                    Self::walk_directory(&path, &new_prefix, docs)?;
                 }
             }
         }

@@ -488,9 +488,9 @@ impl FltkStructuredRichDisplay {
                                     }
                                 }),
                                 paste: Box::new({
-                                    let mut w_r = w_for_actions.clone();
+                                    let w_r = w_for_actions.clone();
                                     move || {
-                                        fltk::app::paste(&mut w_r);
+                                        fltk::app::paste(&w_r);
                                     }
                                 }),
                                 edit_link: Box::new({
@@ -908,7 +908,6 @@ impl FltkStructuredRichDisplay {
                                     let is_menu_key = key == Key::Menu;
                                     // Detect Shift+F10
                                     let shift_f10 = state.contains(Shortcut::Shift)
-                                        && (key == Key::F10 || key == Key::from_char('0'))
                                         && key == Key::F10;
                                     is_menu_key || shift_f10
                                 };
@@ -1150,9 +1149,9 @@ impl FltkStructuredRichDisplay {
                                             }
                                         }),
                                         paste: Box::new({
-                                            let mut w_r = w_for_actions.clone();
+                                            let w_r = w_for_actions.clone();
                                             move || {
-                                                fltk::app::paste(&mut w_r);
+                                                fltk::app::paste(&w_r);
                                             }
                                         }),
                                         edit_link: Box::new({
