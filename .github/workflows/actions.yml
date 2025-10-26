@@ -148,7 +148,7 @@ jobs:
           cp target/${{ matrix.platform.target }}/release/fliki-rs.exe artifacts/${{ matrix.platform.artifact_name }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.platform.artifact_name }}
           path: artifacts/${{ matrix.platform.artifact_name }}
