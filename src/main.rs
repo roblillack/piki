@@ -1,10 +1,10 @@
 mod autosave;
 mod document;
 pub mod draw_context;
-mod editor;
 pub mod fltk_draw_context;
 mod history;
 mod link_handler;
+mod markdown_editor;
 mod menu;
 mod page_picker;
 mod plugin;

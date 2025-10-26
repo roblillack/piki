@@ -1,4 +1,4 @@
-use crate::link_handler::{extract_links, find_link_at_position, Link};
+use crate::link_handler::{Link, extract_links};
 use fltk::text::PositionType;
 use fltk::{prelude::*, *};
 use std::any::Any;
@@ -142,14 +142,6 @@ impl MarkdownEditor {
         });
     }
 
-    pub fn widget(&self) -> text::TextEditor {
-        self.editor.clone()
-    }
-
-    pub fn widget_mut(&mut self) -> &mut text::TextEditor {
-        &mut self.editor
-    }
-
     pub fn set_content(&mut self, content: &str) {
         self.buffer.set_text(content);
         self.links = extract_links(content);
@@ -164,10 +156,6 @@ impl MarkdownEditor {
         let content = self.buffer.text();
         self.links = extract_links(&content);
         self.apply_styles();
-    }
-
-    pub fn find_link_at_position(&self, pos: usize) -> Option<String> {
-        find_link_at_position(&self.links, pos).map(|link| link.destination.clone())
     }
 
     /// Manually trigger a full re-style of the current content
@@ -302,42 +290,47 @@ impl MarkdownEditor {
         while i < chars.len() {
             // Code spans `code`
             if chars[i] == '`'
-                && let Some(end) = chars[i + 1..].iter().position(|&c| c == '`') {
-                    let end_idx = i + 1 + end;
-                    for j in i..=end_idx {
-                        if line_start + j < styles.len() {
-                            styles[line_start + j] = STYLE_CODE as u8;
-                        }
+                && let Some(end) = chars[i + 1..].iter().position(|&c| c == '`')
+            {
+                let end_idx = i + 1 + end;
+                for j in i..=end_idx {
+                    if line_start + j < styles.len() {
+                        styles[line_start + j] = STYLE_CODE as u8;
                     }
-                    i = end_idx + 1;
-                    continue;
                 }
+                i = end_idx + 1;
+                continue;
+            }
 
             // Bold **text**
-            if i + 1 < chars.len() && chars[i] == '*' && chars[i + 1] == '*'
-                && let Some(end) = find_delimiter(&chars[i + 2..], "**") {
-                    let end_idx = i + 2 + end;
-                    for j in i..=end_idx + 1 {
-                        if line_start + j < styles.len() {
-                            styles[line_start + j] = STYLE_BOLD as u8;
-                        }
+            if i + 1 < chars.len()
+                && chars[i] == '*'
+                && chars[i + 1] == '*'
+                && let Some(end) = find_delimiter(&chars[i + 2..], "**")
+            {
+                let end_idx = i + 2 + end;
+                for j in i..=end_idx + 1 {
+                    if line_start + j < styles.len() {
+                        styles[line_start + j] = STYLE_BOLD as u8;
                     }
-                    i = end_idx + 2;
-                    continue;
                 }
+                i = end_idx + 2;
+                continue;
+            }
 
             // Italic *text*
             if chars[i] == '*'
-                && let Some(end) = chars[i + 1..].iter().position(|&c| c == '*') {
-                    let end_idx = i + 1 + end;
-                    for j in i..=end_idx {
-                        if line_start + j < styles.len() {
-                            styles[line_start + j] = STYLE_ITALIC as u8;
-                        }
+                && let Some(end) = chars[i + 1..].iter().position(|&c| c == '*')
+            {
+                let end_idx = i + 1 + end;
+                for j in i..=end_idx {
+                    if line_start + j < styles.len() {
+                        styles[line_start + j] = STYLE_ITALIC as u8;
                     }
-                    i = end_idx + 1;
-                    continue;
                 }
+                i = end_idx + 1;
+                continue;
+            }
 
             i += 1;
         }
@@ -502,6 +495,6 @@ fn find_delimiter(chars: &[char], delim: &str) -> Option<usize> {
     let delim_chars: Vec<char> = delim.chars().collect();
     let delim_len = delim_chars.len();
 
-    (0..chars.len()).find(|&i| i + delim_len <= chars.len()
-            && chars[i..i + delim_len] == delim_chars[..])
+    (0..chars.len())
+        .find(|&i| i + delim_len <= chars.len() && chars[i..i + delim_len] == delim_chars[..])
 }

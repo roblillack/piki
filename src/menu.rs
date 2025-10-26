@@ -1,5 +1,5 @@
 use super::{
-    AppState, AutoSaveState, editor::MarkdownEditor, load_page_helper, navigate_back,
+    AppState, AutoSaveState, load_page_helper, markdown_editor::MarkdownEditor, navigate_back,
     navigate_forward, page_picker, statusbar::StatusBar, wire_editor_callbacks,
 };
 use fliki_rs::link_editor::{self, LinkEditOptions};
