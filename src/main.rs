@@ -38,9 +38,9 @@ const SAVE_STATUS_UPDATE_INTERVAL_SECS: f64 = 30.0;
 #[command(name = "piki-gui")]
 #[command(about = "Piki - a simple personal wiki", long_about = None)]
 struct Args {
-    /// Directory containing markdown files
-    #[arg(value_name = "DIR")]
-    directory: PathBuf,
+    /// Directory containing markdown files (default: ~/.piki)
+    #[arg(short = 'd', long = "directory", value_name = "DIRECTORY")]
+    directory: Option<PathBuf>,
 
     /// Initial page to load (default: frontpage)
     #[arg(short, long, default_value = "frontpage")]
@@ -260,20 +260,34 @@ fn navigate_forward(
     }
 }
 
+fn get_directory(dir_opt: Option<PathBuf>) -> PathBuf {
+    dir_opt.unwrap_or_else(|| {
+        std::env::var("HOME")
+            .ok()
+            .map(|home| PathBuf::from(home).join(".piki"))
+            .unwrap_or_else(|| PathBuf::from(".piki"))
+    })
+}
+
 fn main() {
     let args = Args::parse();
+    let directory = get_directory(args.directory);
 
-    // Validate directory
-    if !args.directory.exists() {
-        eprintln!(
-            "Error: Directory '{}' does not exist",
-            args.directory.display()
-        );
-        std::process::exit(1);
+    // Ensure directory exists
+    if !directory.exists() {
+        if let Err(e) = std::fs::create_dir_all(&directory) {
+            eprintln!(
+                "Error: Failed to create directory '{}': {}",
+                directory.display(),
+                e
+            );
+            std::process::exit(1);
+        }
     }
 
-    if !args.directory.is_dir() {
-        eprintln!("Error: '{}' is not a directory", args.directory.display());
+    // Validate directory
+    if !directory.is_dir() {
+        eprintln!("Error: '{}' is not a directory", directory.display());
         std::process::exit(1);
     }
 
@@ -303,7 +317,7 @@ fn main() {
     wind.begin();
 
     // Create state and register plugins
-    let store = DocumentStore::new(args.directory.clone());
+    let store = DocumentStore::new(directory.clone());
     let mut plugin_registry = PluginRegistry::new();
     plugin_registry.register("index", Box::new(IndexPlugin));
 

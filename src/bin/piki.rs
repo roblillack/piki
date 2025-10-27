@@ -13,6 +13,10 @@ use std::process::{Command, Stdio};
 #[command(name = "piki")]
 #[command(about = "A simple personal wiki", long_about = None)]
 struct Args {
+    /// Directory containing markdown files (default: ~/.piki)
+    #[arg(short = 'd', long = "directory", value_name = "DIRECTORY")]
+    directory: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 
@@ -76,11 +80,13 @@ impl Config {
     }
 }
 
-fn get_notes_dir() -> PathBuf {
-    env::var("HOME")
-        .ok()
-        .map(|home| PathBuf::from(home).join(".piki"))
-        .unwrap_or_else(|| PathBuf::from(".piki"))
+fn get_notes_dir(dir_opt: Option<PathBuf>) -> PathBuf {
+    dir_opt.unwrap_or_else(|| {
+        env::var("HOME")
+            .ok()
+            .map(|home| PathBuf::from(home).join(".piki"))
+            .unwrap_or_else(|| PathBuf::from(".piki"))
+    })
 }
 
 fn get_editor() -> String {
@@ -141,8 +147,12 @@ fn cmd_edit(name: Option<String>, notes_dir: &PathBuf) -> Result<(), String> {
     let doc = store.load(&note_name)?;
     let editor = get_editor();
 
+    // Get the relative path from the notes directory
+    let relative_path = doc.path.strip_prefix(notes_dir)
+        .unwrap_or(&doc.path);
+
     let status = Command::new(&editor)
-        .arg(&doc.path)
+        .arg(relative_path)
         .current_dir(notes_dir)
         .status()
         .map_err(|e| format!("Failed to open editor '{}': {}", editor, e))?;
@@ -237,9 +247,12 @@ fn cmd_run(command: Vec<String>, notes_dir: &PathBuf) -> Result<(), String> {
 fn print_help_with_aliases(config: &Config) {
     println!("piki - a simple personal wiki");
     println!();
-    println!("Usage: piki [COMMAND]");
+    println!("Usage: piki [-d DIRECTORY] [COMMAND]");
     println!();
     println!("If no command is given the note to edit can be selected interactively.");
+    println!();
+    println!("Options:");
+    println!("  -d, --directory DIRECTORY - Directory containing markdown files (default: ~/.piki)");
     println!();
     println!("Commands:");
     println!("  edit [name] - edit a note");
@@ -261,7 +274,22 @@ fn print_help_with_aliases(config: &Config) {
 }
 
 fn main() {
-    let notes_dir = get_notes_dir();
+    // Load config and check for aliases
+    let config = Config::load();
+    let raw_args: Vec<String> = env::args().collect();
+
+    // Check if user is asking for help
+    if raw_args.len() > 1 {
+        let first_arg = &raw_args[1];
+        if first_arg == "help" || first_arg == "--help" || first_arg == "-h" {
+            print_help_with_aliases(&config);
+            std::process::exit(0);
+        }
+    }
+
+    // Parse arguments to get the directory option and other args
+    let args = Args::parse();
+    let notes_dir = get_notes_dir(args.directory.clone());
 
     // Ensure notes directory exists
     if !notes_dir.exists() {
@@ -275,22 +303,28 @@ fn main() {
         }
     }
 
-    // Load config and check for aliases
-    let config = Config::load();
-    let args: Vec<String> = env::args().collect();
-
-    // Check if user is asking for help
-    if args.len() > 1 {
-        let first_arg = &args[1];
-        if first_arg == "help" || first_arg == "--help" || first_arg == "-h" {
-            print_help_with_aliases(&config);
-            std::process::exit(0);
+    // Check if first non-option argument is an alias
+    // Skip program name and any -d/--directory options
+    let mut first_positional = None;
+    let mut skip_next = false;
+    for arg in raw_args.iter().skip(1) {
+        if skip_next {
+            skip_next = false;
+            continue;
         }
+        if arg == "-d" || arg == "--directory" {
+            skip_next = true;
+            continue;
+        }
+        if arg.starts_with("-d=") || arg.starts_with("--directory=") || arg.starts_with("-") {
+            continue;
+        }
+        first_positional = Some(arg.as_str());
+        break;
     }
 
-    // Check if first argument (after program name) is an alias
-    if args.len() > 1 {
-        let potential_alias = &args[1];
+    // Check if first positional argument is an alias
+    if let Some(potential_alias) = first_positional {
         if let Some(alias_cmd) = config.aliases.get(potential_alias) {
             // Execute the alias as a shell command in the notes directory
             let status = Command::new("sh")
@@ -311,9 +345,6 @@ fn main() {
             }
         }
     }
-
-    // Parse arguments normally
-    let args = Args::parse();
 
     let result = match args.command {
         Some(Commands::Edit { name }) => cmd_edit(name, &notes_dir),
