@@ -3,6 +3,9 @@ name = "piki"
 version = "0.1.0"
 edition = "2024"
 default-run = "piki"
+description = "A simple personal wiki application"
+license = "MIT"
+repository = "https://github.com/roblillack/piki"
 
 [[bin]]
 name = "piki"
@@ -27,7 +30,7 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.9"
 unicode-segmentation = "1.10"
 chrono = "0.4.42"
-skim = "0.15"
+skim = "0.20.5"
 
 [dev-dependencies]
 insta = "1.34"
