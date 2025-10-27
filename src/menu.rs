@@ -2,10 +2,6 @@ use super::{
     AppState, AutoSaveState, load_page_helper, markdown_editor::MarkdownEditor, navigate_back,
     navigate_forward, page_picker, statusbar::StatusBar, wire_editor_callbacks,
 };
-use fliki_rs::link_editor::{self, LinkEditOptions};
-use fliki_rs::page_ui::PageUI;
-use fliki_rs::richtext::structured_document::{BlockType, InlineContent};
-use fliki_rs::ui_adapters::StructuredRichUI;
 use fltk::{
     app, button,
     enums::{self, Key, Shortcut},
@@ -13,6 +9,10 @@ use fltk::{
     prelude::*,
     window,
 };
+use piki::link_editor::{self, LinkEditOptions};
+use piki::page_ui::PageUI;
+use piki::richtext::structured_document::{BlockType, InlineContent};
+use piki::ui_adapters::StructuredRichUI;
 use std::cell::RefCell;
 use std::rc::Rc;
 

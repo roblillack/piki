@@ -2,11 +2,12 @@
 
 ## Overview
 
-The fliki-rs wiki now includes automatic save functionality that persists changes to disk approximately one second after you stop typing. The status bar provides real-time feedback about save status.
+The Piki GUI now includes automatic save functionality that persists changes to disk approximately one second after you stop typing. The status bar provides real-time feedback about save status.
 
 ## Features
 
 ### Debounced Auto-Save
+
 - **Trigger**: Changes to page content
 - **Delay**: 1 second after last keystroke
 - **Behavior**: Only saves if content has actually changed
@@ -17,13 +18,16 @@ The fliki-rs wiki now includes automatic save functionality that persists change
 The status bar is now split into two sections:
 
 #### Left Section (Page Status)
+
 - Shows current page name: `Page: frontpage`
 - Indicates plugin pages: `Page: !index (plugin: index)`
 - Marks new pages: `Page: newpage (new)`
 - Displays errors: `Error: ...`
 
 #### Right Section (Save Status)
+
 Shows one of the following:
+
 - `Saving...` - While save operation is in progress
 - `saved just now` - Less than 1 minute ago
 - `saved 3 min ago` - 1-59 minutes ago
@@ -44,7 +48,9 @@ The "X ago" display updates automatically every second, so you can see how long 
 ### Architecture
 
 #### AutoSaveState (`src/autosave.rs`)
+
 Tracks the state of auto-save functionality:
+
 - `last_change_time` - When content was last modified
 - `last_save_time` - When last successfully saved to disk
 - `is_saving` - Whether save is currently in progress
@@ -55,6 +61,7 @@ Tracks the state of auto-save functionality:
 #### Key Components
 
 **Debounce Timer**
+
 ```rust
 app::add_timeout3(1.0, move |_| {
     // Check if save is still pending
@@ -63,6 +70,7 @@ app::add_timeout3(1.0, move |_| {
 ```
 
 **Periodic Status Update**
+
 ```rust
 app::add_timeout3(1.0, move |handle| {
     // Update "X ago" display
@@ -71,6 +79,7 @@ app::add_timeout3(1.0, move |handle| {
 ```
 
 **Save Function**
+
 1. Checks if page is plugin (skip if so)
 2. Checks if content changed from original
 3. Sets status to "Saving..."
@@ -92,6 +101,7 @@ app::add_timeout3(1.0, move |handle| {
 ### Page Navigation
 
 When loading a new page:
+
 1. Auto-save state resets for the new page
 2. `original_content` set to loaded content
 3. Save timers cleared
@@ -110,16 +120,19 @@ When loading a new page:
 Simply start editing - your changes will be saved automatically!
 
 **Visual Feedback:**
+
 - Watch the save status (right side of status bar)
 - "Saving..." appears briefly
 - Then shows "saved just now" and counts up
 
 **Switching Pages:**
+
 - Click links to navigate
 - Auto-save triggers before switching (if pending)
 - Each page has independent save tracking
 
 **Plugin Pages:**
+
 - Plugin pages like `!index` don't auto-save
 - They're marked as read-only
 - Status bar shows "(plugin: name)"
@@ -131,34 +144,40 @@ cargo run test-wiki
 ```
 
 1. **Test file modification time display:**
+
    - Open frontpage
    - Look at save status (right side of status bar)
    - Should show when the file was last modified (e.g., "saved 2 min ago" or "saved 3 hours ago")
    - This indicates the file's modification time on disk
 
 2. **Test basic auto-save:**
+
    - Open frontpage
    - Type some text
    - Wait 1 second
    - Watch status change: "saved X ago" → "Saving..." → "saved just now"
 
 3. **Test debounce:**
+
    - Type continuously for 5 seconds
    - Stop typing
    - Should only save once, 1 second after you stop
 
 4. **Test time updates:**
+
    - Make a change and wait for save
    - Watch "saved just now" become "saved 1 min ago"
    - Status updates every second
 
 5. **Test page switching:**
+
    - Edit frontpage
    - Click to [[existing]]
    - Status should show modification time of existing file
    - Status resets for new page
 
 6. **Test new files:**
+
    - Click link to non-existent page (e.g., [[test]])
    - Type content
    - File should be created on save
@@ -175,6 +194,7 @@ cargo run test-wiki
 Currently, the auto-save delay is hardcoded to 1 second. To change:
 
 **In `src/main.rs`, line ~262:**
+
 ```rust
 app::add_timeout3(1.0, move |_| {  // Change 1.0 to desired seconds
     // ...
@@ -182,6 +202,7 @@ app::add_timeout3(1.0, move |_| {  // Change 1.0 to desired seconds
 ```
 
 **Status update frequency (line ~379):**
+
 ```rust
 app::repeat_timeout3(1.0, handle);  // Updates every 1 second
 ```
@@ -215,6 +236,7 @@ cargo test
 ```
 
 Tests include:
+
 - Time formatting (just now, X min ago, etc.)
 - AutoSaveState creation and reset
 - Plugin page detection
@@ -223,6 +245,7 @@ Tests include:
 ### Integration Tests
 
 Manual testing recommended:
+
 - Type continuously and verify debounce
 - Test across multiple pages
 - Verify file creation and updates
@@ -231,21 +254,25 @@ Manual testing recommended:
 ## Troubleshooting
 
 **Save status doesn't update:**
+
 - Check console for errors
 - Verify file permissions
 - Ensure directory exists
 
 **Files not being created:**
+
 - Check parent directory permissions
 - Verify path construction
 - Look for errors in save status
 
 **"Saving..." stuck:**
+
 - Check if disk is full
 - Verify no file locks
 - Check console for errors
 
 **Time display wrong:**
+
 - System clock issue
 - Restart application
 - Check SystemTime implementation

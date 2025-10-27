@@ -1,10 +1,10 @@
-# fliki-rs
+# Piki GUI
 
-A Rust reimplementation of fliki - a lightweight Markdown wiki browser with clickable links and **syntax highlighting**.
+A Rust reimplementation of fliki - a lightweight, FLTK-base GUI for the Piki personal wiki system.
 
 ## Features
 
-### Live Syntax Highlighting
+### Rich-Text Editing
 
 - Headers (H1, H2, H3) in different sizes
 - **Bold** and _italic_ text
@@ -52,11 +52,11 @@ A Rust reimplementation of fliki - a lightweight Markdown wiki browser with clic
 ## Building
 
 ```bash
-cd fliki-rs
+cd piki-gui
 cargo build --release
 ```
 
-The binary will be at `target/release/fliki-rs`
+The binary will be at `target/release/piki-gui`
 
 ## Usage
 
@@ -68,7 +68,7 @@ cargo run --release -- example-wiki
 cargo run --release -- example-wiki --page features
 
 # After building
-./target/release/fliki-rs /path/to/your/wiki
+./target/release/piki-gui /path/to/your/wiki
 ```
 
 ## Directory Structure

@@ -2,7 +2,7 @@
 
 ## Getting Started
 
-1. Launch fliki-rs with a directory: `fliki-rs /path/to/wiki`
+1. Launch piki-gui with a directory: `piki-gui /path/to/wiki`
 2. Click on any `[[link]]` to navigate
 3. Edit text directly in the editor
 

@@ -2,9 +2,9 @@
 
 pub mod svg_draw_context;
 
-use fliki_rs::richtext::markdown_converter::markdown_to_document;
-use fliki_rs::richtext::structured_document::DocumentPosition;
-use fliki_rs::richtext::structured_rich_display::StructuredRichDisplay;
+use piki::richtext::markdown_converter::markdown_to_document;
+use piki::richtext::structured_document::DocumentPosition;
+use piki::richtext::structured_rich_display::StructuredRichDisplay;
 
 use crate::svg_draw_context::SvgDrawContext;
 

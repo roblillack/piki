@@ -15,10 +15,10 @@ mod window_state;
 use autosave::AutoSaveState;
 use clap::Parser;
 use document::DocumentStore;
-use fliki_rs::page_ui::PageUI;
-use fliki_rs::ui_adapters::StructuredRichUI;
 use fltk::{prelude::*, *};
 use history::History;
+use piki::page_ui::PageUI;
+use piki::ui_adapters::StructuredRichUI;
 use plugin::{IndexPlugin, PluginRegistry};
 use statusbar::StatusBar;
 use std::cell::RefCell;
@@ -35,8 +35,8 @@ const AUTOSAVE_INTERVAL_SECS: f64 = 10.0;
 const SAVE_STATUS_UPDATE_INTERVAL_SECS: f64 = 30.0;
 
 #[derive(Parser, Debug)]
-#[command(name = "fliki-rs")]
-#[command(about = "A Markdown wiki browser with clickable links", long_about = None)]
+#[command(name = "piki-gui")]
+#[command(about = "Piki - a simple personal wiki", long_about = None)]
 struct Args {
     /// Directory containing markdown files
     #[arg(value_name = "DIR")]

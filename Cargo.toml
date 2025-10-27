@@ -1,11 +1,14 @@
 [package]
-name = "fliki-rs"
+name = "piki"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "piki-gui"
+path = "src/main.rs"
 
 [lib]
-name = "fliki_rs"
+name = "piki"
 path = "src/lib.rs"
 
 [dependencies]

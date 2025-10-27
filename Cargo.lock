@@ -257,24 +257,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52051878f80a721bb68ebfbc930e07b65ba72f2da88968ea5c06fd6ca3d3a127"
 
 [[package]]
-name = "fliki-rs"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "clap",
- "directories",
- "fltk",
- "insta",
- "pulldown-cmark",
- "regex",
- "rusttype",
- "serde",
- "toml",
- "unicode-segmentation",
- "walkdir",
-]
-
-[[package]]
 name = "fltk"
 version = "1.5.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -462,6 +444,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05e6affeb1632d6ff6a23d2cd40ffed138e82f1532571a26f527c8a284bb2fbb"
 dependencies = [
  "ttf-parser 0.15.2",
+]
+
+[[package]]
+name = "piki"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "directories",
+ "fltk",
+ "insta",
+ "pulldown-cmark",
+ "regex",
+ "rusttype",
+ "serde",
+ "toml",
+ "unicode-segmentation",
+ "walkdir",
 ]
 
 [[package]]

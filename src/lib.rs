@@ -1,5 +1,4 @@
-// Library exports for fliki-rs
-
+// Library exports for piki
 pub mod content;
 pub mod context_menu;
 pub mod draw_context;

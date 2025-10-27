@@ -139,7 +139,7 @@ mod tests {
         use std::env;
         use std::fs;
 
-        let temp_dir = env::temp_dir().join("fliki-test-plugin-empty");
+        let temp_dir = env::temp_dir().join("piki-test-plugin-empty");
         let _ = fs::remove_dir_all(&temp_dir);
         fs::create_dir_all(&temp_dir).unwrap();
 

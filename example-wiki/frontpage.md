@@ -8,9 +8,9 @@
 
 - This is a link to an [[example-page]].
 
-## What is fliki-rs?
+## What is piki-gui?
 
-fliki-rs is a **lightweight** wiki browser for markdown files. Click on any link above to navigate between pages!
+piki-gui is a **lightweight** wiki browser for markdown files. Click on any link above to navigate between pages!
 
 You can use either:
 
@@ -26,7 +26,7 @@ Try clicking on links, editing text, and using:
 
 - **Bold text** with `**bold**`
 
-- *Italic text* with `*italic*`
+- _Italic text_ with `*italic*`
 
 - `Inline code` with backticks
 

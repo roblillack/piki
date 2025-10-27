@@ -120,7 +120,7 @@ mod tests {
 
     #[test]
     fn test_load_non_existent_file() {
-        let temp_dir = env::temp_dir().join("fliki-test-load");
+        let temp_dir = env::temp_dir().join("piki-test-load");
         let _ = fs::remove_dir_all(&temp_dir);
         fs::create_dir_all(&temp_dir).unwrap();
 
@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn test_load_nested_path() {
-        let temp_dir = env::temp_dir().join("fliki-test-nested");
+        let temp_dir = env::temp_dir().join("piki-test-nested");
         let _ = fs::remove_dir_all(&temp_dir);
         fs::create_dir_all(&temp_dir).unwrap();
 
@@ -154,7 +154,7 @@ mod tests {
 
     #[test]
     fn test_save_creates_parent_directories() {
-        let temp_dir = env::temp_dir().join("fliki-test-save");
+        let temp_dir = env::temp_dir().join("piki-test-save");
         let _ = fs::remove_dir_all(&temp_dir);
         fs::create_dir_all(&temp_dir).unwrap();
 
@@ -174,7 +174,7 @@ mod tests {
 
     #[test]
     fn test_list_all_documents_recursive() {
-        let temp_dir = env::temp_dir().join("fliki-test-list-all");
+        let temp_dir = env::temp_dir().join("piki-test-list-all");
         let _ = fs::remove_dir_all(&temp_dir);
         fs::create_dir_all(&temp_dir).unwrap();
 

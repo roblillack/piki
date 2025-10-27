@@ -82,7 +82,7 @@ jobs:
             arch: x86_64
             target: x86_64-unknown-linux-gnu
             deps: sudo apt install -y libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev libwayland-dev libxkbcommon-dev libdbus-1-dev
-            artifact_name: fliki-rs-linux-x86_64
+            artifact_name: piki-gui-linux-x86_64
 
           # Linux ARM64
           - name: Linux
@@ -90,7 +90,7 @@ jobs:
             arch: aarch64
             target: aarch64-unknown-linux-gnu
             deps: sudo apt install -y libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev libwayland-dev libxkbcommon-dev libdbus-1-dev
-            artifact_name: fliki-rs-linux-aarch64
+            artifact_name: piki-gui-linux-aarch64
 
           # macOS x64 (Intel)
           - name: macOS
@@ -98,7 +98,7 @@ jobs:
             arch: x86_64
             target: x86_64-apple-darwin
             deps: echo "No additional dependencies needed for macOS"
-            artifact_name: fliki-rs-macos-x86_64
+            artifact_name: piki-gui-macos-x86_64
 
           # macOS ARM64 (Apple Silicon)
           - name: macOS
@@ -106,7 +106,7 @@ jobs:
             arch: aarch64
             target: aarch64-apple-darwin
             deps: echo "No additional dependencies needed for macOS"
-            artifact_name: fliki-rs-macos-aarch64
+            artifact_name: piki-gui-macos-aarch64
 
           # Windows x64
           - name: Windows
@@ -114,7 +114,7 @@ jobs:
             arch: x86_64
             target: x86_64-pc-windows-msvc
             deps: echo "No additional dependencies needed for Windows"
-            artifact_name: fliki-rs-windows-x86_64.exe
+            artifact_name: piki-gui-windows-x86_64.exe
 
           # Windows ARM64
           - name: Windows
@@ -122,7 +122,7 @@ jobs:
             arch: aarch64
             target: aarch64-pc-windows-msvc
             deps: echo "No additional dependencies needed for Windows"
-            artifact_name: fliki-rs-windows-aarch64.exe
+            artifact_name: piki-gui-windows-aarch64.exe
 
     steps:
       - name: Checkout code
@@ -163,13 +163,13 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           mkdir -p artifacts
-          cp target/${{ matrix.platform.target }}/release/fliki-rs artifacts/${{ matrix.platform.artifact_name }}
+          cp target/${{ matrix.platform.target }}/release/piki-gui artifacts/${{ matrix.platform.artifact_name }}
 
       - name: Prepare artifact (Windows)
         if: runner.os == 'Windows'
         run: |
           mkdir artifacts
-          cp target/${{ matrix.platform.target }}/release/fliki-rs.exe artifacts/${{ matrix.platform.artifact_name }}
+          cp target/${{ matrix.platform.target }}/release/piki-gui.exe artifacts/${{ matrix.platform.artifact_name }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

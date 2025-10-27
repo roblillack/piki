@@ -2,7 +2,7 @@
 
 ## Syntax Highlighting
 
-fliki-rs includes **full syntax highlighting** for Markdown!
+Piki includes **full syntax highlighting** for Markdown!
 
 ### Headers
 
@@ -16,11 +16,11 @@ fliki-rs includes **full syntax highlighting** for Markdown!
 
 - **Bold text** using `**bold**`
 
-- *Italic text* using `*italic*`
+- _Italic text_ using `*italic*`
 
 - `Code spans` using backticks
 
-- Combine **bold and *****italic***** together**
+- Combine **bold and \*\*\***italic**\*** together\*\*
 
 ### Code Blocks
 

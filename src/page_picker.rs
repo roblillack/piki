@@ -1,8 +1,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use fliki_rs::page_ui::PageUI;
 use fltk::{self, prelude::*, window};
+use piki::page_ui::PageUI;
 
 use crate::autosave::AutoSaveState;
 

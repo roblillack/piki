@@ -342,19 +342,19 @@ impl MarkdownEditor {
 
 // Implement the shared content trait so this editor can work
 // with autosave and other generic content consumers.
-impl fliki_rs::content::ContentProvider for MarkdownEditor {
+impl piki::content::ContentProvider for MarkdownEditor {
     fn get_content(&self) -> String {
         self.get_content()
     }
 }
 
-impl fliki_rs::content::ContentLoader for MarkdownEditor {
+impl piki::content::ContentLoader for MarkdownEditor {
     fn set_content_from_markdown(&mut self, markdown: &str) {
         self.set_content(markdown);
     }
 }
 
-impl fliki_rs::page_ui::PageUI for MarkdownEditor {
+impl piki::page_ui::PageUI for MarkdownEditor {
     fn on_change(&mut self, mut f: Box<dyn FnMut() + 'static>) {
         let mut w = self.editor.clone();
         w.set_trigger(enums::CallbackTrigger::Changed);

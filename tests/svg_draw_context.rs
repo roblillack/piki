@@ -1,7 +1,7 @@
 // SVG-based DrawContext implementation for testing and visualization
 // Generates SVG output from text display rendering with accurate font metrics
 
-use fliki_rs::draw_context::{DrawContext, FontStyle, FontType};
+use piki::draw_context::{DrawContext, FontStyle, FontType};
 use rusttype::{Font, Scale, point};
 use std::collections::HashMap;
 use std::fmt::Write;

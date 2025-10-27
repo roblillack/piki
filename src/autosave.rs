@@ -1,6 +1,6 @@
 use crate::document::DocumentStore;
 use chrono::{DateTime, Local};
-use fliki_rs::content::ContentProvider;
+use piki::content::ContentProvider;
 use std::time::SystemTime;
 
 /// State management for auto-save functionality
