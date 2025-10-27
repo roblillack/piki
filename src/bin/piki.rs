@@ -231,6 +231,32 @@ fn cmd_run(command: Vec<String>, notes_dir: &PathBuf) -> Result<(), String> {
     Ok(())
 }
 
+fn print_help_with_aliases(config: &Config) {
+    println!("piki - a simple personal wiki");
+    println!();
+    println!("Usage: piki [COMMAND]");
+    println!();
+    println!("If no command is given the note to edit can be selected interactively.");
+    println!();
+    println!("Commands:");
+    println!("  edit [name] - edit a note");
+    println!("  help        - show this help");
+    println!("  log         - show the commit log");
+    println!("  ls          - list notes");
+    println!("  run [cmd]   - run a shell command inside the notes directory");
+    println!("  view [name] - view a note");
+
+    if !config.aliases.is_empty() {
+        println!();
+        println!("Aliases:");
+        let mut aliases: Vec<_> = config.aliases.iter().collect();
+        aliases.sort_by_key(|(k, _)| *k);
+        for (alias, command) in aliases {
+            println!("  {} => {}", alias, command);
+        }
+    }
+}
+
 fn main() {
     let notes_dir = get_notes_dir();
 
@@ -249,6 +275,15 @@ fn main() {
     // Load config and check for aliases
     let config = Config::load();
     let args: Vec<String> = env::args().collect();
+
+    // Check if user is asking for help
+    if args.len() > 1 {
+        let first_arg = &args[1];
+        if first_arg == "help" || first_arg == "--help" || first_arg == "-h" {
+            print_help_with_aliases(&config);
+            std::process::exit(0);
+        }
+    }
 
     // Check if first argument (after program name) is an alias
     if args.len() > 1 {
