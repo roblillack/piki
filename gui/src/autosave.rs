@@ -1,5 +1,5 @@
 use chrono::{DateTime, Local};
-use piki_core::document::DocumentStore;
+use piki_core::DocumentStore;
 use piki_gui::content::ContentProvider;
 use std::time::SystemTime;
 

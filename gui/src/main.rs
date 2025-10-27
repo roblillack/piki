@@ -14,8 +14,7 @@ use autosave::AutoSaveState;
 use clap::Parser;
 use fltk::{prelude::*, *};
 use history::History;
-use piki_core::document::DocumentStore;
-use piki_core::plugin::{IndexPlugin, PluginRegistry};
+use piki_core::{DocumentStore, IndexPlugin, PluginRegistry};
 use piki_gui::page_ui::PageUI;
 use piki_gui::ui_adapters::StructuredRichUI;
 use statusbar::StatusBar;
@@ -273,14 +272,15 @@ fn main() {
 
     // Ensure directory exists
     if !directory.exists()
-        && let Err(e) = std::fs::create_dir_all(&directory) {
-            eprintln!(
-                "Error: Failed to create directory '{}': {}",
-                directory.display(),
-                e
-            );
-            std::process::exit(1);
-        }
+        && let Err(e) = std::fs::create_dir_all(&directory)
+    {
+        eprintln!(
+            "Error: Failed to create directory '{}': {}",
+            directory.display(),
+            e
+        );
+        std::process::exit(1);
+    }
 
     // Validate directory
     if !directory.is_dir() {

@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use piki_core::document::DocumentStore;
+use piki_core::DocumentStore;
 use serde::Deserialize;
 use skim::prelude::*;
 use std::collections::HashMap;
