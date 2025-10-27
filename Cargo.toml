@@ -2,6 +2,11 @@
 name = "piki"
 version = "0.1.0"
 edition = "2024"
+default-run = "piki"
+
+[[bin]]
+name = "piki"
+path = "src/bin/piki.rs"
 
 [[bin]]
 name = "piki-gui"
