@@ -1,10 +1,11 @@
 use clap::{Parser, Subcommand};
 use piki::document::DocumentStore;
 use serde::Deserialize;
+use skim::prelude::*;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::io::{self, Write};
+use std::io::Cursor;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
@@ -89,37 +90,39 @@ fn get_editor() -> String {
 }
 
 fn interactive_select(store: &DocumentStore) -> Result<Option<String>, String> {
-    let docs = store.list_all_documents()?;
+    let mut docs = store.list_all_documents()?;
 
     if docs.is_empty() {
         return Ok(None);
     }
 
-    // For now, use a simple numbered list selection
-    // TODO: Replace with a proper fuzzy matcher like skim
-    println!("Select a note:");
-    for (i, doc) in docs.iter().enumerate() {
-        println!("  {}: {}", i + 1, doc);
-    }
+    // Sort alphabetically
+    docs.sort();
 
-    print!("\nEnter number (or 'q' to quit): ");
-    io::stdout().flush().unwrap();
+    // Use skim for fuzzy finding
+    let options = SkimOptionsBuilder::default()
+        .height("50%".to_string())
+        .multi(false)
+        .build()
+        .map_err(|e| format!("Failed to build skim options: {}", e))?;
 
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).unwrap();
-    let input = input.trim();
+    // Convert docs to a single string with newlines
+    let input = docs.join("\n");
+    let item_reader = SkimItemReader::default();
+    let items = item_reader.of_bufread(Cursor::new(input));
 
-    if input == "q" || input.is_empty() {
-        return Ok(None);
-    }
+    // Run skim
+    let selected = Skim::run_with(&options, Some(items))
+        .map(|out| {
+            if out.is_abort {
+                None
+            } else {
+                out.selected_items.first().map(|item| item.output().to_string())
+            }
+        })
+        .unwrap_or(None);
 
-    if let Ok(num) = input.parse::<usize>() {
-        if num > 0 && num <= docs.len() {
-            return Ok(Some(docs[num - 1].clone()));
-        }
-    }
-
-    Err("Invalid selection".to_string())
+    Ok(selected)
 }
 
 fn cmd_edit(name: Option<String>, notes_dir: &PathBuf) -> Result<(), String> {
