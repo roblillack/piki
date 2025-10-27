@@ -1,11 +1,10 @@
 use clap::{Parser, Subcommand};
+use fuzzypicker::FuzzyPicker;
 use piki_core::DocumentStore;
 use serde::Deserialize;
-use skim::prelude::*;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::io::Cursor;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -104,32 +103,40 @@ fn interactive_select(store: &DocumentStore) -> Result<Option<String>, String> {
     // Sort alphabetically
     docs.sort();
 
+    let mut picker = FuzzyPicker::new(&docs);
+    return match picker.pick() {
+        Ok(res) => Ok(res),
+        Err(e) => Err(format!("Failed to run fuzzy picker: {}", e)),
+    };
+
+    // DANG, Skim doesn't support Windows ... leaving this here for now
+
     // Use skim for fuzzy finding
-    let options = SkimOptionsBuilder::default()
-        .height("50%".to_string())
-        .multi(false)
-        .build()
-        .map_err(|e| format!("Failed to build skim options: {}", e))?;
+    // let options = SkimOptionsBuilder::default()
+    //     .height("50%".to_string())
+    //     .multi(false)
+    //     .build()
+    //     .map_err(|e| format!("Failed to build skim options: {}", e))?;
 
     // Convert docs to a single string with newlines
-    let input = docs.join("\n");
-    let item_reader = SkimItemReader::default();
-    let items = item_reader.of_bufread(Cursor::new(input));
+    // let input = docs.join("\n");
+    // let item_reader = SkimItemReader::default();
+    // let items = item_reader.of_bufread(Cursor::new(input));
 
-    // Run skim
-    let selected = Skim::run_with(&options, Some(items))
-        .map(|out| {
-            if out.is_abort {
-                None
-            } else {
-                out.selected_items
-                    .first()
-                    .map(|item| item.output().to_string())
-            }
-        })
-        .unwrap_or(None);
+    // // Run skim
+    // let selected = Skim::run_with(&options, Some(items))
+    //     .map(|out| {
+    //         if out.is_abort {
+    //             None
+    //         } else {
+    //             out.selected_items
+    //                 .first()
+    //                 .map(|item| item.output().to_string())
+    //         }
+    //     })
+    //     .unwrap_or(None);
 
-    Ok(selected)
+    // Ok(selected)
 }
 
 fn cmd_edit(name: Option<String>, notes_dir: &PathBuf) -> Result<(), String> {
