@@ -9,10 +9,10 @@ use fltk::{
     prelude::*,
     window,
 };
-use piki::link_editor::{self, LinkEditOptions};
-use piki::page_ui::PageUI;
-use piki::richtext::structured_document::{BlockType, InlineContent};
-use piki::ui_adapters::StructuredRichUI;
+use piki_gui::link_editor::{self, LinkEditOptions};
+use piki_gui::page_ui::PageUI;
+use piki_gui::richtext::structured_document::{BlockType, InlineContent};
+use piki_gui::ui_adapters::StructuredRichUI;
 use std::cell::RefCell;
 use std::rc::Rc;
 

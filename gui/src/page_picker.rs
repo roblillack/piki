@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use fltk::{self, prelude::*, window};
-use piki::page_ui::PageUI;
+use piki_gui::page_ui::PageUI;
 
 use crate::autosave::AutoSaveState;
 

@@ -1,6 +1,8 @@
 use crate::link_handler::{Link, extract_links};
 use fltk::text::PositionType;
 use fltk::{prelude::*, *};
+use piki_gui::content::{ContentLoader, ContentProvider};
+use piki_gui::page_ui::PageUI;
 use std::any::Any;
 
 const DEFAULT_FONT_SIZE: i32 = 14;
@@ -342,19 +344,19 @@ impl MarkdownEditor {
 
 // Implement the shared content trait so this editor can work
 // with autosave and other generic content consumers.
-impl piki::content::ContentProvider for MarkdownEditor {
+impl ContentProvider for MarkdownEditor {
     fn get_content(&self) -> String {
         self.get_content()
     }
 }
 
-impl piki::content::ContentLoader for MarkdownEditor {
+impl ContentLoader for MarkdownEditor {
     fn set_content_from_markdown(&mut self, markdown: &str) {
         self.set_content(markdown);
     }
 }
 
-impl piki::page_ui::PageUI for MarkdownEditor {
+impl PageUI for MarkdownEditor {
     fn on_change(&mut self, mut f: Box<dyn FnMut() + 'static>) {
         let mut w = self.editor.clone();
         w.set_trigger(enums::CallbackTrigger::Changed);

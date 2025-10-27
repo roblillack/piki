@@ -1,37 +1,13 @@
-[package]
-name = "piki"
+[workspace]
+members = [
+    "core",
+    "cli",
+    "gui"
+]
+resolver = "3"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
-default-run = "piki"
-description = "A simple personal wiki application"
 license = "MIT"
 repository = "https://github.com/roblillack/piki"
-
-[[bin]]
-name = "piki"
-path = "src/bin/piki.rs"
-
-[[bin]]
-name = "piki-gui"
-path = "src/main.rs"
-
-[lib]
-name = "piki"
-path = "src/lib.rs"
-
-[dependencies]
-fltk = { version = "1.5.20", features = ["use-wayland"] }
-pulldown-cmark = "0.13.0"
-clap = { version = "4.5", features = ["derive"] }
-walkdir = "2.5"
-regex = "1.10"
-directories = "6"
-serde = { version = "1.0", features = ["derive"] }
-toml = "0.9"
-unicode-segmentation = "1.10"
-chrono = "0.4.42"
-skim = "0.20.5"
-
-[dev-dependencies]
-insta = "1.34"
-rusttype = "0.9"

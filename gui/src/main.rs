@@ -1,5 +1,4 @@
 mod autosave;
-mod document;
 pub mod draw_context;
 pub mod fltk_draw_context;
 mod history;
@@ -7,19 +6,18 @@ mod link_handler;
 mod markdown_editor;
 mod menu;
 mod page_picker;
-mod plugin;
 pub mod responsive_scrollbar;
 mod statusbar;
 mod window_state;
 
 use autosave::AutoSaveState;
 use clap::Parser;
-use document::DocumentStore;
 use fltk::{prelude::*, *};
 use history::History;
-use piki::page_ui::PageUI;
-use piki::ui_adapters::StructuredRichUI;
-use plugin::{IndexPlugin, PluginRegistry};
+use piki_core::document::DocumentStore;
+use piki_core::plugin::{IndexPlugin, PluginRegistry};
+use piki_gui::page_ui::PageUI;
+use piki_gui::ui_adapters::StructuredRichUI;
 use statusbar::StatusBar;
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -274,8 +272,8 @@ fn main() {
     let directory = get_directory(args.directory);
 
     // Ensure directory exists
-    if !directory.exists() {
-        if let Err(e) = std::fs::create_dir_all(&directory) {
+    if !directory.exists()
+        && let Err(e) = std::fs::create_dir_all(&directory) {
             eprintln!(
                 "Error: Failed to create directory '{}': {}",
                 directory.display(),
@@ -283,7 +281,6 @@ fn main() {
             );
             std::process::exit(1);
         }
-    }
 
     // Validate directory
     if !directory.is_dir() {

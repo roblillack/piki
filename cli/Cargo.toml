@@ -1,0 +1,15 @@
+[package]
+name = "piki"
+description = "A simple personal wiki application"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+piki-core = { path = "../core" }
+skim = "0.20.5"
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.9"
+

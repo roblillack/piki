@@ -1,7 +1,6 @@
 // Library exports for piki
 pub mod content;
 pub mod context_menu;
-pub mod document;
 pub mod draw_context;
 pub mod fltk_draw_context;
 pub mod fltk_structured_rich_display;

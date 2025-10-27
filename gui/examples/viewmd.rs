@@ -2,9 +2,13 @@
 // Usage: cargo run --example viewmd_structured [--edit] <filename>
 
 use fltk::{prelude::*, *};
-use piki::fltk_structured_rich_display::FltkStructuredRichDisplay;
-use piki::richtext::markdown_converter::markdown_to_document;
-use piki::richtext::structured_document::DocumentPosition;
+use piki_gui::fltk_structured_rich_display::FltkStructuredRichDisplay;
+use piki_gui::link_editor::LinkEditOptions;
+use piki_gui::link_editor::show_link_editor;
+use piki_gui::richtext::markdown_converter::markdown_to_document;
+use piki_gui::richtext::structured_document::BlockType;
+use piki_gui::richtext::structured_document::DocumentPosition;
+use piki_gui::richtext::structured_document::InlineContent;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -185,11 +189,7 @@ fn main() {
                     if let Some((b, i)) = d.hovered_link() {
                         let doc = d.editor().document();
                         let block = &doc.blocks()[b];
-                        if let piki::richtext::structured_document::InlineContent::Link {
-                            link,
-                            content,
-                        } = &block.content[i]
-                        {
+                        if let InlineContent::Link { link, content } = &block.content[i] {
                             let text = content
                                 .iter()
                                 .map(|c| c.to_plain_text())
@@ -211,7 +211,7 @@ fn main() {
                 let parent = dw_for_center.parent().unwrap_or(dw_for_center.clone());
                 let center_rect = Some((parent.x(), parent.y(), parent.w(), parent.h()));
 
-                let opts = piki::link_editor::LinkEditOptions {
+                let opts = LinkEditOptions {
                     init_target,
                     init_text: init_text.clone(),
                     mode_existing_link,
@@ -222,7 +222,7 @@ fn main() {
                 // Invoke shared link editor dialog
                 let display_cb = display_for_menu.clone();
                 let redraw_handle = widget_for_menu.clone();
-                piki::link_editor::show_link_editor(
+                show_link_editor(
                     opts,
                     move |dest: String, txt: String| {
                         let mut d = display_cb.borrow_mut();
@@ -272,7 +272,7 @@ fn main() {
                     display
                         .borrow_mut()
                         .editor_mut()
-                        .set_block_type(piki::richtext::structured_document::BlockType::ListItem {
+                        .set_block_type(BlockType::ListItem {
                             ordered: false,
                             number: None,
                             checkbox: None,
@@ -314,7 +314,7 @@ fn main() {
                     display
                         .borrow_mut()
                         .editor_mut()
-                        .set_block_type(piki::richtext::structured_document::BlockType::Paragraph)
+                        .set_block_type(BlockType::Paragraph)
                         .ok();
                 }
             },
@@ -330,9 +330,7 @@ fn main() {
                     display
                         .borrow_mut()
                         .editor_mut()
-                        .set_block_type(piki::richtext::structured_document::BlockType::Heading {
-                            level: 1,
-                        })
+                        .set_block_type(BlockType::Heading { level: 1 })
                         .ok();
                 }
             },
@@ -348,9 +346,7 @@ fn main() {
                     display
                         .borrow_mut()
                         .editor_mut()
-                        .set_block_type(piki::richtext::structured_document::BlockType::Heading {
-                            level: 2,
-                        })
+                        .set_block_type(BlockType::Heading { level: 2 })
                         .ok();
                 }
             },
@@ -366,9 +362,7 @@ fn main() {
                     display
                         .borrow_mut()
                         .editor_mut()
-                        .set_block_type(piki::richtext::structured_document::BlockType::Heading {
-                            level: 3,
-                        })
+                        .set_block_type(BlockType::Heading { level: 3 })
                         .ok();
                 }
             },
@@ -376,7 +370,6 @@ fn main() {
 
         // Keep paragraph style radio selection in sync with cursor
         {
-            use piki::richtext::structured_document::BlockType;
             let mb = menu_bar.clone();
             let disp = display.clone();
             app::add_timeout3(0.25, move |h| {

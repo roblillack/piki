@@ -1,11 +1,12 @@
 use clap::{Parser, Subcommand};
-use piki::document::DocumentStore;
+use piki_core::document::DocumentStore;
 use serde::Deserialize;
 use skim::prelude::*;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::Cursor;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
@@ -61,14 +62,12 @@ struct Config {
 impl Config {
     fn load() -> Self {
         let config_path = Self::config_path();
-        if let Some(path) = config_path {
-            if path.exists() {
-                if let Ok(contents) = fs::read_to_string(&path) {
-                    if let Ok(config) = toml::from_str::<Config>(&contents) {
-                        return config;
-                    }
-                }
-            }
+        if let Some(path) = config_path
+            && path.exists()
+            && let Ok(contents) = fs::read_to_string(&path)
+            && let Ok(config) = toml::from_str::<Config>(&contents)
+        {
+            return config;
         }
         Config::default()
     }
@@ -123,7 +122,9 @@ fn interactive_select(store: &DocumentStore) -> Result<Option<String>, String> {
             if out.is_abort {
                 None
             } else {
-                out.selected_items.first().map(|item| item.output().to_string())
+                out.selected_items
+                    .first()
+                    .map(|item| item.output().to_string())
             }
         })
         .unwrap_or(None);
@@ -148,8 +149,7 @@ fn cmd_edit(name: Option<String>, notes_dir: &PathBuf) -> Result<(), String> {
     let editor = get_editor();
 
     // Get the relative path from the notes directory
-    let relative_path = doc.path.strip_prefix(notes_dir)
-        .unwrap_or(&doc.path);
+    let relative_path = doc.path.strip_prefix(notes_dir).unwrap_or(&doc.path);
 
     let status = Command::new(&editor)
         .arg(relative_path)
@@ -164,8 +164,8 @@ fn cmd_edit(name: Option<String>, notes_dir: &PathBuf) -> Result<(), String> {
     Ok(())
 }
 
-fn cmd_view(name: Option<String>, notes_dir: &PathBuf) -> Result<(), String> {
-    let store = DocumentStore::new(notes_dir.clone());
+fn cmd_view(name: Option<String>, notes_dir: &Path) -> Result<(), String> {
+    let store = DocumentStore::new(notes_dir.to_path_buf());
 
     let note_name = if let Some(name) = name {
         name
@@ -188,8 +188,8 @@ fn cmd_view(name: Option<String>, notes_dir: &PathBuf) -> Result<(), String> {
     Ok(())
 }
 
-fn cmd_ls(notes_dir: &PathBuf) -> Result<(), String> {
-    let store = DocumentStore::new(notes_dir.clone());
+fn cmd_ls(notes_dir: &Path) -> Result<(), String> {
+    let store = DocumentStore::new(notes_dir.to_path_buf());
     let mut docs = store.list_all_documents()?;
     docs.sort();
 
@@ -252,7 +252,9 @@ fn print_help_with_aliases(config: &Config) {
     println!("If no command is given the note to edit can be selected interactively.");
     println!();
     println!("Options:");
-    println!("  -d, --directory DIRECTORY - Directory containing markdown files (default: ~/.piki)");
+    println!(
+        "  -d, --directory DIRECTORY - Directory containing markdown files (default: ~/.piki)"
+    );
     println!();
     println!("Commands:");
     println!("  edit [name] - edit a note");
@@ -292,15 +294,15 @@ fn main() {
     let notes_dir = get_notes_dir(args.directory.clone());
 
     // Ensure notes directory exists
-    if !notes_dir.exists() {
-        if let Err(e) = fs::create_dir_all(&notes_dir) {
-            eprintln!(
-                "Error: Failed to create notes directory '{}': {}",
-                notes_dir.display(),
-                e
-            );
-            std::process::exit(1);
-        }
+    if !notes_dir.exists()
+        && let Err(e) = fs::create_dir_all(&notes_dir)
+    {
+        eprintln!(
+            "Error: Failed to create notes directory '{}': {}",
+            notes_dir.display(),
+            e
+        );
+        std::process::exit(1);
     }
 
     // Check if first non-option argument is an alias
@@ -324,24 +326,24 @@ fn main() {
     }
 
     // Check if first positional argument is an alias
-    if let Some(potential_alias) = first_positional {
-        if let Some(alias_cmd) = config.aliases.get(potential_alias) {
-            // Execute the alias as a shell command in the notes directory
-            let status = Command::new("sh")
-                .arg("-c")
-                .arg(alias_cmd)
-                .current_dir(&notes_dir)
-                .stdin(Stdio::inherit())
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .status();
+    if let Some(potential_alias) = first_positional
+        && let Some(alias_cmd) = config.aliases.get(potential_alias)
+    {
+        // Execute the alias as a shell command in the notes directory
+        let status = Command::new("sh")
+            .arg("-c")
+            .arg(alias_cmd)
+            .current_dir(&notes_dir)
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status();
 
-            match status {
-                Ok(status) => std::process::exit(status.code().unwrap_or(0)),
-                Err(e) => {
-                    eprintln!("Error: Failed to run alias '{}': {}", potential_alias, e);
-                    std::process::exit(1);
-                }
+        match status {
+            Ok(status) => std::process::exit(status.code().unwrap_or(0)),
+            Err(e) => {
+                eprintln!("Error: Failed to run alias '{}': {}", potential_alias, e);
+                std::process::exit(1);
             }
         }
     }

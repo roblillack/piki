@@ -1,6 +1,6 @@
-use crate::document::DocumentStore;
 use chrono::{DateTime, Local};
-use piki::content::ContentProvider;
+use piki_core::document::DocumentStore;
+use piki_gui::content::ContentProvider;
 use std::time::SystemTime;
 
 /// State management for auto-save functionality
