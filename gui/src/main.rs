@@ -14,7 +14,7 @@ use autosave::AutoSaveState;
 use clap::Parser;
 use fltk::{prelude::*, *};
 use history::History;
-use piki_core::{DocumentStore, IndexPlugin, PluginRegistry};
+use piki_core::{DocumentStore, IndexPlugin, PluginRegistry, TodoPlugin};
 use piki_gui::page_ui::PageUI;
 use piki_gui::ui_adapters::StructuredRichUI;
 use statusbar::StatusBar;
@@ -317,6 +317,7 @@ fn main() {
     let store = DocumentStore::new(directory.clone());
     let mut plugin_registry = PluginRegistry::new();
     plugin_registry.register("index", Box::new(IndexPlugin));
+    plugin_registry.register("todo", Box::new(TodoPlugin));
 
     let app_state = Rc::new(RefCell::new(AppState::new(
         store,
