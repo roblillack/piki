@@ -25,7 +25,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-piki-core = "0.1.0"
+piki-core = "0.1.1"
 ```
 
 ## Architecture
