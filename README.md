@@ -1,5 +1,10 @@
 # ✜ Piki
 
+[![Build Status](https://github.com/roblillack/piki/workflows/Build,%20Lint,%20and%20Test/badge.svg)](https://github.com/roblillack/piki/actions)
+[![Crates.io](https://img.shields.io/crates/v/piki.svg)](https://crates.io/crates/piki)
+[![Downloads](https://img.shields.io/crates/d/piki.svg)](https://crates.io/crates/piki)
+[![Docs.rs](https://docs.rs/piki-core/badge.svg)](https://docs.rs/piki-core)
+
 **A personal wiki system for your markdown files**
 
 Piki helps you manage a personal knowledge base using plain Markdown files stored on your filesystem. Take notes, create documentation, build your own wiki—all without cloud services, subscriptions, or lock-in.
