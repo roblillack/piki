@@ -1,208 +1,284 @@
-# Piki GUI
+# ✜ Piki
 
-A Rust reimplementation of fliki - a lightweight, FLTK-base GUI for the Piki personal wiki system.
+**A personal wiki system for your markdown files**
+
+Piki helps you manage a personal knowledge base using plain Markdown files stored on your filesystem. Take notes, create documentation, build your own wiki—all without cloud services, subscriptions, or lock-in.
 
 ## Features
 
-### Rich-Text Editing
+- **Local-first**: Your notes are plain Markdown files on your filesystem
+- **Git-friendly**: Version control your wiki with Git (optional)
+- **Dual interface**: Use the CLI for quick edits or the GUI for rich text editing
+- **Cross-platform**: Works on Windows, macOS, Linux, and BSD
+- **Lightweight**: GUI built with FLTK featuring a custom rich-text editor
+- **Fast**: Written in Rust for performance and reliability
+- **Private**: No cloud service, no telemetry, no tracking
+- **Open source**: MIT licensed
 
-- Headers (H1, H2, H3) in different sizes
-- **Bold** and _italic_ text
-- `Inline code` styling
-- ~~Strikethrough~~ text
-- <u>Underlined</u> text
-- <mark>Highlighted</mark> text
-- Code blocks (indented)
-- > Blockquotes
-- [Links](README.md) shown in blue
-- **Updates instantly as you type!**
+## Installation
 
-### Auto-Save
+### Via Cargo
 
-- Saves changes automatically 1 second after you stop typing
-- Debounced to prevent excessive disk writes
-- Status bar shows save status ("Saving...", "saved 2 min ago", etc.)
-- Creates new files and parent directories as needed
+```bash
+cargo install piki
+cargo install piki-gui
+```
 
-### Interactive Navigation
+### System Requirements
 
-- Click on links to navigate between pages
-- Cursor changes to hand icon when over links
-- Keyboard shortcuts for quick access
-- Support for nested page paths (`[[project-a/standup]]`)
+- Rust 2024 edition (for building from source)
+- For GUI: FLTK dependencies
+  - **macOS**: No additional dependencies
+  - **Linux/BSD**: Wayland/X11 development libraries
+  - **Windows**: No additional dependencies
 
-### Link Support
+## Quick Start
+
+### 1. Initialize Your Wiki
+
+Create a directory for your notes (or use an existing one):
+
+```bash
+mkdir ~/.piki
+cd ~/.piki
+
+# Create a frontpage
+echo "# John Doe's Brain" > frontpage.md
+```
+
+### 2. Launch the GUI
+
+```bash
+piki-gui
+```
+
+The GUI will open with your frontpage. Start editing, create links, and navigate between pages.
+
+### 3. Or Use the CLI
+
+```bash
+# Edit interactively (fuzzy picker)
+piki
+
+# Edit a specific note
+piki edit frontpage
+
+# List all notes
+piki ls
+
+# View a note
+piki view frontpage
+```
+
+## Configuration
+
+Create a `~/.pikirc` file to customize your workflow:
+
+```toml
+[aliases]
+# Daily notes
+today = "code . -g daily/$(date +'%Y-%m-%d').md"
+standup = "vim work/standup-$(date +'%Y').md"
+
+# Git shortcuts
+status = "git status -u"
+sync = "git ci -m 'Auto-sync' && git pull --rebase && git push"
+push = "git commit -m 'Auto-sync' && git push"
+
+# Open in your favorite editor/IDE
+code = "code ."
+cfg = "vim ~/.pikirc"
+
+# Launch GUI from CLI
+g = "piki-gui"
+```
+
+## CLI Usage
+
+### Commands
+
+```bash
+piki [options] [command]
+
+Options:
+  -d, --directory DIRECTORY   Directory containing markdown files (default: ~/.piki)
+
+Commands:
+  edit [name]   Edit a note (opens in $EDITOR or $VISUAL, defaults to vim)
+  view [name]   View a note
+  ls            List all notes
+  log [-n NUM]  Show git commit log (if using git)
+  run [cmd]     Run a shell command inside the notes directory
+  help          Show help information
+```
+
+### Interactive Mode
+
+When no command is specified, Piki opens an interactive fuzzy picker:
+
+```bash
+piki -d ~/my-wiki
+# Type to filter notes, arrow keys to navigate, Enter to edit
+```
+
+### Example Workflows
+
+```bash
+# Daily note workflow
+piki edit "daily/$(date +'%Y-%m-%d')"
+
+# Quick capture
+piki edit inbox
+
+# Browse and edit
+piki -d ~/my-wiki  # Interactive picker
+
+# View without editing
+piki view project-ideas
+
+# Git integration
+piki run git status
+piki log -n 10
+```
+
+## GUI Usage
+
+### Launching
+
+```bash
+# Open to frontpage
+piki-gui
+
+# Open with custom wiki path
+piki-gui -d /path/to/wiki
+```
+
+### Key Features
+
+**Rich-Text Editing**
+
+- Live Markdown rendering as you type
+- Headers (H1, H2, H3) with visual hierarchy
+- Bold, italic, code, strikethrough, underline, highlighting
+- Code blocks and blockquotes
+- Clickable links
+
+**Keyboard Shortcuts**
+
+| Shortcut              | Action            |
+| --------------------- | ----------------- |
+| **Navigation**        |                   |
+| `Cmd+N`               | New page          |
+| `Cmd+P`               | Open page picker  |
+| `Cmd+[`               | Back              |
+| `Cmd+]`               | Forward           |
+| `Cmd+Option+F`        | Jump to frontpage |
+| `Cmd+Option+I`        | Open page index   |
+| **Inline Styling**    |                   |
+| `Cmd+B`               | Bold              |
+| `Cmd+I`               | Italic            |
+| `Cmd+U`               | Underline         |
+| `Cmd+Shift+C`         | Inline code       |
+| `Cmd+Shift+H`         | Highlight text    |
+| `Cmd+Shift+X`         | Strikethrough     |
+| `Cmd+K`               | Insert/Edit link  |
+| `Cmd+\`               | Clear formatting  |
+| **Paragraph Styling** |                   |
+| `Cmd+Option+0`        | Text paragraph    |
+| `Cmd+Option+1`        | Header 1          |
+| `Cmd+Option+2`        | Header 2          |
+| `Cmd+Option+3`        | Header 3          |
+| `Cmd+Shift+5`         | Blockquote        |
+| `Cmd+Shift+6`         | Code block        |
+| `Cmd+Shift+7`         | Numbered list     |
+| `Cmd+Shift+8`         | Bulleted list     |
+| `Cmd+Shift+9`         | Checklist         |
+
+**Auto-Save**
+
+- Changes are saved automatically
+- Status bar shows save status and last save time
+- Creates parent directories as needed
+
+**Link Formats**
 
 - Standard Markdown: `[text](page.md)`
 - Wiki-style: `[[PageName]]`
 - Nested paths: `[[folder/page]]`
 
-### Plugin System
+**Plugin System**
 
-- Dynamic page generation with `!` prefix
-- Built-in `!index` plugin shows all pages
+- Dynamic pages with `!` prefix
+- Built-in `!index` plugin lists all pages
 - Plugin pages are read-only
-- Extensible architecture for custom plugins
+- Extensible for custom dynamic content
 
-### Smart Status Bar
+## Git Integration
 
-- Page status (left): Shows current page and type
-- Save status (right): Real-time save feedback with time tracking
-
-## Building
+Piki works seamlessly with Git for version control:
 
 ```bash
-cd piki-gui
-cargo build --release
+cd ~/.piki
+git init
+git add .
+git commit -m "Initial wiki"
+
+# Use piki's git commands
+piki log
+piki run git status
+
+# Or use aliases in .pikirc
+piki sync    # Commit, pull, push
+piki push    # Commit and push
 ```
 
-The binary will be at `target/release/piki-gui`
+## Platform Support
 
-## Usage
+Piki is fully cross-platform:
 
-```bash
-# Run with example wiki
-cargo run --release -- example-wiki
+| Platform    | CLI | GUI | Notes                           |
+| ----------- | --- | --- | ------------------------------- |
+| **macOS**   | ✅  | ✅  | Native menu bar support         |
+| **Linux**   | ✅  | ✅  | X11 or Wayland required for GUI |
+| **Windows** | ✅  | ✅  | Fully supported                 |
+| **BSD**     | ✅  | ✅  | FreeBSD, OpenBSD, etc.          |
 
-# Or specify an initial page
-cargo run --release -- example-wiki --page features
+## Architecture
 
-# After building
-./target/release/piki-gui /path/to/your/wiki
-```
+Piki is organized as a Cargo workspace:
 
-## Directory Structure
+- **`core/`** - Shared library (document store, plugins)
+- **`cli/`** - Command-line interface
+- **`gui/`** - FLTK-based graphical interface
 
-Your markdown directory should contain `.md` files. The application will:
+## Philosophy
 
-- Load `frontpage.md` by default (or specify with `--page`)
-- Follow links to other markdown files in the same directory
-- Support both `file.md` and `file` link formats
-- Apply syntax highlighting automatically
+**Local-First**
+Your notes are plain text files on your filesystem. No databases, no proprietary formats, no cloud services.
 
-## Example Wiki
+**Privacy**
+No telemetry, no tracking, no data leaving your machine. Your personal knowledge stays personal.
 
-An example wiki is included in `example-wiki/`:
+**Interoperability**
+Markdown files work with any editor or tool. Use Piki alongside VS Code, Obsidian, vim, or anything else.
 
-```bash
-cargo run --release -- example-wiki
-```
-
-Try clicking on the links to see navigation in action!
-
-## Keyboard Shortcuts
-
-- `Ctrl+F` (or `Cmd+F` on Mac) - Go to frontpage
-- `Ctrl+I` (or `Cmd+I` on Mac) - Go to dynamic index (`!index` plugin)
-
-## Platform Integration
-
-- **macOS**: Uses native system menu bar (appears at top of screen)
-- **Linux/Windows**: Uses window menu bar (appears in application window)
-
-## Syntax Highlighting Examples
-
-The editor supports:
-
-```markdown
-# Header 1
-
-## Header 2
-
-### Header 3
-
-**Bold text** and _italic text_
-
-`inline code` and:
-
-    indented code blocks
-    with monospace font
-
-> Blockquotes
-> in red italic
-
-[Standard links](page.md) and [[wiki links]]
-```
-
-## Implementation Details
-
-### Architecture
-
-- `main.rs` - Application entry point, window management, event handling
-- `document.rs` - File system operations for loading/saving markdown files
-- `editor.rs` - Custom text editor with syntax highlighting using FLTK style buffers
-- `link_handler.rs` - Markdown and wiki-link parsing using `pulldown-cmark`
-- `autosave.rs` - Auto-save state management and debouncing
-- `plugin.rs` - Plugin system for dynamic content generation
-
-### How Link Following Works
-
-1. When you click in the editor, the click position is captured
-2. The link parser identifies all links and their positions in the document
-3. If the click position falls within a link's range, that link is followed
-4. The target page is loaded and displayed with fresh syntax highlighting
-
-### How Syntax Highlighting Works
-
-1. On every keypress, the widget's `Changed` trigger fires
-2. An `awake_callback` schedules immediate restyling on the next event loop
-3. Text is analyzed line-by-line for block-level formatting (headers, quotes, code)
-4. Inline styles (bold, italic, code) are parsed within each line
-5. Links are highlighted after other formatting
-6. A parallel style buffer maps each character to a style entry
-7. FLTK's TextEditor renders text according to the style table
-8. Restyling happens instantly - no delays or timers
-
-## Differences from Original fliki
-
-This Rust version:
-
-- ✅ Uses Markdown instead of custom Liki markup
-- ✅ Reads from local filesystem instead of network
-- ✅ Has full syntax highlighting for Markdown
-- ✅ Clickable links with visual feedback
-- ✅ Auto-save functionality
-- ✅ Plugin system for dynamic pages
-- ✅ Nested directory support
-- ❌ No page locking/unlocking (uses auto-save instead)
-- ❌ No server push/pull operations (local-only)
-- ❌ No multi-user editing (single-user with file locking possible)
-
-## Dependencies
-
-- `fltk` 1.4 - Cross-platform GUI toolkit
-- `pulldown-cmark` 0.11 - Markdown parser
-- `clap` 4.5 - Command-line argument parsing
-- `regex` 1.10 - Pattern matching for wiki links
-- `walkdir` 2.5 - Directory traversal
+**Simplicity**
+Fast startup, minimal dependencies, straightforward workflows. A tool that gets out of your way.
 
 ## Contributing
 
-This is a demonstration project showing how to build a wiki-style editor in Rust with:
+Contributions are welcome! Some ideas:
 
-- FLTK for GUI
-- Syntax highlighting using style buffers
-- Event-driven navigation
-- Markdown parsing
+- [ ] Package managers (Homebrew, apt, Chocolatey, AUR)
+- [ ] Full-text search across all pages
+- [ ] Backlinks and page graph
+- [ ] Custom syntax highlighting themes
+- [ ] Mobile companion app
+- [ ] Web server mode (read-only)
+- [ ] Additional plugins (calendar, task list, etc.)
 
-Feel free to extend it with features like:
-
-- Manual save shortcut (Ctrl+S)
-- Search across pages
-- Link preview on hover
-- Backlinks
-- Full-text search
-- Recent pages history
-- Version control integration
-- Custom plugins
-- Configurable auto-save delay
-
-## Documentation
-
-- [AUTOSAVE.md](AUTOSAVE.md): Auto-save implementation details
-- [PLUGIN_SYSTEM.md](PLUGIN_SYSTEM.md): Plugin system guide
-- [READONLY_IMPLEMENTATION.md](READONLY_IMPLEMENTATION.md): Read-only mode for plugins
+See the [issues](https://github.com/roblillack/piki/issues) page on GitHub.
 
 ## License
 
-Same as the original fliki project.
+MIT License
