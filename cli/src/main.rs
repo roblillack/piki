@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use fuzzypicker::FuzzyPicker;
-use piki_core::DocumentStore;
+use piki_core::{DocumentStore, IndexPlugin, Plugin, TodoPlugin};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::env;
@@ -31,6 +31,8 @@ enum Commands {
         /// Name of the note to edit
         name: Option<String>,
     },
+    /// Generate an index of all pages
+    Index,
     /// Show the commit log
     Log {
         /// Number of commits to show
@@ -45,6 +47,8 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         command: Vec<String>,
     },
+    /// List all todos from all pages
+    Todo,
     /// View a note
     View {
         /// Name of the note to view
@@ -251,6 +255,22 @@ fn cmd_run(command: Vec<String>, notes_dir: &PathBuf) -> Result<(), String> {
     Ok(())
 }
 
+fn cmd_index(notes_dir: &Path) -> Result<(), String> {
+    let store = DocumentStore::new(notes_dir.to_path_buf());
+    let plugin = IndexPlugin;
+    let content = plugin.generate_content(&store)?;
+    print!("{}", content);
+    Ok(())
+}
+
+fn cmd_todo(notes_dir: &Path) -> Result<(), String> {
+    let store = DocumentStore::new(notes_dir.to_path_buf());
+    let plugin = TodoPlugin;
+    let content = plugin.generate_content(&store)?;
+    print!("{}", content);
+    Ok(())
+}
+
 fn print_help_with_aliases(config: &Config) {
     println!("piki - a simple personal wiki");
     println!();
@@ -266,9 +286,11 @@ fn print_help_with_aliases(config: &Config) {
     println!("Commands:");
     println!("  edit [name] - edit a note");
     println!("  help        - show this help");
+    println!("  index       - generate an index of all pages");
     println!("  log         - show the commit log");
     println!("  ls          - list notes");
     println!("  run [cmd]   - run a shell command inside the notes directory");
+    println!("  todo        - list all todos from all pages");
     println!("  view [name] - view a note");
 
     if !config.aliases.is_empty() {
@@ -357,10 +379,12 @@ fn main() {
 
     let result = match args.command {
         Some(Commands::Edit { name }) => cmd_edit(name, &notes_dir),
+        Some(Commands::Index) => cmd_index(&notes_dir),
         Some(Commands::View { name }) => cmd_view(name, &notes_dir),
         Some(Commands::Ls) => cmd_ls(&notes_dir),
         Some(Commands::Log { count }) => cmd_log(count, &notes_dir),
         Some(Commands::Run { command }) => cmd_run(command, &notes_dir),
+        Some(Commands::Todo) => cmd_todo(&notes_dir),
         None => {
             // Default to edit command, either with provided name or interactive
             cmd_edit(args.name, &notes_dir)
