@@ -4,6 +4,8 @@
 
 Piki helps you manage a personal knowledge base using plain Markdown files stored on your filesystem. Take notes, create documentation, build your own wiki—all without cloud services, subscriptions, or lock-in.
 
+![Piki Screenshot](./assets/2025-10-28-screenshot-mac.png)
+
 ## Features
 
 - **Local-first**: Your notes are plain Markdown files on your filesystem
