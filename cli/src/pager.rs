@@ -1,15 +1,15 @@
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Layout, Rect},
     style::{Color, Style},
     text::Line,
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
-    Frame, Terminal,
 };
 use std::io;
 
@@ -83,8 +83,8 @@ fn render_pager(frame: &mut Frame, content: &[String], state: &mut PagerState) {
     // Create layout with main content area and status bar
     let chunks = Layout::default()
         .constraints([
-            Constraint::Min(0),      // Content area
-            Constraint::Length(1),   // Status bar
+            Constraint::Min(0),    // Content area
+            Constraint::Length(1), // Status bar
         ])
         .split(area);
 
@@ -97,8 +97,7 @@ fn render_pager(frame: &mut Frame, content: &[String], state: &mut PagerState) {
         .collect();
 
     // Create paragraph with border
-    let paragraph = Paragraph::new(visible_lines)
-        .block(Block::default().borders(Borders::ALL).title("Press q to quit, ↑/↓ or j/k to scroll, PgUp/PgDn, Home/End"));
+    let paragraph = Paragraph::new(visible_lines).block(Block::default().borders(Borders::NONE));
 
     frame.render_widget(paragraph, chunks[0]);
 
@@ -116,9 +115,9 @@ fn render_pager(frame: &mut Frame, content: &[String], state: &mut PagerState) {
 
         let scrollbar_area = Rect {
             x: chunks[0].x + chunks[0].width - 1,
-            y: chunks[0].y + 1,
+            y: chunks[0].y,
             width: 1,
-            height: chunks[0].height.saturating_sub(2),
+            height: chunks[0].height,
         };
 
         frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
@@ -141,8 +140,11 @@ fn render_pager(frame: &mut Frame, content: &[String], state: &mut PagerState) {
         " (empty)".to_string()
     };
 
-    let status_bar = Paragraph::new(position_text)
-        .style(Style::default().bg(Color::DarkGray).fg(Color::White));
+    let status_bar = Paragraph::new(format!(
+        "{} -- Press q to quit, ↑/↓ or j/k to scroll, PgUp/PgDn, Home/End",
+        position_text
+    ))
+    .style(Style::default().bg(Color::DarkGray).fg(Color::White));
 
     frame.render_widget(status_bar, chunks[1]);
 }
