@@ -140,8 +140,8 @@ impl PagerState {
 
     /// Go to next search match
     fn next_match(&mut self) {
-        if let SearchMode::Active { matches, current_match, .. } = &mut self.search_mode {
-            if !matches.is_empty() {
+        if let SearchMode::Active { matches, current_match, .. } = &mut self.search_mode
+            && !matches.is_empty() {
                 *current_match = (*current_match + 1) % matches.len();
                 let match_line = matches[*current_match].0;
 
@@ -151,13 +151,12 @@ impl PagerState {
                     self.scroll_offset = self.max_scroll();
                 }
             }
-        }
     }
 
     /// Go to previous search match
     fn prev_match(&mut self) {
-        if let SearchMode::Active { matches, current_match, .. } = &mut self.search_mode {
-            if !matches.is_empty() {
+        if let SearchMode::Active { matches, current_match, .. } = &mut self.search_mode
+            && !matches.is_empty() {
                 *current_match = if *current_match == 0 {
                     matches.len() - 1
                 } else {
@@ -171,7 +170,6 @@ impl PagerState {
                     self.scroll_offset = self.max_scroll();
                 }
             }
-        }
     }
 
     /// Clear search and return to normal mode
@@ -203,7 +201,7 @@ fn render_pager(frame: &mut Frame, content: &[String], state: &mut PagerState) {
         for (idx, (line_idx, col_idx)) in matches.iter().enumerate() {
             if *line_idx >= state.scroll_offset && *line_idx < state.scroll_offset + state.viewport_height {
                 line_matches.entry(*line_idx)
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push((*col_idx, idx == *current_match));
             }
         }
@@ -437,13 +435,11 @@ fn run_interactive_pager(content: &[String]) -> io::Result<()> {
     let result = loop {
         terminal.draw(|frame| render_pager(frame, content, &mut state))?;
 
-        if event::poll(std::time::Duration::from_millis(100))? {
-            if let Event::Key(key_event) = event::read()? {
-                if !handle_key_event(key_event, &mut state, content) {
+        if event::poll(std::time::Duration::from_millis(100))?
+            && let Event::Key(key_event) = event::read()?
+                && !handle_key_event(key_event, &mut state, content) {
                     break Ok(());
                 }
-            }
-        }
     };
 
     // Cleanup terminal
