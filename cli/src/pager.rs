@@ -7,11 +7,26 @@ use ratatui::{
     Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Layout, Rect},
-    style::{Color, Style},
-    text::Line,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 use std::io;
+
+/// Search mode for the pager
+#[derive(Clone)]
+enum SearchMode {
+    /// Normal viewing mode
+    Normal,
+    /// User is entering a search query
+    EnteringQuery,
+    /// Actively searching with results
+    Active {
+        query: String,
+        matches: Vec<(usize, usize)>, // (line_index, column_index)
+        current_match: usize,
+    },
+}
 
 /// Pager state tracking
 struct PagerState {
@@ -21,6 +36,10 @@ struct PagerState {
     total_lines: usize,
     /// Height of the viewport
     viewport_height: usize,
+    /// Current search mode and state
+    search_mode: SearchMode,
+    /// Search input buffer (when entering query)
+    search_input: String,
 }
 
 impl PagerState {
@@ -29,6 +48,8 @@ impl PagerState {
             scroll_offset: 0,
             total_lines,
             viewport_height,
+            search_mode: SearchMode::Normal,
+            search_input: String::new(),
         }
     }
 
@@ -71,6 +92,93 @@ impl PagerState {
     fn jump_to_end(&mut self) {
         self.scroll_offset = self.max_scroll();
     }
+
+    /// Start entering a search query
+    fn start_search(&mut self) {
+        self.search_mode = SearchMode::EnteringQuery;
+        self.search_input.clear();
+    }
+
+    /// Perform search on content
+    fn perform_search(&mut self, content: &[String]) {
+        if self.search_input.is_empty() {
+            self.search_mode = SearchMode::Normal;
+            return;
+        }
+
+        let query = self.search_input.clone();
+        let mut matches = Vec::new();
+
+        // Find all matches (case-insensitive)
+        let query_lower = query.to_lowercase();
+        for (line_idx, line) in content.iter().enumerate() {
+            let line_lower = line.to_lowercase();
+            let mut start = 0;
+            while let Some(pos) = line_lower[start..].find(&query_lower) {
+                matches.push((line_idx, start + pos));
+                start += pos + 1;
+            }
+        }
+
+        if matches.is_empty() {
+            self.search_mode = SearchMode::Normal;
+        } else {
+            // Jump to first match
+            let first_match_line = matches[0].0;
+            self.scroll_offset = first_match_line.saturating_sub(self.viewport_height / 2);
+            if self.scroll_offset > self.max_scroll() {
+                self.scroll_offset = self.max_scroll();
+            }
+
+            self.search_mode = SearchMode::Active {
+                query,
+                matches,
+                current_match: 0,
+            };
+        }
+    }
+
+    /// Go to next search match
+    fn next_match(&mut self) {
+        if let SearchMode::Active { matches, current_match, .. } = &mut self.search_mode {
+            if !matches.is_empty() {
+                *current_match = (*current_match + 1) % matches.len();
+                let match_line = matches[*current_match].0;
+
+                // Center the match in the viewport
+                self.scroll_offset = match_line.saturating_sub(self.viewport_height / 2);
+                if self.scroll_offset > self.max_scroll() {
+                    self.scroll_offset = self.max_scroll();
+                }
+            }
+        }
+    }
+
+    /// Go to previous search match
+    fn prev_match(&mut self) {
+        if let SearchMode::Active { matches, current_match, .. } = &mut self.search_mode {
+            if !matches.is_empty() {
+                *current_match = if *current_match == 0 {
+                    matches.len() - 1
+                } else {
+                    *current_match - 1
+                };
+                let match_line = matches[*current_match].0;
+
+                // Center the match in the viewport
+                self.scroll_offset = match_line.saturating_sub(self.viewport_height / 2);
+                if self.scroll_offset > self.max_scroll() {
+                    self.scroll_offset = self.max_scroll();
+                }
+            }
+        }
+    }
+
+    /// Clear search and return to normal mode
+    fn clear_search(&mut self) {
+        self.search_mode = SearchMode::Normal;
+        self.search_input.clear();
+    }
 }
 
 /// Render the pager UI
@@ -88,13 +196,71 @@ fn render_pager(frame: &mut Frame, content: &[String], state: &mut PagerState) {
     // Update viewport height based on actual content area height
     state.viewport_height = chunks[0].height as usize;
 
-    // Prepare content lines for display
-    let visible_lines: Vec<Line> = content
-        .iter()
-        .skip(state.scroll_offset)
-        .take(state.viewport_height)
-        .map(|line| Line::from(line.clone()))
-        .collect();
+    // Prepare content lines for display with search highlighting
+    let visible_lines: Vec<Line> = if let SearchMode::Active { query, matches, current_match } = &state.search_mode {
+        // Build a set of matches for the visible lines
+        let mut line_matches: std::collections::HashMap<usize, Vec<(usize, bool)>> = std::collections::HashMap::new();
+        for (idx, (line_idx, col_idx)) in matches.iter().enumerate() {
+            if *line_idx >= state.scroll_offset && *line_idx < state.scroll_offset + state.viewport_height {
+                line_matches.entry(*line_idx)
+                    .or_insert_with(Vec::new)
+                    .push((*col_idx, idx == *current_match));
+            }
+        }
+
+        content
+            .iter()
+            .enumerate()
+            .skip(state.scroll_offset)
+            .take(state.viewport_height)
+            .map(|(line_idx, line)| {
+                if let Some(match_positions) = line_matches.get(&line_idx) {
+                    // Highlight matches in this line
+                    let mut spans = Vec::new();
+                    let mut last_pos = 0;
+                    let query_len = query.len();
+
+                    let mut sorted_matches = match_positions.clone();
+                    sorted_matches.sort_by_key(|(pos, _)| *pos);
+
+                    for (col_idx, is_current) in sorted_matches {
+                        // Add text before match
+                        if col_idx > last_pos {
+                            spans.push(Span::raw(&line[last_pos..col_idx]));
+                        }
+                        // Add highlighted match
+                        let match_end = (col_idx + query_len).min(line.len());
+                        let style = if is_current {
+                            Style::default()
+                                .fg(Color::Black)
+                                .bg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default()
+                                .fg(Color::Black)
+                                .bg(Color::Cyan)
+                        };
+                        spans.push(Span::styled(&line[col_idx..match_end], style));
+                        last_pos = match_end;
+                    }
+                    // Add remaining text
+                    if last_pos < line.len() {
+                        spans.push(Span::raw(&line[last_pos..]));
+                    }
+                    Line::from(spans)
+                } else {
+                    Line::from(line.clone())
+                }
+            })
+            .collect()
+    } else {
+        content
+            .iter()
+            .skip(state.scroll_offset)
+            .take(state.viewport_height)
+            .map(|line| Line::from(line.clone()))
+            .collect()
+    };
 
     // Create paragraph with border
     let paragraph = Paragraph::new(visible_lines).block(Block::default().borders(Borders::NONE));
@@ -124,35 +290,93 @@ fn render_pager(frame: &mut Frame, content: &[String], state: &mut PagerState) {
         frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
     }
 
-    // Status bar showing position
-    let position_text = if state.total_lines > 0 {
-        let percentage = if state.total_lines <= state.viewport_height {
-            100
-        } else {
-            (state.scroll_offset * 100) / state.max_scroll()
-        };
-        format!(
-            " Line {}-{}/{} ({}%)",
-            state.scroll_offset + 1,
-            (state.scroll_offset + state.viewport_height).min(state.total_lines),
-            state.total_lines,
-            percentage
-        )
-    } else {
-        " (empty)".to_string()
+    // Status bar showing position and search state
+    let status_text = match &state.search_mode {
+        SearchMode::EnteringQuery => {
+            format!("/{}", state.search_input)
+        }
+        SearchMode::Active { query, matches, current_match } => {
+            let position_text = if state.total_lines > 0 {
+                let percentage = if state.total_lines <= state.viewport_height {
+                    100
+                } else {
+                    (state.scroll_offset * 100) / state.max_scroll()
+                };
+                format!(
+                    " Line {}-{}/{} ({}%)",
+                    state.scroll_offset + 1,
+                    (state.scroll_offset + state.viewport_height).min(state.total_lines),
+                    state.total_lines,
+                    percentage
+                )
+            } else {
+                " (empty)".to_string()
+            };
+            format!(
+                "{} -- Searching: '{}' ({}/{} matches) -- n: next, N: prev, Esc: clear",
+                position_text,
+                query,
+                current_match + 1,
+                matches.len()
+            )
+        }
+        SearchMode::Normal => {
+            let position_text = if state.total_lines > 0 {
+                let percentage = if state.total_lines <= state.viewport_height {
+                    100
+                } else {
+                    (state.scroll_offset * 100) / state.max_scroll()
+                };
+                format!(
+                    " Line {}-{}/{} ({}%)",
+                    state.scroll_offset + 1,
+                    (state.scroll_offset + state.viewport_height).min(state.total_lines),
+                    state.total_lines,
+                    percentage
+                )
+            } else {
+                " (empty)".to_string()
+            };
+            format!(
+                "{} -- q: quit, ↑/↓ j/k: scroll, PgUp/PgDn, Home/End, /: search",
+                position_text
+            )
+        }
     };
 
-    let status_bar = Paragraph::new(format!(
-        "{} -- Press q to quit, ↑/↓ or j/k to scroll, PgUp/PgDn, Home/End",
-        position_text
-    ))
-    .style(Style::default().bg(Color::DarkGray).fg(Color::White));
+    let status_bar = Paragraph::new(status_text)
+        .style(Style::default().bg(Color::DarkGray).fg(Color::White));
 
     frame.render_widget(status_bar, chunks[1]);
 }
 
 /// Handle keyboard events for the pager
-fn handle_key_event(key_event: KeyEvent, state: &mut PagerState) -> bool {
+fn handle_key_event(key_event: KeyEvent, state: &mut PagerState, content: &[String]) -> bool {
+    // Handle search input mode
+    if matches!(state.search_mode, SearchMode::EnteringQuery) {
+        match key_event.code {
+            KeyCode::Enter => {
+                state.perform_search(content);
+                return true;
+            }
+            KeyCode::Esc => {
+                state.search_mode = SearchMode::Normal;
+                state.search_input.clear();
+                return true;
+            }
+            KeyCode::Backspace => {
+                state.search_input.pop();
+                return true;
+            }
+            KeyCode::Char(c) => {
+                state.search_input.push(c);
+                return true;
+            }
+            _ => return true,
+        }
+    }
+
+    // Handle Ctrl key combinations
     if key_event.modifiers.contains(KeyModifiers::CONTROL) {
         match key_event.code {
             KeyCode::Char('c') => return false, // Quit on Ctrl+C
@@ -164,8 +388,26 @@ fn handle_key_event(key_event: KeyEvent, state: &mut PagerState) -> bool {
         return true;
     }
 
+    // Handle regular keys
     match key_event.code {
-        KeyCode::Char('q') | KeyCode::Esc => return false, // Quit
+        KeyCode::Char('q') => return false, // Quit
+        KeyCode::Esc => {
+            // Clear search if active, otherwise quit
+            if matches!(state.search_mode, SearchMode::Active { .. }) {
+                state.clear_search();
+            } else {
+                return false;
+            }
+        }
+        KeyCode::Char('/') => {
+            state.start_search();
+        }
+        KeyCode::Char('n') => {
+            state.next_match();
+        }
+        KeyCode::Char('N') => {
+            state.prev_match();
+        }
         KeyCode::Down | KeyCode::Char('j') => state.scroll_down(),
         KeyCode::Up | KeyCode::Char('k') => state.scroll_up(),
         KeyCode::PageDown | KeyCode::Char(' ') | KeyCode::Char('f') => state.page_down(),
@@ -197,7 +439,7 @@ fn run_interactive_pager(content: &[String]) -> io::Result<()> {
 
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key_event) = event::read()? {
-                if !handle_key_event(key_event, &mut state) {
+                if !handle_key_event(key_event, &mut state, content) {
                     break Ok(());
                 }
             }
