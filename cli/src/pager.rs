@@ -1,5 +1,5 @@
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent},
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -77,9 +77,6 @@ impl PagerState {
 fn render_pager(frame: &mut Frame, content: &[String], state: &mut PagerState) {
     let area = frame.area();
 
-    // Update viewport height based on available space (minus borders and status bar)
-    state.viewport_height = area.height.saturating_sub(3) as usize;
-
     // Create layout with main content area and status bar
     let chunks = Layout::default()
         .constraints([
@@ -87,6 +84,9 @@ fn render_pager(frame: &mut Frame, content: &[String], state: &mut PagerState) {
             Constraint::Length(1), // Status bar
         ])
         .split(area);
+
+    // Update viewport height based on actual content area height
+    state.viewport_height = chunks[0].height as usize;
 
     // Prepare content lines for display
     let visible_lines: Vec<Line> = content
@@ -105,11 +105,12 @@ fn render_pager(frame: &mut Frame, content: &[String], state: &mut PagerState) {
     if state.total_lines > state.viewport_height {
         let scrollbar = Scrollbar::default()
             .orientation(ScrollbarOrientation::VerticalRight)
-            .begin_symbol(Some("↑"))
-            .end_symbol(Some("↓"));
+            .track_symbol(None)
+            .begin_symbol(None)
+            .end_symbol(None);
 
         let mut scrollbar_state = ScrollbarState::default()
-            .content_length(state.total_lines)
+            .content_length(state.total_lines - state.viewport_height + 2)
             .viewport_content_length(state.viewport_height)
             .position(state.scroll_offset);
 
@@ -131,8 +132,9 @@ fn render_pager(frame: &mut Frame, content: &[String], state: &mut PagerState) {
             (state.scroll_offset * 100) / state.max_scroll()
         };
         format!(
-            " Line {}/{} ({}%)",
+            " Line {}-{}/{} ({}%)",
             state.scroll_offset + 1,
+            (state.scroll_offset + state.viewport_height).min(state.total_lines),
             state.total_lines,
             percentage
         )
@@ -151,11 +153,22 @@ fn render_pager(frame: &mut Frame, content: &[String], state: &mut PagerState) {
 
 /// Handle keyboard events for the pager
 fn handle_key_event(key_event: KeyEvent, state: &mut PagerState) -> bool {
+    if key_event.modifiers.contains(KeyModifiers::CONTROL) {
+        match key_event.code {
+            KeyCode::Char('c') => return false, // Quit on Ctrl+C
+            KeyCode::Char('f') => state.page_down(),
+            KeyCode::Char('b') => state.page_up(),
+            _ => {}
+        }
+
+        return true;
+    }
+
     match key_event.code {
         KeyCode::Char('q') | KeyCode::Esc => return false, // Quit
         KeyCode::Down | KeyCode::Char('j') => state.scroll_down(),
         KeyCode::Up | KeyCode::Char('k') => state.scroll_up(),
-        KeyCode::PageDown | KeyCode::Char(' ') => state.page_down(),
+        KeyCode::PageDown | KeyCode::Char(' ') | KeyCode::Char('f') => state.page_down(),
         KeyCode::PageUp => state.page_up(),
         KeyCode::Home | KeyCode::Char('g') => state.jump_to_start(),
         KeyCode::End | KeyCode::Char('G') => state.jump_to_end(),
@@ -175,7 +188,7 @@ fn run_interactive_pager(content: &[String]) -> io::Result<()> {
 
     // Initialize pager state
     let total_lines = content.len();
-    let viewport_height = terminal.size()?.height.saturating_sub(3) as usize;
+    let viewport_height = terminal.size()?.height.saturating_sub(1) as usize;
     let mut state = PagerState::new(total_lines, viewport_height);
 
     // Main event loop
