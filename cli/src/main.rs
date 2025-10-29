@@ -9,6 +9,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
+mod pager;
+
 #[derive(Parser, Debug)]
 #[command(name = "piki")]
 #[command(about = "A simple personal wiki", long_about = None)]
@@ -193,7 +195,7 @@ fn cmd_view(name: Option<String>, notes_dir: &Path) -> Result<(), String> {
     if doc.content.is_empty() {
         println!("(empty)");
     } else {
-        print!("{}", doc.content);
+        pager::page_output(&doc.content)?;
     }
 
     Ok(())
@@ -259,7 +261,7 @@ fn cmd_index(notes_dir: &Path) -> Result<(), String> {
     let store = DocumentStore::new(notes_dir.to_path_buf());
     let plugin = IndexPlugin;
     let content = plugin.generate_content(&store)?;
-    print!("{}", content);
+    pager::page_output(&content)?;
     Ok(())
 }
 
@@ -267,7 +269,7 @@ fn cmd_todo(notes_dir: &Path) -> Result<(), String> {
     let store = DocumentStore::new(notes_dir.to_path_buf());
     let plugin = TodoPlugin;
     let content = plugin.generate_content(&store)?;
-    print!("{}", content);
+    pager::page_output(&content)?;
     Ok(())
 }
 
