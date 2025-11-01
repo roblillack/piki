@@ -5,6 +5,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::io::Cursor;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -195,7 +196,19 @@ fn cmd_view(name: Option<String>, notes_dir: &Path) -> Result<(), String> {
     if doc.content.is_empty() {
         println!("(empty)");
     } else {
-        pager::page_output(&doc.content)?;
+        let ftml = tdoc::markdown::parse(Cursor::new(doc.content.into_bytes()))
+            .map_err(|e| format!("Error parsing FTML: {}", e))?;
+
+        let mut output = Vec::new();
+
+        tdoc::formatter::Formatter::new_ansi(&mut output)
+            .write_document(&ftml)
+            .map_err(|e| format!("Error rendering FTML: {}", e))?;
+
+        let formatted_output =
+            String::from_utf8(output).map_err(|_e| "Invalid UTF-8 generated in Markdown export")?;
+
+        return pager::page_output(&formatted_output);
     }
 
     Ok(())
