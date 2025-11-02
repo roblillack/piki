@@ -1,14 +1,19 @@
 use clap::{Parser, Subcommand};
+use crossterm::terminal;
 use fuzzypicker::FuzzyPicker;
 use piki_core::{DocumentStore, IndexPlugin, Plugin, TodoPlugin};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::io::Cursor;
+use std::io::{self, Cursor, IsTerminal};
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
+use tdoc::formatter::{Formatter, FormattingStyle};
+use tdoc::{Document, LinkPolicy, markdown, pager as tdoc_pager};
+use url::Url;
 
 mod pager;
 
@@ -179,7 +184,9 @@ fn cmd_edit(name: Option<String>, notes_dir: &PathBuf) -> Result<(), String> {
 }
 
 fn cmd_view(name: Option<String>, notes_dir: &Path) -> Result<(), String> {
-    let store = DocumentStore::new(notes_dir.to_path_buf());
+    let notes_dir_buf = notes_dir.to_path_buf();
+    let canonical_notes_dir = normalize_base_path(notes_dir);
+    let store = DocumentStore::new(notes_dir_buf.clone());
 
     let note_name = if let Some(name) = name {
         name
@@ -195,23 +202,299 @@ fn cmd_view(name: Option<String>, notes_dir: &Path) -> Result<(), String> {
 
     if doc.content.is_empty() {
         println!("(empty)");
-    } else {
-        let ftml = tdoc::markdown::parse(Cursor::new(doc.content.into_bytes()))
-            .map_err(|e| format!("Error parsing FTML: {}", e))?;
-
-        let mut output = Vec::new();
-
-        tdoc::formatter::Formatter::new_ansi(&mut output)
-            .write_document(&ftml)
-            .map_err(|e| format!("Error rendering FTML: {}", e))?;
-
-        let formatted_output =
-            String::from_utf8(output).map_err(|_e| "Invalid UTF-8 generated in Markdown export")?;
-
-        return pager::page_output(&formatted_output);
+        return Ok(());
     }
 
-    Ok(())
+    let document_path = fs::canonicalize(&doc.path).unwrap_or_else(|_| doc.path.clone());
+    let parsed = markdown::parse(Cursor::new(doc.content.into_bytes()))
+        .map_err(|e| format!("Error parsing FTML: {}", e))?;
+
+    let stdout_is_tty = io::stdout().is_terminal();
+    let use_ansi = stdout_is_tty;
+    let use_pager = use_ansi;
+
+    if !use_pager {
+        let mut formatter = if use_ansi {
+            let mut style = FormattingStyle::ansi();
+            configure_style_for_terminal(&mut style);
+            Formatter::new(io::stdout(), style)
+        } else {
+            Formatter::new_ascii(io::stdout())
+        };
+
+        return formatter
+            .write_document(&parsed)
+            .map_err(|err| format!("Error rendering FTML: {err}"));
+    }
+
+    let shared_state = Arc::new(Mutex::new(LinkEnvironment {
+        document: parsed.clone(),
+        current_path: document_path.clone(),
+    }));
+
+    let initial = render_document_for_terminal(&parsed)?;
+    let regen_state = shared_state.clone();
+    let regenerator = move |new_width: u16, _new_height: u16| -> Result<String, String> {
+        let guard = regen_state
+            .lock()
+            .map_err(|_| "Failed to access document for resize".to_string())?;
+        render_document_for_width(&guard.document, new_width as usize)
+    };
+
+    let link_policy = build_link_policy(&notes_dir_buf, &canonical_notes_dir, &document_path);
+    let link_callback: Arc<dyn tdoc_pager::LinkCallback> = Arc::new(LinkCallbackState::new(
+        shared_state.clone(),
+        notes_dir_buf.clone(),
+        canonical_notes_dir.clone(),
+    ));
+
+    let options = tdoc_pager::PagerOptions {
+        link_policy,
+        link_callback: Some(link_callback),
+        ..tdoc_pager::PagerOptions::default()
+    };
+
+    tdoc_pager::page_output_with_options_and_regenerator(&initial, Some(regenerator), options)
+}
+
+struct LinkEnvironment {
+    document: Document,
+    current_path: PathBuf,
+}
+
+struct LinkCallbackState {
+    shared: Arc<Mutex<LinkEnvironment>>,
+    notes_dir: PathBuf,
+    canonical_notes_dir: PathBuf,
+}
+
+impl LinkCallbackState {
+    fn new(
+        shared: Arc<Mutex<LinkEnvironment>>,
+        notes_dir: PathBuf,
+        canonical_notes_dir: PathBuf,
+    ) -> Self {
+        Self {
+            shared,
+            notes_dir,
+            canonical_notes_dir,
+        }
+    }
+}
+
+impl tdoc_pager::LinkCallback for LinkCallbackState {
+    fn on_link(
+        &self,
+        target: &str,
+        context: &mut tdoc_pager::LinkCallbackContext<'_>,
+    ) -> Result<(), String> {
+        let trimmed = target.trim();
+        if trimmed.is_empty() {
+            return Ok(());
+        }
+
+        context.set_status(format!("Loading {trimmed} ..."))?;
+
+        let current_path = {
+            let guard = self
+                .shared
+                .lock()
+                .map_err(|_| "Unable to read current document state".to_string())?;
+            guard.current_path.clone()
+        };
+
+        match load_internal_document(
+            &self.notes_dir,
+            &self.canonical_notes_dir,
+            &current_path,
+            trimmed,
+        ) {
+            Ok(Some((document, new_path))) => {
+                let render_width = context.content_width().max(1);
+                let rendered = render_document_for_width(&document, render_width)?;
+                context.replace_content(&rendered)?;
+                context.set_link_policy(build_link_policy(
+                    &self.notes_dir,
+                    &self.canonical_notes_dir,
+                    &new_path,
+                ));
+                {
+                    let mut guard = self
+                        .shared
+                        .lock()
+                        .map_err(|_| "Unable to update current document state".to_string())?;
+                    guard.document = document;
+                    guard.current_path = new_path;
+                }
+                context.clear_status()?;
+            }
+            Ok(None) => {
+                context.set_status("Unable to open link".to_string())?;
+            }
+            Err(err) => {
+                context.set_status(format!("Error: {err}"))?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+fn build_link_policy(
+    notes_dir: &Path,
+    canonical_notes_dir: &Path,
+    current_path: &Path,
+) -> LinkPolicy {
+    let notes_dir_owned = notes_dir.to_path_buf();
+    let canonical_owned = canonical_notes_dir.to_path_buf();
+    let current_path_owned = current_path.to_path_buf();
+
+    LinkPolicy::new(
+        true,
+        Arc::new(move |target: &str| {
+            resolve_internal_link(
+                &notes_dir_owned,
+                &canonical_owned,
+                &current_path_owned,
+                target,
+            )
+            .is_some()
+        }),
+    )
+}
+
+fn configure_style_for_terminal(style: &mut FormattingStyle) {
+    if let Ok((width, _height)) = terminal::size() {
+        configure_style_for_width(style, width as usize);
+    }
+}
+
+fn configure_style_for_width(style: &mut FormattingStyle, width: usize) {
+    if width < 60 {
+        style.wrap_width = width - 1; // for the scrollbar
+        style.left_padding = 0;
+    } else if width < 100 {
+        style.wrap_width = width.saturating_sub(2);
+        style.left_padding = 2;
+    } else {
+        let padding = (width.saturating_sub(100)) / 2 + 4;
+        style.wrap_width = width.saturating_sub(padding);
+        style.left_padding = padding;
+    }
+}
+
+fn render_document_for_terminal(document: &Document) -> Result<String, String> {
+    let mut buf = Vec::new();
+    let mut style = FormattingStyle::ansi();
+    configure_style_for_terminal(&mut style);
+    {
+        let mut formatter = Formatter::new(&mut buf, style);
+        formatter
+            .write_document(document)
+            .map_err(|err| format!("Unable to write document: {err}"))?;
+    }
+    String::from_utf8(buf).map_err(|err| format!("UTF-8 error: {err}"))
+}
+
+fn render_document_for_width(document: &Document, width: usize) -> Result<String, String> {
+    let mut buf = Vec::new();
+    let mut style = FormattingStyle::ansi();
+    configure_style_for_width(&mut style, width);
+    {
+        let mut formatter = Formatter::new(&mut buf, style);
+        formatter
+            .write_document(document)
+            .map_err(|err| format!("Unable to write document: {err}"))?;
+    }
+    String::from_utf8(buf).map_err(|err| format!("UTF-8 error: {err}"))
+}
+
+fn normalize_base_path(path: &Path) -> PathBuf {
+    fs::canonicalize(path)
+        .or_else(|_| {
+            if path.is_absolute() {
+                Ok(path.to_path_buf())
+            } else {
+                env::current_dir().map(|cwd| cwd.join(path))
+            }
+        })
+        .unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn resolve_internal_link(
+    notes_dir: &Path,
+    canonical_notes_dir: &Path,
+    current_path: &Path,
+    target: &str,
+) -> Option<PathBuf> {
+    let trimmed = target.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') || is_absolute_url(trimmed) {
+        return None;
+    }
+
+    let path_part = trimmed.split('#').next().unwrap_or(trimmed).trim();
+    if path_part.is_empty() {
+        return None;
+    }
+
+    let raw_path = Path::new(path_part);
+    let base_dir = current_path
+        .parent()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| notes_dir.to_path_buf());
+
+    let resolved_base = if raw_path.is_absolute() {
+        let stripped = raw_path.strip_prefix(Path::new("/")).unwrap_or(raw_path);
+        notes_dir.join(stripped)
+    } else {
+        base_dir.join(raw_path)
+    };
+
+    let mut candidates = Vec::new();
+    if raw_path.extension().is_none() {
+        candidates.push(resolved_base.with_extension("md"));
+    }
+    candidates.push(resolved_base);
+
+    for candidate in candidates {
+        if !candidate.exists() {
+            continue;
+        }
+        if let Ok(canonical_candidate) = fs::canonicalize(&candidate) {
+            if canonical_candidate.starts_with(canonical_notes_dir) {
+                return Some(canonical_candidate);
+            }
+        }
+    }
+
+    None
+}
+
+fn load_internal_document(
+    notes_dir: &Path,
+    canonical_notes_dir: &Path,
+    current_path: &Path,
+    target: &str,
+) -> Result<Option<(Document, PathBuf)>, String> {
+    let resolved = match resolve_internal_link(notes_dir, canonical_notes_dir, current_path, target)
+    {
+        Some(path) => path,
+        None => return Ok(None),
+    };
+
+    let content = fs::read_to_string(&resolved)
+        .map_err(|err| format!("Unable to read {}: {}", resolved.display(), err))?;
+    let document = markdown::parse(Cursor::new(content.into_bytes()))
+        .map_err(|err| format!("Error parsing FTML: {}", err))?;
+
+    Ok(Some((document, resolved)))
+}
+
+fn is_absolute_url(value: &str) -> bool {
+    if value.starts_with("//") {
+        return true;
+    }
+    Url::parse(value).is_ok()
 }
 
 fn cmd_ls(notes_dir: &Path) -> Result<(), String> {
