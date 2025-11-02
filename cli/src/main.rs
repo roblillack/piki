@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use crossterm::terminal;
 use fuzzypicker::FuzzyPicker;
-use piki_core::{DocumentStore, IndexPlugin, Plugin, TodoPlugin};
+use piki_core::{DocumentStore, IndexPlugin, Plugin, PluginRegistry, TodoPlugin};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::env;
@@ -186,28 +186,47 @@ fn cmd_edit(name: Option<String>, notes_dir: &PathBuf) -> Result<(), String> {
 fn cmd_view(name: Option<String>, notes_dir: &Path) -> Result<(), String> {
     let notes_dir_buf = notes_dir.to_path_buf();
     let canonical_notes_dir = normalize_base_path(notes_dir);
-    let store = DocumentStore::new(notes_dir_buf.clone());
+    let store = Arc::new(DocumentStore::new(notes_dir_buf.clone()));
+
+    let mut plugin_registry = PluginRegistry::new();
+    plugin_registry.register("index", Box::new(IndexPlugin));
+    plugin_registry.register("todo", Box::new(TodoPlugin));
+    let plugin_registry = Arc::new(plugin_registry);
 
     let note_name = if let Some(name) = name {
         name
     } else {
         // Interactive selection
-        match interactive_select(&store)? {
+        match interactive_select(store.as_ref())? {
             Some(name) => name,
             None => return Ok(()),
         }
     };
 
-    let doc = store.load(&note_name)?;
-
-    if doc.content.is_empty() {
-        println!("(empty)");
-        return Ok(());
-    }
-
-    let document_path = fs::canonicalize(&doc.path).unwrap_or_else(|_| doc.path.clone());
-    let parsed = markdown::parse(Cursor::new(doc.content.into_bytes()))
-        .map_err(|e| format!("Error parsing FTML: {}", e))?;
+    let initial_content = if let Some(plugin_name) = note_name.strip_prefix('!') {
+        let generated = plugin_registry
+            .generate(plugin_name, store.as_ref())
+            .map_err(|err| format!("Error generating plugin '{plugin_name}': {err}"))?;
+        let document = markdown::parse(Cursor::new(generated.into_bytes()))
+            .map_err(|e| format!("Error parsing FTML: {}", e))?;
+        LoadedContent {
+            document,
+            location: ContentLocation::Plugin,
+        }
+    } else {
+        let doc = store.load(&note_name)?;
+        if doc.content.is_empty() {
+            println!("(empty)");
+            return Ok(());
+        }
+        let document_path = fs::canonicalize(&doc.path).unwrap_or_else(|_| doc.path.clone());
+        let document = markdown::parse(Cursor::new(doc.content.into_bytes()))
+            .map_err(|e| format!("Error parsing FTML: {}", e))?;
+        LoadedContent {
+            document,
+            location: ContentLocation::File(document_path),
+        }
+    };
 
     let stdout_is_tty = io::stdout().is_terminal();
     let use_ansi = stdout_is_tty;
@@ -223,16 +242,16 @@ fn cmd_view(name: Option<String>, notes_dir: &Path) -> Result<(), String> {
         };
 
         return formatter
-            .write_document(&parsed)
+            .write_document(&initial_content.document)
             .map_err(|err| format!("Error rendering FTML: {err}"));
     }
 
     let shared_state = Arc::new(Mutex::new(LinkEnvironment {
-        document: parsed.clone(),
-        current_path: document_path.clone(),
+        document: initial_content.document.clone(),
+        location: initial_content.location.clone(),
     }));
 
-    let initial = render_document_for_terminal(&parsed)?;
+    let initial = render_document_for_terminal(&initial_content.document)?;
     let regen_state = shared_state.clone();
     let regenerator = move |new_width: u16, _new_height: u16| -> Result<String, String> {
         let guard = regen_state
@@ -241,11 +260,18 @@ fn cmd_view(name: Option<String>, notes_dir: &Path) -> Result<(), String> {
         render_document_for_width(&guard.document, new_width as usize)
     };
 
-    let link_policy = build_link_policy(&notes_dir_buf, &canonical_notes_dir, &document_path);
+    let link_policy = build_link_policy(
+        &notes_dir_buf,
+        &canonical_notes_dir,
+        &initial_content.location,
+        &plugin_registry,
+    );
     let link_callback: Arc<dyn tdoc_pager::LinkCallback> = Arc::new(LinkCallbackState::new(
         shared_state.clone(),
         notes_dir_buf.clone(),
         canonical_notes_dir.clone(),
+        store.clone(),
+        plugin_registry.clone(),
     ));
 
     let options = tdoc_pager::PagerOptions {
@@ -257,15 +283,33 @@ fn cmd_view(name: Option<String>, notes_dir: &Path) -> Result<(), String> {
     tdoc_pager::page_output_with_options_and_regenerator(&initial, Some(regenerator), options)
 }
 
+#[derive(Clone)]
+enum ContentLocation {
+    File(PathBuf),
+    Plugin,
+}
+
+struct LoadedContent {
+    document: Document,
+    location: ContentLocation,
+}
+
+enum LinkTarget {
+    File(PathBuf),
+    Plugin(String),
+}
+
 struct LinkEnvironment {
     document: Document,
-    current_path: PathBuf,
+    location: ContentLocation,
 }
 
 struct LinkCallbackState {
     shared: Arc<Mutex<LinkEnvironment>>,
     notes_dir: PathBuf,
     canonical_notes_dir: PathBuf,
+    store: Arc<DocumentStore>,
+    plugin_registry: Arc<PluginRegistry>,
 }
 
 impl LinkCallbackState {
@@ -273,11 +317,15 @@ impl LinkCallbackState {
         shared: Arc<Mutex<LinkEnvironment>>,
         notes_dir: PathBuf,
         canonical_notes_dir: PathBuf,
+        store: Arc<DocumentStore>,
+        plugin_registry: Arc<PluginRegistry>,
     ) -> Self {
         Self {
             shared,
             notes_dir,
             canonical_notes_dir,
+            store,
+            plugin_registry,
         }
     }
 }
@@ -295,28 +343,32 @@ impl tdoc_pager::LinkCallback for LinkCallbackState {
 
         context.set_status(format!("Loading {trimmed} ..."))?;
 
-        let current_path = {
+        let current_location = {
             let guard = self
                 .shared
                 .lock()
                 .map_err(|_| "Unable to read current document state".to_string())?;
-            guard.current_path.clone()
+            guard.location.clone()
         };
 
-        match load_internal_document(
+        match load_internal_content(
+            self.store.as_ref(),
+            self.plugin_registry.as_ref(),
             &self.notes_dir,
             &self.canonical_notes_dir,
-            &current_path,
+            &current_location,
             trimmed,
         ) {
-            Ok(Some((document, new_path))) => {
+            Ok(Some(loaded)) => {
+                let LoadedContent { document, location } = loaded;
                 let render_width = context.content_width().max(1);
                 let rendered = render_document_for_width(&document, render_width)?;
                 context.replace_content(&rendered)?;
                 context.set_link_policy(build_link_policy(
                     &self.notes_dir,
                     &self.canonical_notes_dir,
-                    &new_path,
+                    &location,
+                    &self.plugin_registry,
                 ));
                 {
                     let mut guard = self
@@ -324,7 +376,7 @@ impl tdoc_pager::LinkCallback for LinkCallbackState {
                         .lock()
                         .map_err(|_| "Unable to update current document state".to_string())?;
                     guard.document = document;
-                    guard.current_path = new_path;
+                    guard.location = location;
                 }
                 context.clear_status()?;
             }
@@ -343,20 +395,23 @@ impl tdoc_pager::LinkCallback for LinkCallbackState {
 fn build_link_policy(
     notes_dir: &Path,
     canonical_notes_dir: &Path,
-    current_path: &Path,
+    location: &ContentLocation,
+    plugin_registry: &Arc<PluginRegistry>,
 ) -> LinkPolicy {
     let notes_dir_owned = notes_dir.to_path_buf();
     let canonical_owned = canonical_notes_dir.to_path_buf();
-    let current_path_owned = current_path.to_path_buf();
+    let location_owned = location.clone();
+    let plugin_registry = Arc::clone(plugin_registry);
 
     LinkPolicy::new(
         true,
         Arc::new(move |target: &str| {
-            resolve_internal_link(
+            resolve_link_target(
                 &notes_dir_owned,
                 &canonical_owned,
-                &current_path_owned,
+                &location_owned,
                 target,
+                plugin_registry.as_ref(),
             )
             .is_some()
         }),
@@ -421,12 +476,13 @@ fn normalize_base_path(path: &Path) -> PathBuf {
         .unwrap_or_else(|_| path.to_path_buf())
 }
 
-fn resolve_internal_link(
+fn resolve_link_target(
     notes_dir: &Path,
     canonical_notes_dir: &Path,
-    current_path: &Path,
+    current_location: &ContentLocation,
     target: &str,
-) -> Option<PathBuf> {
+    plugin_registry: &PluginRegistry,
+) -> Option<LinkTarget> {
     let trimmed = target.trim();
     if trimmed.is_empty() || trimmed.starts_with('#') || is_absolute_url(trimmed) {
         return None;
@@ -437,11 +493,21 @@ fn resolve_internal_link(
         return None;
     }
 
+    if let Some(plugin_name) = path_part.strip_prefix('!') {
+        if plugin_registry.has_plugin(plugin_name) {
+            return Some(LinkTarget::Plugin(plugin_name.to_string()));
+        }
+    }
+
     let raw_path = Path::new(path_part);
-    let base_dir = current_path
-        .parent()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| notes_dir.to_path_buf());
+
+    let base_dir = match current_location {
+        ContentLocation::File(path) => path
+            .parent()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| canonical_notes_dir.to_path_buf()),
+        ContentLocation::Plugin => canonical_notes_dir.to_path_buf(),
+    };
 
     let resolved_base = if raw_path.is_absolute() {
         let stripped = raw_path.strip_prefix(Path::new("/")).unwrap_or(raw_path);
@@ -462,7 +528,7 @@ fn resolve_internal_link(
         }
         if let Ok(canonical_candidate) = fs::canonicalize(&candidate) {
             if canonical_candidate.starts_with(canonical_notes_dir) {
-                return Some(canonical_candidate);
+                return Some(LinkTarget::File(canonical_candidate));
             }
         }
     }
@@ -470,24 +536,42 @@ fn resolve_internal_link(
     None
 }
 
-fn load_internal_document(
+fn load_internal_content(
+    store: &DocumentStore,
+    plugin_registry: &PluginRegistry,
     notes_dir: &Path,
     canonical_notes_dir: &Path,
-    current_path: &Path,
+    current_location: &ContentLocation,
     target: &str,
-) -> Result<Option<(Document, PathBuf)>, String> {
-    let resolved = match resolve_internal_link(notes_dir, canonical_notes_dir, current_path, target)
-    {
-        Some(path) => path,
-        None => return Ok(None),
-    };
-
-    let content = fs::read_to_string(&resolved)
-        .map_err(|err| format!("Unable to read {}: {}", resolved.display(), err))?;
-    let document = markdown::parse(Cursor::new(content.into_bytes()))
-        .map_err(|err| format!("Error parsing FTML: {}", err))?;
-
-    Ok(Some((document, resolved)))
+) -> Result<Option<LoadedContent>, String> {
+    match resolve_link_target(
+        notes_dir,
+        canonical_notes_dir,
+        current_location,
+        target,
+        plugin_registry,
+    ) {
+        Some(LinkTarget::File(path)) => {
+            let content = fs::read_to_string(&path)
+                .map_err(|err| format!("Unable to read {}: {}", path.display(), err))?;
+            let document = markdown::parse(Cursor::new(content.into_bytes()))
+                .map_err(|err| format!("Error parsing FTML: {}", err))?;
+            Ok(Some(LoadedContent {
+                document,
+                location: ContentLocation::File(path),
+            }))
+        }
+        Some(LinkTarget::Plugin(plugin_name)) => {
+            let generated = plugin_registry.generate(&plugin_name, store)?;
+            let document = markdown::parse(Cursor::new(generated.into_bytes()))
+                .map_err(|err| format!("Error parsing FTML: {}", err))?;
+            Ok(Some(LoadedContent {
+                document,
+                location: ContentLocation::Plugin,
+            }))
+        }
+        None => Ok(None),
+    }
 }
 
 fn is_absolute_url(value: &str) -> bool {

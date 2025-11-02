@@ -1197,6 +1197,7 @@ dependencies = [
  "serde",
  "tdoc",
  "toml",
+ "url",
 ]
 
 [[package]]
@@ -1748,18 +1749,21 @@ dependencies = [
 
 [[package]]
 name = "tdoc"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "438bcdd36cf6fa3e288fbf80b413c1a1bfa924862d36d98c418409400da74462"
+checksum = "23a875f43208a52360ce3bf52c9cd281b51eb2947906045b152d6604496e7c5f"
 dependencies = [
  "atty",
  "clap",
  "crossterm 0.27.0",
  "html-escape",
+ "once_cell",
  "pulldown-cmark 0.9.6",
+ "ratatui",
  "regex",
  "reqwest",
  "thiserror 1.0.69",
+ "unicode-width 0.1.14",
  "url",
 ]
 
