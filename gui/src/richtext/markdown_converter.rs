@@ -299,7 +299,7 @@ fn ast_to_structured(ast_doc: &ASTDocument) -> StructuredDocument {
 
     // Ensure at least one block exists
     if doc.is_empty() {
-        doc.add_block(Block::paragraph(0));
+        doc.add_block(Block::paragraph());
     }
 
     doc
@@ -318,14 +318,11 @@ fn ast_node_to_blocks(node: &ASTNode, doc: &mut StructuredDocument) {
                         None
                     };
 
-                    let mut block = Block::new(
-                        0,
-                        BlockType::ListItem {
-                            ordered: *ordered,
-                            number,
-                            checkbox: *checkbox,
-                        },
-                    );
+                    let mut block = Block::new(BlockType::ListItem {
+                        ordered: *ordered,
+                        number,
+                        checkbox: *checkbox,
+                    });
                     block.content = ast_node_to_inline_content(child);
                     doc.add_block(block);
                 }
@@ -342,46 +339,38 @@ fn ast_node_to_blocks(node: &ASTNode, doc: &mut StructuredDocument) {
 
 /// Convert an AST node to a Block
 fn ast_node_to_block(node: &ASTNode, _doc: &mut StructuredDocument) -> Option<Block> {
-    let id = 0; // Will be assigned by document
-
     match &node.node_type {
         NodeType::Paragraph => {
-            let mut block = Block::paragraph(id);
+            let mut block = Block::paragraph();
             block.content = ast_node_to_inline_content(node);
             Some(block)
         }
         NodeType::Heading { level } => {
-            let mut block = Block::heading(id, *level);
+            let mut block = Block::heading(*level);
             block.content = ast_node_to_inline_content(node);
             Some(block)
         }
         NodeType::CodeBlock { language, .. } => {
-            let mut block = Block::new(
-                id,
-                BlockType::CodeBlock {
-                    language: language.clone(),
-                },
-            );
+            let mut block = Block::new(BlockType::CodeBlock {
+                language: language.clone(),
+            });
             let text = node.flatten_text();
             block.content = vec![InlineContent::Text(TextRun::plain(text))];
             Some(block)
         }
         NodeType::BlockQuote => {
-            let mut block = Block::new(id, BlockType::BlockQuote);
+            let mut block = Block::new(BlockType::BlockQuote);
             block.content = ast_node_to_inline_content(node);
             Some(block)
         }
         NodeType::ListItem { checkbox } => {
             // Determine if parent is ordered or unordered
             // For now, assume unordered
-            let mut block = Block::new(
-                id,
-                BlockType::ListItem {
-                    ordered: false,
-                    number: None,
-                    checkbox: *checkbox,
-                },
-            );
+            let mut block = Block::new(BlockType::ListItem {
+                ordered: false,
+                number: None,
+                checkbox: *checkbox,
+            });
             block.content = ast_node_to_inline_content(node);
             Some(block)
         }
@@ -489,7 +478,7 @@ mod tests {
     #[test]
     fn test_document_to_markdown_paragraph() {
         let mut doc = StructuredDocument::new();
-        doc.add_block(Block::paragraph(0).with_plain_text("Hello world"));
+        doc.add_block(Block::paragraph().with_plain_text("Hello world"));
 
         let md = document_to_markdown(&doc);
         assert_eq!(md, "Hello world");
@@ -498,7 +487,7 @@ mod tests {
     #[test]
     fn test_document_to_markdown_heading() {
         let mut doc = StructuredDocument::new();
-        doc.add_block(Block::heading(0, 1).with_plain_text("Title"));
+        doc.add_block(Block::heading(1).with_plain_text("Title"));
 
         let md = document_to_markdown(&doc);
         assert_eq!(md, "# Title");
@@ -508,25 +497,19 @@ mod tests {
     fn test_document_to_markdown_list() {
         let mut doc = StructuredDocument::new();
         doc.add_block(
-            Block::new(
-                0,
-                BlockType::ListItem {
-                    ordered: false,
-                    number: None,
-                    checkbox: None,
-                },
-            )
+            Block::new(BlockType::ListItem {
+                ordered: false,
+                number: None,
+                checkbox: None,
+            })
             .with_plain_text("Item 1"),
         );
         doc.add_block(
-            Block::new(
-                0,
-                BlockType::ListItem {
-                    ordered: false,
-                    number: None,
-                    checkbox: None,
-                },
-            )
+            Block::new(BlockType::ListItem {
+                ordered: false,
+                number: None,
+                checkbox: None,
+            })
             .with_plain_text("Item 2"),
         );
 
@@ -538,25 +521,19 @@ mod tests {
     fn test_document_to_markdown_ordered_list_spacing() {
         let mut doc = StructuredDocument::new();
         doc.add_block(
-            Block::new(
-                0,
-                BlockType::ListItem {
-                    ordered: true,
-                    number: Some(1),
-                    checkbox: None,
-                },
-            )
+            Block::new(BlockType::ListItem {
+                ordered: true,
+                number: Some(1),
+                checkbox: None,
+            })
             .with_plain_text("First"),
         );
         doc.add_block(
-            Block::new(
-                0,
-                BlockType::ListItem {
-                    ordered: true,
-                    number: Some(2),
-                    checkbox: None,
-                },
-            )
+            Block::new(BlockType::ListItem {
+                ordered: true,
+                number: Some(2),
+                checkbox: None,
+            })
             .with_plain_text("Second"),
         );
 
@@ -568,25 +545,19 @@ mod tests {
     fn test_document_to_markdown_checklist_spacing() {
         let mut doc = StructuredDocument::new();
         doc.add_block(
-            Block::new(
-                0,
-                BlockType::ListItem {
-                    ordered: false,
-                    number: None,
-                    checkbox: Some(false),
-                },
-            )
+            Block::new(BlockType::ListItem {
+                ordered: false,
+                number: None,
+                checkbox: Some(false),
+            })
             .with_plain_text("Todo"),
         );
         doc.add_block(
-            Block::new(
-                0,
-                BlockType::ListItem {
-                    ordered: false,
-                    number: None,
-                    checkbox: Some(true),
-                },
-            )
+            Block::new(BlockType::ListItem {
+                ordered: false,
+                number: None,
+                checkbox: Some(true),
+            })
             .with_plain_text("Done"),
         );
 
@@ -598,28 +569,22 @@ mod tests {
     fn test_document_to_markdown_list_spacing_between_types() {
         let mut doc = StructuredDocument::new();
         doc.add_block(
-            Block::new(
-                0,
-                BlockType::ListItem {
-                    ordered: false,
-                    number: None,
-                    checkbox: None,
-                },
-            )
+            Block::new(BlockType::ListItem {
+                ordered: false,
+                number: None,
+                checkbox: None,
+            })
             .with_plain_text("Bullet item"),
         );
         doc.add_block(
-            Block::new(
-                0,
-                BlockType::ListItem {
-                    ordered: true,
-                    number: Some(1),
-                    checkbox: None,
-                },
-            )
+            Block::new(BlockType::ListItem {
+                ordered: true,
+                number: Some(1),
+                checkbox: None,
+            })
             .with_plain_text("Numbered item"),
         );
-        doc.add_block(Block::paragraph(0).with_plain_text("After list"));
+        doc.add_block(Block::paragraph().with_plain_text("After list"));
 
         let md = document_to_markdown(&doc);
         assert_eq!(md, "- Bullet item\n\n1. Numbered item\n\nAfter list");
@@ -640,26 +605,20 @@ mod tests {
     fn test_document_to_markdown_checklist() {
         let mut doc = StructuredDocument::new();
         doc.add_block(
-            Block::new(
-                0,
-                BlockType::ListItem {
-                    ordered: false,
-                    number: None,
-                    checkbox: Some(false),
-                },
-            )
+            Block::new(BlockType::ListItem {
+                ordered: false,
+                number: None,
+                checkbox: Some(false),
+            })
             .with_plain_text("Todo"),
         );
-        doc.add_block(Block::paragraph(0).with_plain_text(""));
+        doc.add_block(Block::paragraph().with_plain_text(""));
         doc.add_block(
-            Block::new(
-                0,
-                BlockType::ListItem {
-                    ordered: false,
-                    number: None,
-                    checkbox: Some(true),
-                },
-            )
+            Block::new(BlockType::ListItem {
+                ordered: false,
+                number: None,
+                checkbox: Some(true),
+            })
             .with_plain_text("Done"),
         );
 
@@ -674,7 +633,7 @@ mod tests {
             .map(|_| "Lorem ipsum dolor sit amet, consectetur adipiscing elit.")
             .collect::<Vec<_>>()
             .join(" ");
-        doc.add_block(Block::paragraph(0).with_plain_text(long_text));
+        doc.add_block(Block::paragraph().with_plain_text(long_text));
 
         let markdown = document_to_markdown(&doc);
         let lines: Vec<&str> = markdown.lines().collect();
@@ -705,14 +664,11 @@ mod tests {
             .collect::<Vec<_>>()
             .join(" ");
         doc.add_block(
-            Block::new(
-                0,
-                BlockType::ListItem {
-                    ordered: false,
-                    number: None,
-                    checkbox: None,
-                },
-            )
+            Block::new(BlockType::ListItem {
+                ordered: false,
+                number: None,
+                checkbox: None,
+            })
             .with_plain_text(long_text),
         );
 
@@ -748,7 +704,7 @@ mod tests {
             .map(|_| "Praesent a orci sed lorem cursus tempor id ut lectus.")
             .collect::<Vec<_>>()
             .join(" ");
-        doc.add_block(Block::new(0, BlockType::BlockQuote).with_plain_text(long_text));
+        doc.add_block(Block::new(BlockType::BlockQuote).with_plain_text(long_text));
 
         let markdown = document_to_markdown(&doc);
         let lines: Vec<&str> = markdown.lines().collect();
@@ -778,7 +734,7 @@ mod tests {
     #[test]
     fn test_markdown_export_wraps_blockquote_with_html_breaks() {
         let mut doc = StructuredDocument::new();
-        let mut block = Block::new(0, BlockType::BlockQuote);
+        let mut block = Block::new(BlockType::BlockQuote);
         block
             .content
             .push(InlineContent::Text(TextRun::plain("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur elementum augue ut erat laoreet, at tristique leo laoreet.")));
@@ -857,7 +813,7 @@ mod tests {
     #[test]
     fn test_double_hard_break_round_trip() {
         let mut doc = StructuredDocument::new();
-        let mut block = Block::paragraph(0);
+        let mut block = Block::paragraph();
         block
             .content
             .push(InlineContent::Text(TextRun::plain("Line 1")));
@@ -885,14 +841,11 @@ mod tests {
     #[test]
     fn test_double_hard_break_round_trip_in_list_item() {
         let mut doc = StructuredDocument::new();
-        let mut block = Block::new(
-            0,
-            BlockType::ListItem {
-                ordered: false,
-                number: None,
-                checkbox: None,
-            },
-        );
+        let mut block = Block::new(BlockType::ListItem {
+            ordered: false,
+            number: None,
+            checkbox: None,
+        });
         block
             .content
             .push(InlineContent::Text(TextRun::plain("First line")));
@@ -923,7 +876,7 @@ mod tests {
     #[test]
     fn test_trailing_double_hard_break_round_trip() {
         let mut doc = StructuredDocument::new();
-        let mut block = Block::paragraph(0);
+        let mut block = Block::paragraph();
         block
             .content
             .push(InlineContent::Text(TextRun::plain("Line 1")));
