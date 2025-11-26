@@ -10,6 +10,7 @@ repository.workspace = true
 piki-core = { version = "0.1.1", path = "../core" }
 fltk = { version = "1.5.20", features = ["use-wayland"] }
 pulldown-cmark = "0.13.0"
+tdoc = { path = "../../tdoc" }
 clap = { version = "4.5", features = ["derive"] }
 walkdir = "2.5"
 regex = "1.10"
