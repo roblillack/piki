@@ -140,36 +140,46 @@ impl PagerState {
 
     /// Go to next search match
     fn next_match(&mut self) {
-        if let SearchMode::Active { matches, current_match, .. } = &mut self.search_mode
-            && !matches.is_empty() {
-                *current_match = (*current_match + 1) % matches.len();
-                let match_line = matches[*current_match].0;
+        if let SearchMode::Active {
+            matches,
+            current_match,
+            ..
+        } = &mut self.search_mode
+            && !matches.is_empty()
+        {
+            *current_match = (*current_match + 1) % matches.len();
+            let match_line = matches[*current_match].0;
 
-                // Center the match in the viewport
-                self.scroll_offset = match_line.saturating_sub(self.viewport_height / 2);
-                if self.scroll_offset > self.max_scroll() {
-                    self.scroll_offset = self.max_scroll();
-                }
+            // Center the match in the viewport
+            self.scroll_offset = match_line.saturating_sub(self.viewport_height / 2);
+            if self.scroll_offset > self.max_scroll() {
+                self.scroll_offset = self.max_scroll();
             }
+        }
     }
 
     /// Go to previous search match
     fn prev_match(&mut self) {
-        if let SearchMode::Active { matches, current_match, .. } = &mut self.search_mode
-            && !matches.is_empty() {
-                *current_match = if *current_match == 0 {
-                    matches.len() - 1
-                } else {
-                    *current_match - 1
-                };
-                let match_line = matches[*current_match].0;
+        if let SearchMode::Active {
+            matches,
+            current_match,
+            ..
+        } = &mut self.search_mode
+            && !matches.is_empty()
+        {
+            *current_match = if *current_match == 0 {
+                matches.len() - 1
+            } else {
+                *current_match - 1
+            };
+            let match_line = matches[*current_match].0;
 
-                // Center the match in the viewport
-                self.scroll_offset = match_line.saturating_sub(self.viewport_height / 2);
-                if self.scroll_offset > self.max_scroll() {
-                    self.scroll_offset = self.max_scroll();
-                }
+            // Center the match in the viewport
+            self.scroll_offset = match_line.saturating_sub(self.viewport_height / 2);
+            if self.scroll_offset > self.max_scroll() {
+                self.scroll_offset = self.max_scroll();
             }
+        }
     }
 
     /// Clear search and return to normal mode
@@ -195,12 +205,21 @@ fn render_pager(frame: &mut Frame, content: &[String], state: &mut PagerState) {
     state.viewport_height = chunks[0].height as usize;
 
     // Prepare content lines for display with search highlighting
-    let visible_lines: Vec<Line> = if let SearchMode::Active { query, matches, current_match } = &state.search_mode {
+    let visible_lines: Vec<Line> = if let SearchMode::Active {
+        query,
+        matches,
+        current_match,
+    } = &state.search_mode
+    {
         // Build a set of matches for the visible lines
-        let mut line_matches: std::collections::HashMap<usize, Vec<(usize, bool)>> = std::collections::HashMap::new();
+        let mut line_matches: std::collections::HashMap<usize, Vec<(usize, bool)>> =
+            std::collections::HashMap::new();
         for (idx, (line_idx, col_idx)) in matches.iter().enumerate() {
-            if *line_idx >= state.scroll_offset && *line_idx < state.scroll_offset + state.viewport_height {
-                line_matches.entry(*line_idx)
+            if *line_idx >= state.scroll_offset
+                && *line_idx < state.scroll_offset + state.viewport_height
+            {
+                line_matches
+                    .entry(*line_idx)
                     .or_default()
                     .push((*col_idx, idx == *current_match));
             }
@@ -234,9 +253,7 @@ fn render_pager(frame: &mut Frame, content: &[String], state: &mut PagerState) {
                                 .bg(Color::Yellow)
                                 .add_modifier(Modifier::BOLD)
                         } else {
-                            Style::default()
-                                .fg(Color::Black)
-                                .bg(Color::Cyan)
+                            Style::default().fg(Color::Black).bg(Color::Cyan)
                         };
                         spans.push(Span::styled(&line[col_idx..match_end], style));
                         last_pos = match_end;
@@ -293,7 +310,11 @@ fn render_pager(frame: &mut Frame, content: &[String], state: &mut PagerState) {
         SearchMode::EnteringQuery => {
             format!("/{}", state.search_input)
         }
-        SearchMode::Active { query, matches, current_match } => {
+        SearchMode::Active {
+            query,
+            matches,
+            current_match,
+        } => {
             let position_text = if state.total_lines > 0 {
                 let percentage = if state.total_lines <= state.viewport_height {
                     100
@@ -342,8 +363,8 @@ fn render_pager(frame: &mut Frame, content: &[String], state: &mut PagerState) {
         }
     };
 
-    let status_bar = Paragraph::new(status_text)
-        .style(Style::default().bg(Color::DarkGray).fg(Color::White));
+    let status_bar =
+        Paragraph::new(status_text).style(Style::default().bg(Color::DarkGray).fg(Color::White));
 
     frame.render_widget(status_bar, chunks[1]);
 }
@@ -437,9 +458,10 @@ fn run_interactive_pager(content: &[String]) -> io::Result<()> {
 
         if event::poll(std::time::Duration::from_millis(100))?
             && let Event::Key(key_event) = event::read()?
-                && !handle_key_event(key_event, &mut state, content) {
-                    break Ok(());
-                }
+            && !handle_key_event(key_event, &mut state, content)
+        {
+            break Ok(());
+        }
     };
 
     // Cleanup terminal
