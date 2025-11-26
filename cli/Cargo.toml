@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-piki-core = { version= "0.1.1", path = "../core" }
+piki-core = { version= "0.2.0", path = "../core" }
 tdoc = { version = "0.8.1" }
 fuzzypicker = "0.2.1"
 clap = { version = "4.5", features = ["derive"] }
