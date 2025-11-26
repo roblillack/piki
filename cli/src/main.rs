@@ -493,11 +493,10 @@ fn resolve_link_target(
         return None;
     }
 
-    if let Some(plugin_name) = path_part.strip_prefix('!') {
-        if plugin_registry.has_plugin(plugin_name) {
+    if let Some(plugin_name) = path_part.strip_prefix('!')
+        && plugin_registry.has_plugin(plugin_name) {
             return Some(LinkTarget::Plugin(plugin_name.to_string()));
         }
-    }
 
     let raw_path = Path::new(path_part);
 
@@ -526,11 +525,10 @@ fn resolve_link_target(
         if !candidate.exists() {
             continue;
         }
-        if let Ok(canonical_candidate) = fs::canonicalize(&candidate) {
-            if canonical_candidate.starts_with(canonical_notes_dir) {
+        if let Ok(canonical_candidate) = fs::canonicalize(&candidate)
+            && canonical_candidate.starts_with(canonical_notes_dir) {
                 return Some(LinkTarget::File(canonical_candidate));
             }
-        }
     }
 
     None
