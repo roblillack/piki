@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use crossterm::terminal;
 use fuzzypicker::FuzzyPicker;
-use piki_core::{DocumentStore, IndexPlugin, Plugin, PluginRegistry, TodoPlugin};
+use piki_core::{DocumentStore, IndexPlugin, PluginRegistry, TodoPlugin};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::env;
@@ -14,8 +14,6 @@ use std::sync::{Arc, Mutex};
 use tdoc::formatter::{Formatter, FormattingStyle};
 use tdoc::{Document, LinkPolicy, markdown, pager as tdoc_pager};
 use url::Url;
-
-mod pager;
 
 #[derive(Parser, Debug)]
 #[command(name = "piki")]
@@ -494,9 +492,10 @@ fn resolve_link_target(
     }
 
     if let Some(plugin_name) = path_part.strip_prefix('!')
-        && plugin_registry.has_plugin(plugin_name) {
-            return Some(LinkTarget::Plugin(plugin_name.to_string()));
-        }
+        && plugin_registry.has_plugin(plugin_name)
+    {
+        return Some(LinkTarget::Plugin(plugin_name.to_string()));
+    }
 
     let raw_path = Path::new(path_part);
 
@@ -526,9 +525,10 @@ fn resolve_link_target(
             continue;
         }
         if let Ok(canonical_candidate) = fs::canonicalize(&candidate)
-            && canonical_candidate.starts_with(canonical_notes_dir) {
-                return Some(LinkTarget::File(canonical_candidate));
-            }
+            && canonical_candidate.starts_with(canonical_notes_dir)
+        {
+            return Some(LinkTarget::File(canonical_candidate));
+        }
     }
 
     None
@@ -636,19 +636,11 @@ fn cmd_run(command: Vec<String>, notes_dir: &PathBuf) -> Result<(), String> {
 }
 
 fn cmd_index(notes_dir: &Path) -> Result<(), String> {
-    let store = DocumentStore::new(notes_dir.to_path_buf());
-    let plugin = IndexPlugin;
-    let content = plugin.generate_content(&store)?;
-    pager::page_output(&content)?;
-    Ok(())
+    cmd_view(Some("!index".to_string()), notes_dir)
 }
 
 fn cmd_todo(notes_dir: &Path) -> Result<(), String> {
-    let store = DocumentStore::new(notes_dir.to_path_buf());
-    let plugin = TodoPlugin;
-    let content = plugin.generate_content(&store)?;
-    pager::page_output(&content)?;
-    Ok(())
+    cmd_view(Some("!todo".to_string()), notes_dir)
 }
 
 fn print_help_with_aliases(config: &Config) {
