@@ -455,6 +455,33 @@ impl StructuredEditor {
         Ok(())
     }
 
+    /// Calculate the cursor position immediately after inserting newline-delimited plain text.
+    fn cursor_after_plain_insert(
+        &self,
+        start: DocumentPosition,
+        paragraphs: &[&str],
+    ) -> DocumentPosition {
+        let insert_block = start
+            .block_index
+            .min(self.document.block_count().saturating_sub(1));
+
+        let (block_index, offset) = if paragraphs.len() <= 1 {
+            let inserted_len = paragraphs.first().map(|s| s.len()).unwrap_or(0);
+            let left_len = start
+                .offset
+                .min(self.document.blocks()[insert_block].text_len());
+            (insert_block, left_len + inserted_len)
+        } else {
+            let last_block = (insert_block + paragraphs.len() - 1)
+                .min(self.document.block_count().saturating_sub(1));
+            let last_len = paragraphs.last().map(|s| s.len()).unwrap_or(0);
+            (last_block, last_len)
+        };
+
+        let block_len = self.document.blocks()[block_index].text_len();
+        DocumentPosition::new(block_index, min(offset, block_len))
+    }
+
     /// Insert a newline at cursor (creates new paragraph or continues list)
     pub fn insert_newline(&mut self) -> EditResult {
         if self.document.is_empty() {
@@ -2599,36 +2626,32 @@ impl StructuredEditor {
 
     /// Paste text at cursor position (or replace selection)
     pub fn paste(&mut self, text: &str) -> EditResult {
+        let normalized = normalize_plain_text(text);
+        if normalized.is_empty() {
+            return Ok(());
+        }
+
+        let normalized_text = normalized.as_ref();
+        let paragraphs: Vec<&str> = normalized_text.split('\n').collect();
+
         if let Some((start, end)) = self.selection {
             // Replace selection using document-level range replace to support multi-paragraph pastes
-            self.document.replace_range(start, end, text);
-            // Position cursor immediately after the inserted text
-            // If multiple paragraphs were inserted, move to start of the last inserted paragraph.
-            let paragraphs: Vec<&str> = text.split("\n\n").collect();
-            let insert_block = start
-                .block_index
-                .min(self.document.block_count().saturating_sub(1));
-            let (block_index, offset) = if paragraphs.len() <= 1 {
-                // Single paragraph inserted into existing block at start.offset
-                let inserted_len = paragraphs.first().map(|s| s.len()).unwrap_or(0);
-                let left_len = start
-                    .offset
-                    .min(self.document.blocks()[insert_block].text_len());
-                (insert_block, left_len + inserted_len)
-            } else {
-                // Multiple paragraphs: last inserted paragraph is placed in a new block
-                let last_block = (insert_block + paragraphs.len() - 1)
-                    .min(self.document.block_count().saturating_sub(1));
-                let last_len = paragraphs.last().map(|s| s.len()).unwrap_or(0);
-                (last_block, last_len)
-            };
-            let block_len = self.document.blocks()[block_index].text_len();
-            self.cursor = DocumentPosition::new(block_index, min(offset, block_len));
+            self.document.replace_range(start, end, normalized_text);
+            let new_cursor = self.cursor_after_plain_insert(start, &paragraphs);
+            self.cursor = new_cursor;
             self.selection = None;
             Ok(())
+        } else if paragraphs.len() > 1 {
+            // Multi-paragraph paste at cursor with no selection uses replace_range on an empty span
+            let cursor_pos = self.cursor;
+            self.document
+                .replace_range(cursor_pos, cursor_pos, normalized_text);
+            let new_cursor = self.cursor_after_plain_insert(cursor_pos, &paragraphs);
+            self.cursor = new_cursor;
+            Ok(())
         } else {
-            // Insert at cursor position
-            self.insert_text(text)
+            // Single-line paste uses inline insertion to preserve inline styling context
+            self.insert_text(normalized_text)
         }
     }
 
@@ -3384,6 +3407,41 @@ mod tests {
         assert_eq!(sel.0, DocumentPosition::new(0, 0));
         assert_eq!(sel.1, DocumentPosition::new(1, 5));
         assert_eq!(editor.cursor(), DocumentPosition::new(1, 5));
+    }
+
+    #[test]
+    fn test_paste_multiline_without_selection_inserts_paragraphs() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("Hello").unwrap();
+        editor.set_cursor(DocumentPosition::new(0, 5));
+
+        editor.paste("Line1\nLine2\nLine3").unwrap();
+
+        assert_eq!(editor.document().block_count(), 3);
+        assert_eq!(editor.document().blocks()[0].to_plain_text(), "HelloLine1");
+        assert_eq!(editor.document().blocks()[1].to_plain_text(), "Line2");
+        assert_eq!(editor.document().blocks()[2].to_plain_text(), "Line3");
+        assert_eq!(editor.cursor(), DocumentPosition::new(2, 5));
+    }
+
+    #[test]
+    fn test_paste_multiline_replaces_selection() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("First para").unwrap();
+        editor.insert_newline().unwrap();
+        editor.insert_text("Second").unwrap();
+
+        let start = DocumentPosition::new(0, 0);
+        let end = DocumentPosition::new(1, 6);
+        editor.set_selection(start, end);
+
+        editor.paste("LineA\nLineB").unwrap();
+
+        assert_eq!(editor.document().block_count(), 2);
+        assert_eq!(editor.document().blocks()[0].to_plain_text(), "LineA");
+        assert_eq!(editor.document().blocks()[1].to_plain_text(), "LineB");
+        assert_eq!(editor.cursor(), DocumentPosition::new(1, 5));
+        assert!(editor.selection().is_none());
     }
 
     #[test]

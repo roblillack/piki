@@ -2,6 +2,7 @@
 // A document representation completely independent of markdown syntax
 // Markdown is only used as a storage/serialization format
 
+use std::borrow::Cow;
 use std::cmp::min;
 use std::fmt;
 use unicode_segmentation::UnicodeSegmentation;
@@ -716,7 +717,7 @@ impl StructuredDocument {
         self.blocks[a.block_index].normalize_content();
     }
 
-    /// Replace content in [start..end) with plain text. Supports multi-paragraph text using \n\n separators.
+    /// Replace content in [start..end) with plain text. Supports multi-paragraph text using newline separators.
     /// If the replacement spans multiple paragraphs, any tail content from the original end
     /// position is appended to the last inserted paragraph block.
     pub fn replace_range(&mut self, start: DocumentPosition, end: DocumentPosition, text: &str) {
@@ -748,7 +749,8 @@ impl StructuredDocument {
             .offset
             .min(self.blocks[insert_block_index].text_len());
 
-        if text.is_empty() {
+        let normalized = normalize_plain_text(text);
+        if normalized.is_empty() {
             return;
         }
 
@@ -757,8 +759,8 @@ impl StructuredDocument {
         // block at the insertion point and hold on to the right side for later.
         let mut trailing_right = self.blocks[insert_block_index].split_content_at(insert_offset);
 
-        // Insert paragraphs
-        let paragraphs: Vec<&str> = text.split("\n\n").collect();
+        // Insert paragraphs (each newline starts a new paragraph)
+        let paragraphs: Vec<&str> = normalized.split('\n').collect();
 
         // First paragraph goes into the (now split) current block
         if !paragraphs[0].is_empty() {
@@ -902,6 +904,27 @@ fn grapheme_offset_after(text: &str, offset: usize) -> usize {
     text.len()
 }
 
+/// Normalize clipboard/plain text input so CRLF/CR line endings become `\n`.
+pub(crate) fn normalize_plain_text<'a>(text: &'a str) -> Cow<'a, str> {
+    if text.contains('\r') {
+        let mut normalized = String::with_capacity(text.len());
+        let mut chars = text.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '\r' {
+                if chars.peek() == Some(&'\n') {
+                    chars.next();
+                }
+                normalized.push('\n');
+            } else {
+                normalized.push(ch);
+            }
+        }
+        Cow::Owned(normalized)
+    } else {
+        Cow::Borrowed(text)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -981,11 +1004,41 @@ mod tests {
 
         let start = DocumentPosition::new(0, 6); // at "Hello |one"
         let end = DocumentPosition::new(2, 5); // at "Hello |three"
-        doc.replace_range(start, end, "X\n\nY");
+        doc.replace_range(start, end, "X\nY");
 
         // Expect first block: "Hello " + "X" + tail of last after offset 5 was removed by replace
         assert_eq!(doc.blocks()[0].to_plain_text(), "Hello X");
         // New paragraph inserted after with "Y"
         assert_eq!(doc.blocks()[1].to_plain_text(), "Y three");
+    }
+
+    #[test]
+    fn test_replace_range_preserves_blank_paragraphs() {
+        let mut doc = StructuredDocument::new();
+        doc.add_block(Block::paragraph(0).with_plain_text("Alpha"));
+        doc.add_block(Block::paragraph(0).with_plain_text("Omega"));
+
+        let start = DocumentPosition::new(0, 5);
+        let end = DocumentPosition::new(1, 0);
+        doc.replace_range(start, end, "X\n\nY");
+
+        assert_eq!(doc.block_count(), 3);
+        assert_eq!(doc.blocks()[0].to_plain_text(), "AlphaX");
+        assert_eq!(doc.blocks()[1].to_plain_text(), "");
+        assert_eq!(doc.blocks()[2].to_plain_text(), "YOmega");
+    }
+
+    #[test]
+    fn test_replace_range_normalizes_crlf() {
+        let mut doc = StructuredDocument::new();
+        doc.add_block(Block::paragraph(0).with_plain_text("Base"));
+
+        let start = DocumentPosition::new(0, 0);
+        doc.replace_range(start, start, "Line 1\r\nLine 2\r\nLine 3");
+
+        assert_eq!(doc.block_count(), 3);
+        assert_eq!(doc.blocks()[0].to_plain_text(), "Line 1");
+        assert_eq!(doc.blocks()[1].to_plain_text(), "Line 2");
+        assert_eq!(doc.blocks()[2].to_plain_text(), "Line 3Base");
     }
 }
