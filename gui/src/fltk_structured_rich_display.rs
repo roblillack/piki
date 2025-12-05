@@ -1,13 +1,23 @@
 // FLTK integration for StructuredRichDisplay widget
+#![allow(unexpected_cfgs)]
 
+use crate::clipboard;
 use crate::fltk_draw_context::FltkDrawContext;
 use crate::responsive_scrollbar::ResponsiveScrollbar;
 use crate::richtext::structured_document::{BlockType, InlineContent};
 use crate::richtext::structured_rich_display::StructuredRichDisplay;
 use fltk::{app::MouseWheel, enums::*, prelude::*};
 use std::cell::RefCell;
+use std::ffi::{CStr, CString};
 use std::rc::Rc;
 use std::time::Instant;
+
+#[cfg(target_os = "macos")]
+use objc::rc::autoreleasepool;
+#[cfg(target_os = "macos")]
+use objc::runtime::Object;
+#[cfg(target_os = "macos")]
+use objc::{class, msg_send, sel, sel_impl};
 
 type Callback<T> = Rc<RefCell<Option<Box<dyn Fn(T) + 'static>>>>;
 type MutCallback<T> = Rc<RefCell<Option<Box<dyn FnMut(T) + 'static>>>>;
@@ -1811,14 +1821,45 @@ impl FltkStructuredRichDisplay {
                     }
                     Event::Paste => {
                         if edit_mode {
-                            let pasted = fltk::app::event_text();
-                            if !pasted.is_empty() {
+                            let fallback_text = fltk::app::event_text();
+                            let (platform_formats, platform_rtf) = inspect_platform_clipboard();
+                            let fallback_ref = if fallback_text.is_empty() {
+                                None
+                            } else {
+                                Some(fallback_text.as_str())
+                            };
+
+                            let mut applied = false;
+
+                            if let Ok(doc) = clipboard::read_document_from_system(
+                                fallback_ref,
+                                &platform_formats,
+                                platform_rtf.as_deref(),
+                            ) {
                                 let mut disp = display.borrow_mut();
-                                let _ = disp.editor_mut().paste(&pasted);
-                                if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                    (cb)();
+                                if disp.editor_mut().insert_document(&doc).is_ok() {
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                        (cb)();
+                                    }
+                                    w.redraw();
+                                    applied = true;
                                 }
-                                w.redraw();
+                            }
+
+                            if !applied {
+                                let fallback_ref = if fallback_text.is_empty() {
+                                    None
+                                } else {
+                                    Some(fallback_text.as_str())
+                                };
+                                if let Some(text) = fallback_ref {
+                                    let mut disp = display.borrow_mut();
+                                    let _ = disp.editor_mut().paste(text);
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                        (cb)();
+                                    }
+                                    w.redraw();
+                                }
                             }
                             true
                         } else {
@@ -1948,4 +1989,139 @@ impl FltkStructuredRichDisplay {
         let idx = editor.cursor().block_index;
         blocks.get(idx).map(|b| b.block_type.clone())
     }
+}
+
+fn inspect_platform_clipboard() -> (Vec<String>, Option<Vec<u8>>) {
+    let mut formats = Vec::new();
+    let mut rtf_payload = None;
+
+    unsafe {
+        let raw = fltk_sys::fl::Fl_event_clipboard_type();
+        if !raw.is_null() {
+            let fmt = CStr::from_ptr(raw as *const std::os::raw::c_char)
+                .to_string_lossy()
+                .into_owned();
+            formats.push(describe_platform_format("fltk", &fmt));
+            if rtf_payload.is_none() && fmt.eq_ignore_ascii_case("public.rtf") {
+                // FLTK doesn't expose raw data, rely on macOS helper below.
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let (mut mac_formats, mac_rtf) = macos_pasteboard_formats_and_rtf();
+        formats.append(&mut mac_formats);
+        if rtf_payload.is_none() {
+            rtf_payload = mac_rtf;
+        }
+    }
+
+    (formats, rtf_payload)
+}
+
+fn is_supported_type(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        "text/plain"
+            | "public.utf8-plain-text"
+            | "public.utf16-plain-text"
+            | "public.html"
+            | "text/html"
+            | "public.rtf"
+            | "apple web archive pasteboard type"
+            | "apple html pasteboard type"
+            | "nspasteboardtypehtml"
+            | "nspasteboardtypestring"
+    )
+}
+
+fn describe_platform_format(source: &str, format_name: &str) -> String {
+    let status = if is_supported_type(format_name) {
+        "supported"
+    } else {
+        "unsupported"
+    };
+    format!("{source}:{format_name} ({status})")
+}
+
+#[cfg(target_os = "macos")]
+fn macos_pasteboard_formats_and_rtf() -> (Vec<String>, Option<Vec<u8>>) {
+    use std::collections::HashSet;
+    autoreleasepool(|| unsafe {
+        let mut formats = Vec::new();
+        let mut seen = HashSet::new();
+        let mut rtf_payload = None;
+        let pasteboard: *mut Object = msg_send![class!(NSPasteboard), generalPasteboard];
+        if pasteboard.is_null() {
+            return (formats, rtf_payload);
+        }
+        let items: *mut Object = msg_send![pasteboard, pasteboardItems];
+        if items.is_null() {
+            return (formats, rtf_payload);
+        }
+        let item_count: usize = msg_send![items, count];
+        for i in 0..item_count {
+            let item: *mut Object = msg_send![items, objectAtIndex: i];
+            if item.is_null() {
+                continue;
+            }
+            let types: *mut Object = msg_send![item, types];
+            if types.is_null() {
+                continue;
+            }
+            let type_count: usize = msg_send![types, count];
+            for j in 0..type_count {
+                let ty: *mut Object = msg_send![types, objectAtIndex: j];
+                if ty.is_null() {
+                    continue;
+                }
+                let utf8: *const std::os::raw::c_char = msg_send![ty, UTF8String];
+                if utf8.is_null() {
+                    continue;
+                }
+                let value = CStr::from_ptr(utf8).to_string_lossy().into_owned();
+                if seen.insert(value.clone()) {
+                    formats.push(describe_platform_format("macos", &value));
+                }
+                if rtf_payload.is_none() && value.eq_ignore_ascii_case("public.rtf") {
+                    rtf_payload = read_pasteboard_data(item, "public.rtf");
+                }
+            }
+        }
+        (formats, rtf_payload)
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn macos_pasteboard_formats_and_rtf() -> (Vec<String>, Option<Vec<u8>>) {
+    (Vec::new(), None)
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn read_pasteboard_data(item: *mut Object, type_name: &str) -> Option<Vec<u8>> {
+    let ns_type = nsstring_from_str(type_name);
+    if ns_type.is_null() {
+        return None;
+    }
+    let data: *mut Object = msg_send![item, dataForType: ns_type];
+    if data.is_null() {
+        return None;
+    }
+    let length: usize = msg_send![data, length];
+    let bytes: *const u8 = msg_send![data, bytes];
+    if bytes.is_null() || length == 0 {
+        return None;
+    }
+    let slice = std::slice::from_raw_parts(bytes, length);
+    Some(slice.to_vec())
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn nsstring_from_str(value: &str) -> *mut Object {
+    let c_string = CString::new(value).unwrap();
+    msg_send![class!(NSString), stringWithUTF8String: c_string.as_ptr()]
 }
