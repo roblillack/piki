@@ -85,12 +85,12 @@ jobs:
             artifact_name: piki-gui-linux-x86_64
 
           # Linux ARM64
-          # - name: Linux
-          #   runner: ubuntu-24.04-arm
-          #   arch: aarch64
-          #   target: aarch64-unknown-linux-gnu
-          #   deps: sudo apt install -y libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev libwayland-dev libxkbcommon-dev libdbus-1-dev
-          #   artifact_name: piki-gui-linux-aarch64
+          - name: Linux
+            runner: ubuntu-24.04-arm
+            arch: aarch64
+            target: aarch64-unknown-linux-gnu
+            deps: sudo apt install -y libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev libwayland-dev libxkbcommon-dev libdbus-1-dev
+            artifact_name: piki-gui-linux-aarch64
 
           # macOS x64 (Intel)
           - name: macOS
