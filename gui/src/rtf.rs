@@ -145,6 +145,67 @@ fn finalize_paragraph(
     paragraphs.push(Paragraph::new_text().with_content(spans));
 }
 
+fn inject_paragraph_sentinels(input: &str) -> Cow<'_, str> {
+    const NEEDLE: &[u8] = b"par";
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    let mut last_copied = 0;
+    let mut output: Option<String> = None;
+
+    while i + NEEDLE.len() < bytes.len() {
+        if bytes[i] != b'\\' {
+            i += 1;
+            continue;
+        }
+        let slice = &bytes[i + 1..];
+        if slice.len() < NEEDLE.len() {
+            break;
+        }
+        if slice[..NEEDLE.len()]
+            .iter()
+            .map(|b| b.to_ascii_lowercase())
+            .ne(NEEDLE.iter().copied())
+        {
+            i += 1;
+            continue;
+        }
+        let after_word = i + 1 + NEEDLE.len();
+        if let Some(next) = bytes.get(after_word)
+            && next.is_ascii_alphabetic()
+        {
+            // Skip \pard, \parshape, etc.
+            i += 1;
+            continue;
+        }
+        let mut after_space = after_word;
+        if bytes.get(after_space) == Some(&b' ') {
+            after_space += 1;
+        }
+        let sentinel_len = PARAGRAPH_BREAK_ESCAPE.len();
+        let already_tagged = bytes
+            .get(after_space..after_space + sentinel_len)
+            .map(|segment| segment == PARAGRAPH_BREAK_ESCAPE.as_bytes())
+            .unwrap_or(false);
+        if already_tagged {
+            i = after_space;
+            continue;
+        }
+
+        let out = output.get_or_insert_with(|| String::with_capacity(input.len() + 8));
+        out.push_str(&input[last_copied..after_space]);
+        out.push_str(PARAGRAPH_BREAK_ESCAPE);
+        last_copied = after_space;
+        i = after_space;
+    }
+
+    if let Some(mut out) = output {
+        out.push_str(&input[last_copied..]);
+        Cow::Owned(out)
+    } else {
+        Cow::Borrowed(input)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,66 +241,5 @@ mod tests {
         let normalized = super::inject_paragraph_sentinels(raw);
 
         assert_eq!(normalized, "{\\rtf1 Foo\\par \\'1eBar\\par\\'1e\n}");
-    }
-}
-
-fn inject_paragraph_sentinels(input: &str) -> Cow<'_, str> {
-    const NEEDLE: &[u8] = b"par";
-    let bytes = input.as_bytes();
-    let mut i = 0;
-    let mut last_copied = 0;
-    let mut output: Option<String> = None;
-
-    while i + NEEDLE.len() < bytes.len() {
-        if bytes[i] != b'\\' {
-            i += 1;
-            continue;
-        }
-        let slice = &bytes[i + 1..];
-        if slice.len() < NEEDLE.len() {
-            break;
-        }
-        if slice[..NEEDLE.len()]
-            .iter()
-            .map(|b| b.to_ascii_lowercase())
-            .ne(NEEDLE.iter().copied())
-        {
-            i += 1;
-            continue;
-        }
-        let after_word = i + 1 + NEEDLE.len();
-        if let Some(next) = bytes.get(after_word)
-            && next.is_ascii_alphabetic() {
-                // Skip \pard, \parshape, etc.
-                i += 1;
-                continue;
-            }
-        let mut after_space = after_word;
-        if bytes.get(after_space) == Some(&b' ') {
-            after_space += 1;
-        }
-        let sentinel_len = PARAGRAPH_BREAK_ESCAPE.len();
-        let already_tagged = bytes
-            .get(after_space..after_space + sentinel_len)
-            .map(|segment| segment == PARAGRAPH_BREAK_ESCAPE.as_bytes())
-            .unwrap_or(false);
-        if already_tagged {
-            i = after_space;
-            continue;
-        }
-
-        let out = output
-            .get_or_insert_with(|| String::with_capacity(input.len() + 8));
-        out.push_str(&input[last_copied..after_space]);
-        out.push_str(PARAGRAPH_BREAK_ESCAPE);
-        last_copied = after_space;
-        i = after_space;
-    }
-
-    if let Some(mut out) = output {
-        out.push_str(&input[last_copied..]);
-        Cow::Owned(out)
-    } else {
-        Cow::Borrowed(input)
     }
 }

@@ -978,8 +978,8 @@ mod tests {
     #[test]
     fn test_replace_range_preserves_blank_paragraphs() {
         let mut doc = StructuredDocument::new();
-        doc.add_block(Block::paragraph(0).with_plain_text("Alpha"));
-        doc.add_block(Block::paragraph(0).with_plain_text("Omega"));
+        doc.add_block(Block::paragraph().with_plain_text("Alpha"));
+        doc.add_block(Block::paragraph().with_plain_text("Omega"));
 
         let start = DocumentPosition::new(0, 5);
         let end = DocumentPosition::new(1, 0);
@@ -994,7 +994,7 @@ mod tests {
     #[test]
     fn test_replace_range_normalizes_crlf() {
         let mut doc = StructuredDocument::new();
-        doc.add_block(Block::paragraph(0).with_plain_text("Base"));
+        doc.add_block(Block::paragraph().with_plain_text("Base"));
 
         let start = DocumentPosition::new(0, 0);
         doc.replace_range(start, start, "Line 1\r\nLine 2\r\nLine 3");
