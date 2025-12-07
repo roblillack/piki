@@ -41,9 +41,6 @@ pub fn structured_to_tdoc(doc: &StructuredDocument) -> TdocDocument {
                                 let checked = this_checkbox.unwrap_or(false);
                                 let item = ChecklistItem::new(checked).with_content(spans);
                                 list_paragraph.add_checklist_item(item);
-                            } else if *ordered {
-                                let item = Paragraph::new_text().with_content(spans);
-                                list_paragraph.add_list_item(vec![item]);
                             } else {
                                 let item = Paragraph::new_text().with_content(spans);
                                 list_paragraph.add_list_item(vec![item]);
@@ -381,11 +378,11 @@ fn append_text_run(out: &mut Vec<InlineContent>, text: String, style: TextStyle)
         return;
     }
 
-    if let Some(InlineContent::Text(run)) = out.last_mut() {
-        if run.style == style {
-            run.text.push_str(&text);
-            return;
-        }
+    if let Some(InlineContent::Text(run)) = out.last_mut()
+        && run.style == style
+    {
+        run.text.push_str(&text);
+        return;
     }
 
     out.push(InlineContent::Text(TextRun::new(text, style)));
