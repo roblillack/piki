@@ -41,7 +41,7 @@ pub fn read_document_from_system(
             }
         };
         log_formats(&diagnostics);
-        return result;
+        result
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]

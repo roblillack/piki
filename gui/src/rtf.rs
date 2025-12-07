@@ -55,7 +55,7 @@ pub fn parse_rtf_document(bytes: &[u8]) -> Result<Document, RtfImportError> {
         );
 
         if appended {
-            last_paragraph_state = Some(block.paragraph.clone());
+            last_paragraph_state = Some(block.paragraph);
         }
     }
 
@@ -190,7 +190,7 @@ fn inject_paragraph_sentinels(input: &str) -> Cow<'_, str> {
     let mut last_copied = 0;
     let mut output: Option<String> = None;
 
-    while i + NEEDLE.len() + 1 <= bytes.len() {
+    while i + NEEDLE.len() < bytes.len() {
         if bytes[i] != b'\\' {
             i += 1;
             continue;
@@ -208,13 +208,12 @@ fn inject_paragraph_sentinels(input: &str) -> Cow<'_, str> {
             continue;
         }
         let after_word = i + 1 + NEEDLE.len();
-        if let Some(next) = bytes.get(after_word) {
-            if next.is_ascii_alphabetic() {
+        if let Some(next) = bytes.get(after_word)
+            && next.is_ascii_alphabetic() {
                 // Skip \pard, \parshape, etc.
                 i += 1;
                 continue;
             }
-        }
         let mut after_space = after_word;
         if bytes.get(after_space) == Some(&b' ') {
             after_space += 1;
