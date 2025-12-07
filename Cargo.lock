@@ -1169,6 +1169,7 @@ dependencies = [
  "regex",
  "rusttype",
  "serde",
+ "tdoc",
  "toml",
  "unicode-segmentation",
  "walkdir",
