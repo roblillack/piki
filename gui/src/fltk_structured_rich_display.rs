@@ -8,7 +8,9 @@ use crate::richtext::structured_document::{BlockType, InlineContent};
 use crate::richtext::structured_rich_display::StructuredRichDisplay;
 use fltk::{app::MouseWheel, enums::*, prelude::*};
 use std::cell::RefCell;
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
+#[cfg(target_os = "macos")]
+use std::ffi::CString;
 use std::rc::Rc;
 use std::time::Instant;
 
@@ -1993,6 +1995,7 @@ impl FltkStructuredRichDisplay {
 
 fn inspect_platform_clipboard() -> (Vec<String>, Option<Vec<u8>>) {
     let mut formats = Vec::new();
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
     let mut rtf_payload = None;
 
     unsafe {
@@ -2092,11 +2095,6 @@ fn macos_pasteboard_formats_and_rtf() -> (Vec<String>, Option<Vec<u8>>) {
         }
         (formats, rtf_payload)
     })
-}
-
-#[cfg(not(target_os = "macos"))]
-fn macos_pasteboard_formats_and_rtf() -> (Vec<String>, Option<Vec<u8>>) {
-    (Vec::new(), None)
 }
 
 #[cfg(target_os = "macos")]
