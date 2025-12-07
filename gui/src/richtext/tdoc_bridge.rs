@@ -3,7 +3,7 @@ use super::structured_document::{
 };
 use tdoc::Document as TdocDocument;
 use tdoc::inline::{InlineStyle, Span};
-use tdoc::paragraph::{Paragraph, ParagraphType};
+use tdoc::paragraph::{ChecklistItem, Paragraph};
 
 /// Convert a [`StructuredDocument`] into a [`tdoc::Document`].
 pub fn structured_to_tdoc(doc: &StructuredDocument) -> TdocDocument {
@@ -17,7 +17,8 @@ pub fn structured_to_tdoc(doc: &StructuredDocument) -> TdocDocument {
             BlockType::ListItem {
                 ordered, checkbox, ..
             } => {
-                let mut list_paragraph = if checkbox.is_some() {
+                let is_checklist = checkbox.is_some();
+                let mut list_paragraph = if is_checklist {
                     Paragraph::new_checklist()
                 } else if *ordered {
                     Paragraph::new_ordered_list()
@@ -32,16 +33,14 @@ pub fn structured_to_tdoc(doc: &StructuredDocument) -> TdocDocument {
                             ordered: this_ordered,
                             checkbox: this_checkbox,
                             ..
-                        } if checkbox.is_some() == this_checkbox.is_some()
-                            && (!checkbox.is_some() || this_checkbox.is_some())
-                            && ordered == this_ordered =>
+                        } if *this_ordered == *ordered
+                            && this_checkbox.is_some() == is_checklist =>
                         {
                             let spans = inline_to_spans(&current.content);
-                            if checkbox.is_some() {
+                            if is_checklist {
                                 let checked = this_checkbox.unwrap_or(false);
-                                let item =
-                                    Paragraph::new_checklist_item(checked).with_content(spans);
-                                list_paragraph.add_list_item(vec![item]);
+                                let item = ChecklistItem::new(checked).with_content(spans);
+                                list_paragraph.add_checklist_item(item);
                             } else if *ordered {
                                 let item = Paragraph::new_text().with_content(spans);
                                 list_paragraph.add_list_item(vec![item]);
@@ -78,9 +77,9 @@ pub fn tdoc_to_structured(doc: &TdocDocument) -> StructuredDocument {
 }
 
 fn append_paragraph(structured: &mut StructuredDocument, paragraph: &Paragraph) {
-    match paragraph.paragraph_type {
-        ParagraphType::OrderedList => {
-            for (idx, entry) in paragraph.entries.iter().enumerate() {
+    match paragraph {
+        Paragraph::OrderedList { entries } => {
+            for (idx, entry) in entries.iter().enumerate() {
                 let mut block = Block::new(BlockType::ListItem {
                     ordered: true,
                     number: Some((idx + 1) as u64),
@@ -90,8 +89,8 @@ fn append_paragraph(structured: &mut StructuredDocument, paragraph: &Paragraph) 
                 structured.add_block(block);
             }
         }
-        ParagraphType::UnorderedList => {
-            for entry in &paragraph.entries {
+        Paragraph::UnorderedList { entries } => {
+            for entry in entries {
                 let mut block = Block::new(BlockType::ListItem {
                     ordered: false,
                     number: None,
@@ -101,28 +100,18 @@ fn append_paragraph(structured: &mut StructuredDocument, paragraph: &Paragraph) 
                 structured.add_block(block);
             }
         }
-        ParagraphType::Checklist => {
-            for entry in &paragraph.entries {
-                if let Some(item) = entry.first() {
-                    let mut block = Block::new(BlockType::ListItem {
-                        ordered: false,
-                        number: None,
-                        checkbox: Some(item.checklist_item_checked.unwrap_or(false)),
-                    });
-                    block.content = spans_to_inline(&item.content);
-                    structured.add_block(block);
-                }
-            }
+        Paragraph::Checklist { items } => {
+            append_checklist_items(structured, items);
         }
-        ParagraphType::Quote => {
-            if paragraph.children.is_empty() {
+        Paragraph::Quote { children } => {
+            if children.is_empty() {
                 let mut block = Block::new(BlockType::BlockQuote);
-                block.content = spans_to_inline(&paragraph.content);
+                block.content = spans_to_inline(paragraph.content());
                 structured.add_block(block);
             } else {
-                for child in &paragraph.children {
+                for child in children {
                     let mut block = Block::new(BlockType::BlockQuote);
-                    block.content = spans_to_inline(&child.content);
+                    block.content = spans_to_inline(child.content());
                     structured.add_block(block);
                 }
             }
@@ -135,25 +124,48 @@ fn append_paragraph(structured: &mut StructuredDocument, paragraph: &Paragraph) 
 }
 
 fn paragraph_to_block(paragraph: &Paragraph) -> Block {
-    let mut block = match paragraph.paragraph_type {
-        ParagraphType::Text => Block::paragraph(),
-        ParagraphType::Header1 => Block::heading(1),
-        ParagraphType::Header2 => Block::heading(2),
-        ParagraphType::Header3 => Block::heading(3),
-        ParagraphType::CodeBlock => Block::new(BlockType::CodeBlock { language: None }),
-        ParagraphType::Quote => Block::new(BlockType::BlockQuote),
-        ParagraphType::ChecklistItem => Block::new(BlockType::ListItem {
-            ordered: false,
-            number: None,
-            checkbox: paragraph.checklist_item_checked,
-        }),
-        ParagraphType::OrderedList | ParagraphType::UnorderedList | ParagraphType::Checklist => {
-            unreachable!("List paragraphs handled earlier")
+    match paragraph {
+        Paragraph::Text { content } => {
+            let mut block = Block::paragraph();
+            block.content = spans_to_inline(content);
+            block
         }
-    };
+        Paragraph::Header1 { content } => {
+            let mut block = Block::heading(1);
+            block.content = spans_to_inline(content);
+            block
+        }
+        Paragraph::Header2 { content } => {
+            let mut block = Block::heading(2);
+            block.content = spans_to_inline(content);
+            block
+        }
+        Paragraph::Header3 { content } => {
+            let mut block = Block::heading(3);
+            block.content = spans_to_inline(content);
+            block
+        }
+        Paragraph::CodeBlock { content } => {
+            let mut block = Block::new(BlockType::CodeBlock { language: None });
+            block.content = spans_to_inline(content);
+            block
+        }
+        Paragraph::Quote { .. }
+        | Paragraph::OrderedList { .. }
+        | Paragraph::UnorderedList { .. }
+        | Paragraph::Checklist { .. } => unreachable!("handled earlier"),
+    }
+}
 
-    block.content = spans_to_inline(&paragraph.content);
-    block
+fn entry_paragraphs_to_inline(entry: &[Paragraph]) -> Vec<InlineContent> {
+    let mut inline = Vec::new();
+    for (idx, paragraph) in entry.iter().enumerate() {
+        if idx > 0 && !inline.is_empty() {
+            inline.push(InlineContent::HardBreak);
+        }
+        inline.extend(spans_to_inline(paragraph.content()));
+    }
+    inline
 }
 
 fn block_to_paragraph(block: &Block) -> Paragraph {
@@ -167,33 +179,49 @@ fn block_to_paragraph(block: &Block) -> Paragraph {
         BlockType::CodeBlock { .. } => {
             Paragraph::new_code_block().with_content(vec![Span::new_text(block.to_plain_text())])
         }
-        BlockType::BlockQuote => {
-            Paragraph::new_quote().with_content(inline_to_spans(&block.content))
-        }
+        BlockType::BlockQuote => quote_from_inline(&block.content),
         BlockType::ListItem {
             ordered, checkbox, ..
         } => {
+            let spans = inline_to_spans(&block.content);
             if let Some(checked) = checkbox {
-                Paragraph::new_checklist_item(*checked)
-                    .with_content(inline_to_spans(&block.content))
+                let item = ChecklistItem::new(*checked).with_content(spans);
+                Paragraph::new_checklist().with_checklist_items(vec![item])
             } else if *ordered {
-                Paragraph::new_text().with_content(inline_to_spans(&block.content))
+                let item = Paragraph::new_text().with_content(spans);
+                Paragraph::new_ordered_list().with_entries(vec![vec![item]])
             } else {
-                Paragraph::new_text().with_content(inline_to_spans(&block.content))
+                let item = Paragraph::new_text().with_content(spans);
+                Paragraph::new_unordered_list().with_entries(vec![vec![item]])
             }
         }
     }
 }
 
-fn entry_paragraphs_to_inline(entry: &[Paragraph]) -> Vec<InlineContent> {
-    let mut inline = Vec::new();
-    for (idx, paragraph) in entry.iter().enumerate() {
-        if idx > 0 && !inline.is_empty() {
-            inline.push(InlineContent::HardBreak);
-        }
-        inline.extend(spans_to_inline(&paragraph.content));
+fn quote_from_inline(content: &[InlineContent]) -> Paragraph {
+    let spans = inline_to_spans(content);
+    if spans.is_empty() {
+        Paragraph::new_quote()
+    } else {
+        let child = Paragraph::new_text().with_content(spans);
+        Paragraph::new_quote().with_children(vec![child])
     }
-    inline
+}
+
+fn append_checklist_items(structured: &mut StructuredDocument, items: &[ChecklistItem]) {
+    for item in items {
+        let mut block = Block::new(BlockType::ListItem {
+            ordered: false,
+            number: None,
+            checkbox: Some(item.checked),
+        });
+        block.content = spans_to_inline(&item.content);
+        structured.add_block(block);
+
+        if !item.children.is_empty() {
+            append_checklist_items(structured, &item.children);
+        }
+    }
 }
 
 fn inline_to_spans(content: &[InlineContent]) -> Vec<Span> {
