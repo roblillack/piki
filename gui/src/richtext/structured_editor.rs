@@ -310,7 +310,7 @@ impl StructuredEditor {
     pub fn insert_text(&mut self, text: &str) -> EditResult {
         if self.document.is_empty() {
             // Create a new paragraph if document is empty
-            let block = Block::paragraph(0).with_plain_text(text);
+            let block = Block::paragraph().with_plain_text(text);
             self.document.add_block(block);
             self.cursor = DocumentPosition::new(0, text.len());
             return Ok(());
@@ -572,7 +572,7 @@ impl StructuredEditor {
         }
 
         if !right_content.is_empty() {
-            let mut tail_block = Block::new(0, original_block_type);
+            let mut tail_block = Block::new(original_block_type);
             tail_block.content = right_content;
             tail_block.normalize_content();
             self.document.insert_block(insert_pos, tail_block);
@@ -599,8 +599,8 @@ impl StructuredEditor {
     pub fn insert_newline(&mut self) -> EditResult {
         if self.document.is_empty() {
             // Create two paragraphs if document is empty
-            self.document.add_block(Block::paragraph(0));
-            self.document.add_block(Block::paragraph(0));
+            self.document.add_block(Block::paragraph());
+            self.document.add_block(Block::paragraph());
             self.cursor = DocumentPosition::new(1, 0);
             return Ok(());
         }
@@ -654,14 +654,11 @@ impl StructuredEditor {
             } else {
                 None
             };
-            let mut new_item = Block::new(
-                0,
-                BlockType::ListItem {
-                    ordered: *ordered,
-                    number: if *ordered { Some(new_number) } else { None },
-                    checkbox: new_checkbox,
-                },
-            );
+            let mut new_item = Block::new(BlockType::ListItem {
+                ordered: *ordered,
+                number: if *ordered { Some(new_number) } else { None },
+                checkbox: new_checkbox,
+            });
             new_item.content = right_content;
 
             self.document.insert_block(block_index + 1, new_item);
@@ -708,7 +705,7 @@ impl StructuredEditor {
             };
 
             // Create new paragraph with remaining content (right side)
-            let mut new_para = Block::paragraph(0);
+            let mut new_para = Block::paragraph();
             new_para.content = right_content;
 
             self.document.insert_block(block_index + 1, new_para);
@@ -721,7 +718,7 @@ impl StructuredEditor {
     /// Insert an explicit hard line break at the current position (within the block)
     pub fn insert_hard_break(&mut self) -> EditResult {
         if self.document.is_empty() {
-            let mut block = Block::paragraph(0);
+            let mut block = Block::paragraph();
             block.content.push(InlineContent::HardBreak);
             self.document.add_block(block);
             self.cursor = DocumentPosition::new(0, 1);
@@ -1430,7 +1427,7 @@ impl StructuredEditor {
     /// Insert an inline element at the current cursor position
     pub fn insert_inline_at_cursor(&mut self, inline: InlineContent) -> EditResult {
         if self.document.is_empty() {
-            let mut block = Block::paragraph(0);
+            let mut block = Block::paragraph();
             block.content.push(inline);
             let text_len = block.text_len();
             self.document.add_block(block);
@@ -3084,14 +3081,11 @@ mod tests {
         {
             let mut doc = StructuredDocument::new();
             for i in 0..3 {
-                let mut block = Block::new(
-                    0,
-                    BlockType::ListItem {
-                        ordered: false,
-                        number: None,
-                        checkbox: Some(i % 2 == 0),
-                    },
-                );
+                let mut block = Block::new(BlockType::ListItem {
+                    ordered: false,
+                    number: None,
+                    checkbox: Some(i % 2 == 0),
+                });
                 block
                     .content
                     .push(InlineContent::Text(TextRun::plain(format!("Item {i}"))));
@@ -3123,7 +3117,7 @@ mod tests {
 
         let mut doc = StructuredDocument::new();
         for text in ["One", "Two", "Three"] {
-            let block = Block::paragraph(0).with_plain_text(text);
+            let block = Block::paragraph().with_plain_text(text);
             doc.add_block(block);
         }
         let last_len = doc.blocks().last().unwrap().text_len();
@@ -3160,7 +3154,7 @@ mod tests {
 
         let mut doc = StructuredDocument::new();
         for text in ["One", "Two", "Three"] {
-            let block = Block::paragraph(0).with_plain_text(text);
+            let block = Block::paragraph().with_plain_text(text);
             doc.add_block(block);
         }
         let last_len = doc.blocks().last().unwrap().text_len();
@@ -3197,7 +3191,7 @@ mod tests {
 
         let mut doc = StructuredDocument::new();
         for text in ["One", "Two", "Three"] {
-            let block = Block::paragraph(0).with_plain_text(text);
+            let block = Block::paragraph().with_plain_text(text);
             doc.add_block(block);
         }
         let last_len = doc.blocks().last().unwrap().text_len();
@@ -3243,7 +3237,7 @@ mod tests {
 
         let mut doc = StructuredDocument::new();
         for text in ["One", "Two", "Three"] {
-            let block = Block::paragraph(0).with_plain_text(text);
+            let block = Block::paragraph().with_plain_text(text);
             doc.add_block(block);
         }
         let last_len = doc.blocks().last().unwrap().text_len();
@@ -3290,29 +3284,23 @@ mod tests {
         let mut doc = StructuredDocument::new();
 
         doc.add_block(
-            Block::new(
-                0,
-                BlockType::ListItem {
-                    ordered: true,
-                    number: Some(3),
-                    checkbox: None,
-                },
-            )
+            Block::new(BlockType::ListItem {
+                ordered: true,
+                number: Some(3),
+                checkbox: None,
+            })
             .with_plain_text("Item 3"),
         );
         doc.add_block(
-            Block::new(
-                0,
-                BlockType::ListItem {
-                    ordered: true,
-                    number: Some(4),
-                    checkbox: None,
-                },
-            )
+            Block::new(BlockType::ListItem {
+                ordered: true,
+                number: Some(4),
+                checkbox: None,
+            })
             .with_plain_text("Item 4"),
         );
-        doc.add_block(Block::paragraph(0).with_plain_text("Next"));
-        doc.add_block(Block::paragraph(0).with_plain_text("Another"));
+        doc.add_block(Block::paragraph().with_plain_text("Next"));
+        doc.add_block(Block::paragraph().with_plain_text("Another"));
 
         let last_len = doc.blocks().last().unwrap().text_len();
         *editor.document_mut() = doc;

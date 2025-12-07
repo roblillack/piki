@@ -1943,7 +1943,7 @@ mod tests {
 
     #[test]
     fn cursor_in_empty_blockquote_respects_indent() {
-        let block = Block::new(0, BlockType::BlockQuote);
+        let block = Block::new(BlockType::BlockQuote);
         let mut display = make_display_with_block(block);
         let mut ctx = TestDrawContext::new_with_focus();
 
@@ -1954,14 +1954,11 @@ mod tests {
 
     #[test]
     fn cursor_in_empty_unordered_list_respects_content_indent() {
-        let block = Block::new(
-            0,
-            BlockType::ListItem {
-                ordered: false,
-                number: None,
-                checkbox: None,
-            },
-        );
+        let block = Block::new(BlockType::ListItem {
+            ordered: false,
+            number: None,
+            checkbox: None,
+        });
         let mut display = make_display_with_block(block);
         let mut ctx = TestDrawContext::new_with_focus();
 
@@ -1982,14 +1979,11 @@ mod tests {
 
     #[test]
     fn cursor_in_empty_ordered_list_respects_content_indent() {
-        let block = Block::new(
-            0,
-            BlockType::ListItem {
-                ordered: true,
-                number: Some(3),
-                checkbox: None,
-            },
-        );
+        let block = Block::new(BlockType::ListItem {
+            ordered: true,
+            number: Some(3),
+            checkbox: None,
+        });
         let mut display = make_display_with_block(block);
         let mut ctx = TestDrawContext::new_with_focus();
 
@@ -2010,14 +2004,11 @@ mod tests {
 
     #[test]
     fn cursor_in_empty_checklist_respects_content_indent() {
-        let block = Block::new(
-            0,
-            BlockType::ListItem {
-                ordered: false,
-                number: None,
-                checkbox: Some(false),
-            },
-        );
+        let block = Block::new(BlockType::ListItem {
+            ordered: false,
+            number: None,
+            checkbox: Some(false),
+        });
         let mut display = make_display_with_block(block);
         let mut ctx = TestDrawContext::new_with_focus();
 
@@ -2051,7 +2042,7 @@ mod tests {
 
     #[test]
     fn cursor_in_empty_code_block_respects_indent() {
-        let block = Block::new(0, BlockType::CodeBlock { language: None });
+        let block = Block::new(BlockType::CodeBlock { language: None });
         let mut display = make_display_with_block(block);
         let mut ctx = TestDrawContext::new_with_focus();
 
@@ -2062,7 +2053,7 @@ mod tests {
 
     #[test]
     fn trailing_hard_break_creates_empty_visual_line() {
-        let mut block = Block::paragraph(0);
+        let mut block = Block::paragraph();
         block
             .content
             .push(InlineContent::Text(TextRun::plain("Hello")));
@@ -2102,7 +2093,7 @@ mod tests {
 
     #[test]
     fn cursor_home_end_respect_visual_lines() {
-        let block = Block::paragraph(0).with_plain_text(
+        let block = Block::paragraph().with_plain_text(
             "This visual line wrapping test ensures Home and End stay within wraps.",
         );
         let mut display = make_display_with_block(block);
@@ -2170,7 +2161,7 @@ mod tests {
     fn hard_break_blank_line_has_nonzero_offset() {
         let mut display = StructuredRichDisplay::new(0, 0, 400, 200);
         let mut doc = StructuredDocument::new();
-        let mut block = Block::paragraph(0);
+        let mut block = Block::paragraph();
         block
             .content
             .push(InlineContent::Text(TextRun::plain("Hello")));

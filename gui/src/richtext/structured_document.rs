@@ -7,9 +7,6 @@ use std::cmp::min;
 use std::fmt;
 use unicode_segmentation::UnicodeSegmentation;
 
-/// Unique identifier for document elements
-pub type ElementId = usize;
-
 /// Text styling (semantic, not syntactic)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TextStyle {
@@ -157,31 +154,26 @@ pub enum BlockType {
 /// A block of content
 #[derive(Debug, Clone, PartialEq)]
 pub struct Block {
-    pub id: ElementId,
     pub block_type: BlockType,
     pub content: Vec<InlineContent>,
 }
 
 impl Block {
-    pub fn new(id: ElementId, block_type: BlockType) -> Self {
+    pub fn new(block_type: BlockType) -> Self {
         Block {
-            id,
             block_type,
             content: Vec::new(),
         }
     }
 
-    pub fn paragraph(id: ElementId) -> Self {
-        Self::new(id, BlockType::Paragraph)
+    pub fn paragraph() -> Self {
+        Self::new(BlockType::Paragraph)
     }
 
-    pub fn heading(id: ElementId, level: u8) -> Self {
-        Self::new(
-            id,
-            BlockType::Heading {
-                level: level.clamp(1, 6),
-            },
-        )
+    pub fn heading(level: u8) -> Self {
+        Self::new(BlockType::Heading {
+            level: level.clamp(1, 6),
+        })
     }
 
     pub fn with_text(mut self, text: impl Into<String>, style: TextStyle) -> Self {
@@ -479,22 +471,11 @@ impl DocumentPosition {
 /// The structured document
 pub struct StructuredDocument {
     blocks: Vec<Block>,
-    next_id: ElementId,
 }
 
 impl StructuredDocument {
     pub fn new() -> Self {
-        StructuredDocument {
-            blocks: Vec::new(),
-            next_id: 1,
-        }
-    }
-
-    /// Get a unique element ID
-    fn next_id(&mut self) -> ElementId {
-        let id = self.next_id;
-        self.next_id += 1;
-        id
+        StructuredDocument { blocks: Vec::new() }
     }
 
     /// Get blocks
@@ -508,18 +489,12 @@ impl StructuredDocument {
     }
 
     /// Add a block
-    pub fn add_block(&mut self, mut block: Block) {
-        if block.id == 0 {
-            block.id = self.next_id();
-        }
+    pub fn add_block(&mut self, block: Block) {
         self.blocks.push(block);
     }
 
     /// Insert a block at a specific position
-    pub fn insert_block(&mut self, index: usize, mut block: Block) {
-        if block.id == 0 {
-            block.id = self.next_id();
-        }
+    pub fn insert_block(&mut self, index: usize, block: Block) {
         self.blocks.insert(index, block);
     }
 
@@ -535,16 +510,6 @@ impl StructuredDocument {
     /// Get block count
     pub fn block_count(&self) -> usize {
         self.blocks.len()
-    }
-
-    /// Find block by ID
-    pub fn find_block(&self, id: ElementId) -> Option<&Block> {
-        self.blocks.iter().find(|b| b.id == id)
-    }
-
-    /// Find block index by ID
-    pub fn find_block_index(&self, id: ElementId) -> Option<usize> {
-        self.blocks.iter().position(|b| b.id == id)
     }
 
     /// Validate and clamp a position to document bounds
@@ -657,8 +622,7 @@ impl StructuredDocument {
     /// Create a simple document with one paragraph
     pub fn with_paragraph(text: impl Into<String>) -> Self {
         let mut doc = Self::new();
-        let id = doc.next_id();
-        let block = Block::paragraph(id).with_plain_text(text);
+        let block = Block::paragraph().with_plain_text(text);
         doc.add_block(block);
         doc
     }
@@ -723,8 +687,7 @@ impl StructuredDocument {
     pub fn replace_range(&mut self, start: DocumentPosition, end: DocumentPosition, text: &str) {
         if self.blocks.is_empty() {
             // If empty, create a paragraph and insert
-            let id = self.next_id();
-            self.blocks.push(Block::paragraph(id));
+            self.blocks.push(Block::paragraph());
         }
 
         // First, delete the target range
@@ -774,7 +737,7 @@ impl StructuredDocument {
         if paragraphs.len() > 1 {
             let mut insert_at = insert_block_index + 1;
             for p in paragraphs.iter().skip(1) {
-                let mut block = Block::paragraph(0);
+                let mut block = Block::paragraph();
                 if !p.is_empty() {
                     block.content.push(InlineContent::Text(TextRun::plain(*p)));
                 }
@@ -941,7 +904,7 @@ mod tests {
 
     #[test]
     fn test_block_text_len() {
-        let block = Block::paragraph(1)
+        let block = Block::paragraph()
             .with_plain_text("hello")
             .with_text(" world", TextStyle::bold());
 
@@ -952,8 +915,8 @@ mod tests {
     #[test]
     fn test_document_creation() {
         let mut doc = StructuredDocument::new();
-        doc.add_block(Block::paragraph(0).with_plain_text("First paragraph"));
-        doc.add_block(Block::heading(0, 1).with_plain_text("A heading"));
+        doc.add_block(Block::paragraph().with_plain_text("First paragraph"));
+        doc.add_block(Block::heading(1).with_plain_text("A heading"));
 
         assert_eq!(doc.block_count(), 2);
     }
@@ -961,7 +924,7 @@ mod tests {
     #[test]
     fn test_position_clamping() {
         let mut doc = StructuredDocument::new();
-        doc.add_block(Block::paragraph(0).with_plain_text("hello"));
+        doc.add_block(Block::paragraph().with_plain_text("hello"));
 
         let pos = DocumentPosition::new(0, 100);
         let clamped = doc.clamp_position(pos);
@@ -971,7 +934,7 @@ mod tests {
     #[test]
     fn test_delete_range_within_block() {
         let mut doc = StructuredDocument::new();
-        doc.add_block(Block::paragraph(0).with_plain_text("Hello world"));
+        doc.add_block(Block::paragraph().with_plain_text("Hello world"));
         let start = DocumentPosition::new(0, 5);
         let end = DocumentPosition::new(0, 11);
         doc.delete_range(start, end);
@@ -981,9 +944,9 @@ mod tests {
     #[test]
     fn test_delete_range_across_blocks_merges() {
         let mut doc = StructuredDocument::new();
-        doc.add_block(Block::paragraph(0).with_plain_text("First para"));
-        doc.add_block(Block::paragraph(0).with_plain_text("Second"));
-        doc.add_block(Block::paragraph(0).with_plain_text("Third para"));
+        doc.add_block(Block::paragraph().with_plain_text("First para"));
+        doc.add_block(Block::paragraph().with_plain_text("Second"));
+        doc.add_block(Block::paragraph().with_plain_text("Third para"));
 
         // Delete from after "Fir" in block 0 to after "Th" in block 2
         let start = DocumentPosition::new(0, 3); // "Fir|st para"
@@ -998,9 +961,9 @@ mod tests {
     #[test]
     fn test_replace_range_across_blocks_with_paragraphs() {
         let mut doc = StructuredDocument::new();
-        doc.add_block(Block::paragraph(0).with_plain_text("Hello one"));
-        doc.add_block(Block::paragraph(0).with_plain_text("Hello two"));
-        doc.add_block(Block::paragraph(0).with_plain_text("Hello three"));
+        doc.add_block(Block::paragraph().with_plain_text("Hello one"));
+        doc.add_block(Block::paragraph().with_plain_text("Hello two"));
+        doc.add_block(Block::paragraph().with_plain_text("Hello three"));
 
         let start = DocumentPosition::new(0, 6); // at "Hello |one"
         let end = DocumentPosition::new(2, 5); // at "Hello |three"
