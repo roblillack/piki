@@ -9,8 +9,8 @@ repository.workspace = true
 [dependencies]
 piki-core = { version = "0.2.0", path = "../core" }
 fltk = { version = "1.5.20", features = ["use-wayland"] }
+fltk-sys = "1.5.20"
 pulldown-cmark = "0.13.0"
-tdoc = { version = "0.8.0" }
 clap = { version = "4.5", features = ["derive"] }
 walkdir = "2.5"
 regex = "1.10"
@@ -19,6 +19,10 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.9"
 unicode-segmentation = "1.10"
 chrono = "0.4.42"
+arboard = "3.4"
+tdoc = "0.8.1"
+objc = "0.2"
+rtf-parser = "0.4"
 
 [dev-dependencies]
 insta = "1.34"

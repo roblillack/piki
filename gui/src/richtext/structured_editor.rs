@@ -2,8 +2,10 @@
 // Provides editing operations on a StructuredDocument
 // Completely independent of markdown syntax
 
+use super::markdown_converter::markdown_to_document;
 use super::structured_document::*;
 use std::cmp::min;
+use tdoc::{Document, markdown};
 
 /// Result of an editing operation
 pub type EditResult = Result<(), EditError>;
@@ -14,6 +16,7 @@ pub enum EditError {
     InvalidPosition,
     InvalidBlockIndex,
     EmptyDocument,
+    ConversionFailed(String),
 }
 
 /// The structured editor with cursor state
@@ -453,6 +456,143 @@ impl StructuredEditor {
         self.cursor.offset += text.len();
 
         Ok(())
+    }
+
+    /// Calculate the cursor position immediately after inserting newline-delimited plain text.
+    fn cursor_after_plain_insert(
+        &self,
+        start: DocumentPosition,
+        paragraphs: &[&str],
+    ) -> DocumentPosition {
+        let insert_block = start
+            .block_index
+            .min(self.document.block_count().saturating_sub(1));
+
+        let (block_index, offset) = if paragraphs.len() <= 1 {
+            let inserted_len = paragraphs.first().map(|s| s.len()).unwrap_or(0);
+            let left_len = start
+                .offset
+                .min(self.document.blocks()[insert_block].text_len());
+            (insert_block, left_len + inserted_len)
+        } else {
+            let last_block = (insert_block + paragraphs.len() - 1)
+                .min(self.document.block_count().saturating_sub(1));
+            let last_len = paragraphs.last().map(|s| s.len()).unwrap_or(0);
+            (last_block, last_len)
+        };
+
+        let block_len = self.document.blocks()[block_index].text_len();
+        DocumentPosition::new(block_index, min(offset, block_len))
+    }
+
+    fn structured_from_tdoc(document: &Document) -> Result<StructuredDocument, EditError> {
+        let mut buffer = Vec::new();
+        markdown::write(&mut buffer, document)
+            .map_err(|err| EditError::ConversionFailed(err.to_string()))?;
+        let markdown = String::from_utf8(buffer)
+            .map_err(|err| EditError::ConversionFailed(err.to_string()))?;
+        Ok(markdown_to_document(&markdown))
+    }
+
+    fn insert_structured_fragment(&mut self, fragment: &StructuredDocument) -> EditResult {
+        if fragment.block_count() == 0 {
+            return Ok(());
+        }
+
+        if self.document.is_empty() {
+            for block in fragment.blocks() {
+                self.document.add_block(block.clone());
+            }
+            let last_idx = self.document.block_count() - 1;
+            let last_len = self.document.blocks()[last_idx].text_len();
+            self.cursor = DocumentPosition::new(last_idx, last_len);
+            self.selection = None;
+            self.trigger_paragraph_change();
+            return Ok(());
+        }
+
+        if self.selection.is_some() {
+            self.delete_selection()?;
+        }
+
+        let block_index = self
+            .cursor
+            .block_index
+            .min(self.document.block_count().saturating_sub(1));
+        let offset = self
+            .cursor
+            .offset
+            .min(self.document.blocks()[block_index].text_len());
+
+        let (right_content, left_empty, original_block_type) = {
+            let blocks = self.document.blocks_mut();
+            let block = &mut blocks[block_index];
+            let right = block.split_content_at(offset);
+            let empty = block.content.is_empty();
+            let block_type = block.block_type.clone();
+            (right, empty, block_type)
+        };
+
+        let mut fragments: Vec<Block> = fragment.blocks().to_vec();
+        if fragments.is_empty() {
+            self.cursor = DocumentPosition::new(block_index, offset);
+            self.selection = None;
+            return Ok(());
+        }
+
+        let mut last_insert_block_index: Option<usize> = None;
+        let mut merged_len = 0usize;
+
+        {
+            let blocks = self.document.blocks_mut();
+            let current_block = &mut blocks[block_index];
+            if left_empty {
+                let mut replacement = fragments.remove(0);
+                replacement.normalize_content();
+                *current_block = replacement;
+                last_insert_block_index = Some(block_index);
+            } else if fragments
+                .first()
+                .map(|candidate| Self::can_merge_paragraphs(current_block, candidate))
+                .unwrap_or(false)
+            {
+                let mut first = fragments.remove(0);
+                merged_len = first.text_len();
+                current_block.content.append(&mut first.content);
+                current_block.normalize_content();
+            }
+        }
+
+        let mut insert_pos = block_index + 1;
+        for mut block in fragments.into_iter() {
+            block.normalize_content();
+            self.document.insert_block(insert_pos, block);
+            last_insert_block_index = Some(insert_pos);
+            insert_pos += 1;
+        }
+
+        if !right_content.is_empty() {
+            let mut tail_block = Block::new(original_block_type);
+            tail_block.content = right_content;
+            tail_block.normalize_content();
+            self.document.insert_block(insert_pos, tail_block);
+        }
+
+        if let Some(idx) = last_insert_block_index {
+            let len = self.document.blocks()[idx].text_len();
+            self.cursor = DocumentPosition::new(idx, len);
+        } else {
+            self.cursor = DocumentPosition::new(block_index, offset + merged_len);
+        }
+
+        self.selection = None;
+        self.trigger_paragraph_change();
+        Ok(())
+    }
+
+    fn can_merge_paragraphs(left: &Block, right: &Block) -> bool {
+        matches!(left.block_type, BlockType::Paragraph)
+            && matches!(right.block_type, BlockType::Paragraph)
     }
 
     /// Insert a newline at cursor (creates new paragraph or continues list)
@@ -2596,37 +2736,39 @@ impl StructuredEditor {
 
     /// Paste text at cursor position (or replace selection)
     pub fn paste(&mut self, text: &str) -> EditResult {
+        let normalized = normalize_plain_text(text);
+        if normalized.is_empty() {
+            return Ok(());
+        }
+
+        let normalized_text = normalized.as_ref();
+        let paragraphs: Vec<&str> = normalized_text.split('\n').collect();
+
         if let Some((start, end)) = self.selection {
             // Replace selection using document-level range replace to support multi-paragraph pastes
-            self.document.replace_range(start, end, text);
-            // Position cursor immediately after the inserted text
-            // If multiple paragraphs were inserted, move to start of the last inserted paragraph.
-            let paragraphs: Vec<&str> = text.split("\n\n").collect();
-            let insert_block = start
-                .block_index
-                .min(self.document.block_count().saturating_sub(1));
-            let (block_index, offset) = if paragraphs.len() <= 1 {
-                // Single paragraph inserted into existing block at start.offset
-                let inserted_len = paragraphs.first().map(|s| s.len()).unwrap_or(0);
-                let left_len = start
-                    .offset
-                    .min(self.document.blocks()[insert_block].text_len());
-                (insert_block, left_len + inserted_len)
-            } else {
-                // Multiple paragraphs: last inserted paragraph is placed in a new block
-                let last_block = (insert_block + paragraphs.len() - 1)
-                    .min(self.document.block_count().saturating_sub(1));
-                let last_len = paragraphs.last().map(|s| s.len()).unwrap_or(0);
-                (last_block, last_len)
-            };
-            let block_len = self.document.blocks()[block_index].text_len();
-            self.cursor = DocumentPosition::new(block_index, min(offset, block_len));
+            self.document.replace_range(start, end, normalized_text);
+            let new_cursor = self.cursor_after_plain_insert(start, &paragraphs);
+            self.cursor = new_cursor;
             self.selection = None;
             Ok(())
+        } else if paragraphs.len() > 1 {
+            // Multi-paragraph paste at cursor with no selection uses replace_range on an empty span
+            let cursor_pos = self.cursor;
+            self.document
+                .replace_range(cursor_pos, cursor_pos, normalized_text);
+            let new_cursor = self.cursor_after_plain_insert(cursor_pos, &paragraphs);
+            self.cursor = new_cursor;
+            Ok(())
         } else {
-            // Insert at cursor position
-            self.insert_text(text)
+            // Single-line paste uses inline insertion to preserve inline styling context
+            self.insert_text(normalized_text)
         }
+    }
+
+    /// Insert a [`tdoc::Document`] (typically sourced from the clipboard) at the cursor or selection.
+    pub fn insert_document(&mut self, document: &Document) -> EditResult {
+        let structured = Self::structured_from_tdoc(document)?;
+        self.insert_structured_fragment(&structured)
     }
 
     /// Find the content element and offset within it for a given block offset (static version)
@@ -3372,6 +3514,102 @@ mod tests {
         assert_eq!(sel.0, DocumentPosition::new(0, 0));
         assert_eq!(sel.1, DocumentPosition::new(1, 5));
         assert_eq!(editor.cursor(), DocumentPosition::new(1, 5));
+    }
+
+    #[test]
+    fn test_paste_multiline_without_selection_inserts_paragraphs() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("Hello").unwrap();
+        editor.set_cursor(DocumentPosition::new(0, 5));
+
+        editor.paste("Line1\nLine2\nLine3").unwrap();
+
+        assert_eq!(editor.document().block_count(), 3);
+        assert_eq!(editor.document().blocks()[0].to_plain_text(), "HelloLine1");
+        assert_eq!(editor.document().blocks()[1].to_plain_text(), "Line2");
+        assert_eq!(editor.document().blocks()[2].to_plain_text(), "Line3");
+        assert_eq!(editor.cursor(), DocumentPosition::new(2, 5));
+    }
+
+    #[test]
+    fn test_paste_multiline_replaces_selection() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("First para").unwrap();
+        editor.insert_newline().unwrap();
+        editor.insert_text("Second").unwrap();
+
+        let start = DocumentPosition::new(0, 0);
+        let end = DocumentPosition::new(1, 6);
+        editor.set_selection(start, end);
+
+        editor.paste("LineA\nLineB").unwrap();
+
+        assert_eq!(editor.document().block_count(), 2);
+        assert_eq!(editor.document().blocks()[0].to_plain_text(), "LineA");
+        assert_eq!(editor.document().blocks()[1].to_plain_text(), "LineB");
+        assert_eq!(editor.cursor(), DocumentPosition::new(1, 5));
+        assert!(editor.selection().is_none());
+    }
+
+    #[test]
+    fn test_insert_document_merges_plain_paragraph() {
+        use tdoc::ftml;
+
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("Hello ").unwrap();
+
+        let doc = ftml! {
+            p { "dear " b { "friend" } }
+        };
+
+        editor.insert_document(&doc).unwrap();
+
+        let block = &editor.document().blocks()[0];
+        let parts: Vec<(String, bool)> = block
+            .content
+            .iter()
+            .filter_map(|c| {
+                if let InlineContent::Text(run) = c {
+                    Some((run.text.clone(), run.style.bold))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(parts[0].0, "Hello dear ");
+        assert!(!parts[0].1);
+        assert_eq!(parts[1].0, "friend");
+        assert!(parts[1].1);
+    }
+
+    #[test]
+    fn test_insert_document_from_html_inserts_blocks() {
+        use std::io::Cursor;
+
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("Intro").unwrap();
+        editor.insert_newline().unwrap();
+        editor.insert_text("Tail").unwrap();
+        editor.set_cursor(DocumentPosition::new(1, 0));
+
+        let html_doc = tdoc::html::parse(Cursor::new(
+            "<h2>Greeting</h2><p>Bold <strong>news</strong></p>",
+        ))
+        .unwrap();
+
+        editor.insert_document(&html_doc).unwrap();
+
+        assert_eq!(editor.document().block_count(), 4);
+        assert_eq!(
+            editor.document().blocks()[1].block_type,
+            BlockType::Heading { level: 2 }
+        );
+        assert_eq!(
+            editor.document().blocks()[2].block_type,
+            BlockType::Paragraph
+        );
+        assert_eq!(editor.document().blocks()[3].to_plain_text(), "Tail");
+        assert_eq!(editor.cursor(), DocumentPosition::new(2, 9));
     }
 
     #[test]
