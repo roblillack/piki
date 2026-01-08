@@ -1371,6 +1371,10 @@ fn toggle_fullscreen<M: MenuExt>(
 ) {
     let entering_fullscreen = !window_geometry.borrow().fullscreen;
 
+    // Update fullscreen state early, before window changes, so that Move/Resize
+    // handlers can detect fullscreen mode and avoid overwriting the saved position
+    window_geometry.borrow_mut().fullscreen = entering_fullscreen;
+
     // Get statusbar dimensions before toggling
     let statusbar_height = statusbar.borrow().height();
 
@@ -1422,9 +1426,6 @@ fn toggle_fullscreen<M: MenuExt>(
             statusbar.borrow_mut().show();
         }
     }
-
-    // Update state
-    window_geometry.borrow_mut().fullscreen = entering_fullscreen;
 
     // Update menu item
     if let Some(mut item) = menu_handle.find_item(VIEW_FULLSCREEN) {

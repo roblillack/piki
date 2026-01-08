@@ -423,6 +423,12 @@ fn main() {
 
         wind.handle(move |win, event| match event {
             enums::Event::Move | enums::Event::Resize => {
+                // Don't update geometry while in fullscreen mode - preserve the
+                // pre-fullscreen window position for when we exit fullscreen
+                if geometry.borrow().fullscreen {
+                    return false;
+                }
+
                 if (win.x() == geometry.borrow().x)
                     && (win.y() == geometry.borrow().y)
                     && (win.width() == geometry.borrow().width)
