@@ -178,7 +178,10 @@ impl StructuredRichUI {
     /// Scroll to make the current match visible
     pub fn scroll_to_current_match(&mut self) {
         let mut ctx = FltkDrawContext::new(true, true);
-        self.0.display.borrow_mut().scroll_to_current_match(&mut ctx);
+        self.0
+            .display
+            .borrow_mut()
+            .scroll_to_current_match(&mut ctx);
         self.0.group.redraw();
     }
 

@@ -1,7 +1,7 @@
 use super::{
     AppState, AutoSaveState, load_page_helper, markdown_editor::MarkdownEditor, navigate_back,
-    navigate_forward, page_picker, search_bar::SearchBar, statusbar::StatusBar, wire_editor_callbacks,
-    window_state::WindowGeometry,
+    navigate_forward, page_picker, search_bar::SearchBar, statusbar::StatusBar,
+    window_state::WindowGeometry, wire_editor_callbacks,
 };
 use fltk::{
     app, button,
@@ -391,16 +391,18 @@ fn populate_menu<M>(
                         // Move editor down to make room for search bar
                         if let Ok(ed_ptr) = active_editor.try_borrow()
                             && let Ok(mut ed) = ed_ptr.try_borrow_mut()
-                                && let Some(structured) = ed.as_any_mut().downcast_mut::<StructuredRichUI>() {
-                                    let bar_h = crate::search_bar::BAR_HEIGHT;
-                                    let x = structured.x();
-                                    let y = structured.y();
-                                    let w = structured.width();
-                                    let h = structured.height();
-                                    // Resize search bar to match editor width and position
-                                    sb.resize(x, y, w);
-                                    structured.resize(x, y + bar_h, w, h - bar_h);
-                                }
+                            && let Some(structured) =
+                                ed.as_any_mut().downcast_mut::<StructuredRichUI>()
+                        {
+                            let bar_h = crate::search_bar::BAR_HEIGHT;
+                            let x = structured.x();
+                            let y = structured.y();
+                            let w = structured.width();
+                            let h = structured.height();
+                            // Resize search bar to match editor width and position
+                            sb.resize(x, y, w);
+                            structured.resize(x, y + bar_h, w, h - bar_h);
+                        }
                         sb.show();
                     }
                     app::redraw();
@@ -1449,31 +1451,31 @@ fn toggle_fullscreen<M: MenuExt>(
             let padding = calculate_fullscreen_padding(screen_w, font_size);
 
             // Resize search bar if visible
-            if search_bar_visible
-                && let Ok(mut sb) = search_bar.try_borrow_mut() {
-                    // On macOS, editor_y is 0; otherwise it's 25 for menu bar
-                    #[cfg(target_os = "macos")]
-                    let editor_y = 0;
-                    #[cfg(not(target_os = "macos"))]
-                    let editor_y = 25;
-                    sb.resize(0, editor_y, screen_w);
-                }
+            if search_bar_visible && let Ok(mut sb) = search_bar.try_borrow_mut() {
+                // On macOS, editor_y is 0; otherwise it's 25 for menu bar
+                #[cfg(target_os = "macos")]
+                let editor_y = 0;
+                #[cfg(not(target_os = "macos"))]
+                let editor_y = 25;
+                sb.resize(0, editor_y, screen_w);
+            }
 
             // Apply padding and resize the editor to take full height
             if *is_structured.borrow()
                 && let Ok(active_ptr) = active_editor.try_borrow()
-                    && let Ok(mut editor) = active_ptr.try_borrow_mut()
-                        && let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
-                            structured.set_horizontal_padding(padding);
-                            // Expand editor to full screen height (no statusbar)
-                            // Account for search bar if visible
-                            #[cfg(target_os = "macos")]
-                            let editor_y = 0;
-                            #[cfg(not(target_os = "macos"))]
-                            let editor_y = 25;
-                            let editor_top = editor_y + search_bar_height;
-                            structured.resize(0, editor_top, screen_w, screen_h - editor_top);
-                        }
+                && let Ok(mut editor) = active_ptr.try_borrow_mut()
+                && let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>()
+            {
+                structured.set_horizontal_padding(padding);
+                // Expand editor to full screen height (no statusbar)
+                // Account for search bar if visible
+                #[cfg(target_os = "macos")]
+                let editor_y = 0;
+                #[cfg(not(target_os = "macos"))]
+                let editor_y = 25;
+                let editor_top = editor_y + search_bar_height;
+                structured.resize(0, editor_top, screen_w, screen_h - editor_top);
+            }
 
             // Hide status bar
             statusbar.borrow_mut().hide();
@@ -1482,30 +1484,35 @@ fn toggle_fullscreen<M: MenuExt>(
             win.fullscreen(false);
 
             // Resize search bar if visible
-            if search_bar_visible
-                && let Ok(mut sb) = search_bar.try_borrow_mut() {
-                    #[cfg(target_os = "macos")]
-                    let editor_y = 0;
-                    #[cfg(not(target_os = "macos"))]
-                    let editor_y = 25;
-                    sb.resize(0, editor_y, win.width());
-                }
+            if search_bar_visible && let Ok(mut sb) = search_bar.try_borrow_mut() {
+                #[cfg(target_os = "macos")]
+                let editor_y = 0;
+                #[cfg(not(target_os = "macos"))]
+                let editor_y = 25;
+                sb.resize(0, editor_y, win.width());
+            }
 
             // Restore default padding and resize editor to make room for statusbar
             if *is_structured.borrow()
                 && let Ok(active_ptr) = active_editor.try_borrow()
-                    && let Ok(mut editor) = active_ptr.try_borrow_mut()
-                        && let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
-                            structured.set_horizontal_padding(DEFAULT_PADDING);
-                            // Resize editor to window height minus statusbar
-                            // Account for search bar if visible
-                            #[cfg(target_os = "macos")]
-                            let editor_y = 0;
-                            #[cfg(not(target_os = "macos"))]
-                            let editor_y = 25;
-                            let editor_top = editor_y + search_bar_height;
-                            structured.resize(0, editor_top, win.width(), win.height() - editor_top - statusbar_height);
-                        }
+                && let Ok(mut editor) = active_ptr.try_borrow_mut()
+                && let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>()
+            {
+                structured.set_horizontal_padding(DEFAULT_PADDING);
+                // Resize editor to window height minus statusbar
+                // Account for search bar if visible
+                #[cfg(target_os = "macos")]
+                let editor_y = 0;
+                #[cfg(not(target_os = "macos"))]
+                let editor_y = 25;
+                let editor_top = editor_y + search_bar_height;
+                structured.resize(
+                    0,
+                    editor_top,
+                    win.width(),
+                    win.height() - editor_top - statusbar_height,
+                );
+            }
 
             // Show status bar again
             statusbar.borrow_mut().show();

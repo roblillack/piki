@@ -2080,7 +2080,9 @@ impl StructuredRichDisplay {
             }
 
             // Calculate intersection within the run
-            let start_in_run = match_start.saturating_sub(run_start).min(run_end - run_start);
+            let start_in_run = match_start
+                .saturating_sub(run_start)
+                .min(run_end - run_start);
             let end_in_run = match_end.saturating_sub(run_start).min(run_end - run_start);
 
             if end_in_run > start_in_run {
