@@ -670,16 +670,14 @@ fn main() {
         let padding = ((available_width - target_text_width) / 2).max(25);
 
         // Apply padding and resize the editor to take full height
-        if let Ok(active_ptr) = active_editor.try_borrow() {
-            if let Ok(mut editor) = active_ptr.try_borrow_mut() {
-                if let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
+        if let Ok(active_ptr) = active_editor.try_borrow()
+            && let Ok(mut editor) = active_ptr.try_borrow_mut()
+                && let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
                     structured.set_horizontal_padding(padding);
                     // Expand editor to full screen height (no statusbar)
                     let y = structured.y();
                     structured.resize(0, y, screen_w, screen_h - y);
                 }
-            }
-        }
 
         // Hide status bar
         statusbar.borrow_mut().hide();

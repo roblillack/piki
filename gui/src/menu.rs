@@ -1463,10 +1463,10 @@ fn toggle_fullscreen<M: MenuExt>(
             }
 
             // Apply padding and resize the editor to take full height
-            if *is_structured.borrow() {
-                if let Ok(active_ptr) = active_editor.try_borrow() {
-                    if let Ok(mut editor) = active_ptr.try_borrow_mut() {
-                        if let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
+            if *is_structured.borrow()
+                && let Ok(active_ptr) = active_editor.try_borrow()
+                    && let Ok(mut editor) = active_ptr.try_borrow_mut()
+                        && let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
                             structured.set_horizontal_padding(padding);
                             // Expand editor to full screen height (no statusbar)
                             // Account for search bar if visible
@@ -1477,9 +1477,6 @@ fn toggle_fullscreen<M: MenuExt>(
                             let editor_top = editor_y + search_bar_height;
                             structured.resize(0, editor_top, screen_w, screen_h - editor_top);
                         }
-                    }
-                }
-            }
 
             // Hide status bar
             statusbar.borrow_mut().hide();
@@ -1499,10 +1496,10 @@ fn toggle_fullscreen<M: MenuExt>(
             }
 
             // Restore default padding and resize editor to make room for statusbar
-            if *is_structured.borrow() {
-                if let Ok(active_ptr) = active_editor.try_borrow() {
-                    if let Ok(mut editor) = active_ptr.try_borrow_mut() {
-                        if let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
+            if *is_structured.borrow()
+                && let Ok(active_ptr) = active_editor.try_borrow()
+                    && let Ok(mut editor) = active_ptr.try_borrow_mut()
+                        && let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
                             structured.set_horizontal_padding(DEFAULT_PADDING);
                             // Resize editor to window height minus statusbar
                             // Account for search bar if visible
@@ -1513,9 +1510,6 @@ fn toggle_fullscreen<M: MenuExt>(
                             let editor_top = editor_y + search_bar_height;
                             structured.resize(0, editor_top, win.width(), win.height() - editor_top - statusbar_height);
                         }
-                    }
-                }
-            }
 
             // Show status bar again
             statusbar.borrow_mut().show();
