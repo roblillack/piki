@@ -17,6 +17,9 @@ pub struct WindowGeometry {
     pub y: i32,
     pub width: i32,
     pub height: i32,
+    /// Whether fullscreen mode is active
+    #[serde(default)]
+    pub fullscreen: bool,
 }
 
 pub fn state_file_path() -> Option<PathBuf> {

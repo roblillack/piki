@@ -1,6 +1,7 @@
 use super::{
     AppState, AutoSaveState, load_page_helper, markdown_editor::MarkdownEditor, navigate_back,
     navigate_forward, page_picker, statusbar::StatusBar, wire_editor_callbacks,
+    window_state::WindowGeometry,
 };
 use fltk::{
     app, button,
@@ -42,6 +43,13 @@ const FORMAT_EDIT_LINK: &str = "Format/Edit Link…";
 
 const FORMAT_CLEAR: &str = "Format/Clear formatting";
 
+const VIEW_FULLSCREEN: &str = "View/Fullscreen";
+
+// Default padding for normal mode
+const DEFAULT_PADDING: i32 = 25;
+// Target text width in characters for fullscreen mode
+const FULLSCREEN_TARGET_CHARS: i32 = 90;
+
 const PARAGRAPH_ITEMS: &[&str] = &[
     FORMAT_PARAGRAPH,
     FORMAT_HEADING1,
@@ -73,6 +81,7 @@ pub fn setup_menu(
     is_structured: Rc<RefCell<bool>>,
     statusbar: Rc<RefCell<StatusBar>>,
     wind_ref: Rc<RefCell<window::Window>>,
+    window_geometry: Rc<RefCell<WindowGeometry>>,
     editor_x: i32,
     editor_y: i32,
     editor_w: i32,
@@ -87,6 +96,7 @@ pub fn setup_menu(
         is_structured,
         statusbar,
         wind_ref,
+        window_geometry,
         editor_x,
         editor_y,
         editor_w,
@@ -103,6 +113,7 @@ pub fn setup_menu(
     is_structured: Rc<RefCell<bool>>,
     statusbar: Rc<RefCell<StatusBar>>,
     wind_ref: Rc<RefCell<window::Window>>,
+    window_geometry: Rc<RefCell<WindowGeometry>>,
     editor_x: i32,
     editor_y: i32,
     editor_w: i32,
@@ -117,6 +128,7 @@ pub fn setup_menu(
         is_structured,
         statusbar,
         wind_ref,
+        window_geometry,
         editor_x,
         editor_y,
         editor_w,
@@ -134,6 +146,7 @@ fn populate_menu<M>(
     is_structured: Rc<RefCell<bool>>,
     statusbar: Rc<RefCell<StatusBar>>,
     wind_ref: Rc<RefCell<window::Window>>,
+    window_geometry: Rc<RefCell<WindowGeometry>>,
     editor_x: i32,
     editor_y: i32,
     editor_w: i32,
@@ -185,6 +198,9 @@ fn populate_menu<M>(
     let strike_shortcut = cmd | Shortcut::Shift | 'x';
     let edit_link_shortcut = cmd | 'k';
     let clear_shortcut = cmd | '\\';
+
+    // Write room shortcut: Ctrl/Cmd-Shift-F
+    let fullscreen_shortcut = cmd | Shortcut::Shift | 'f';
 
     // Page menu
     {
@@ -404,6 +420,40 @@ fn populate_menu<M>(
 
     if let Some(mut item) = menu_bar.find_item(view_label) {
         if !*is_structured.borrow() {
+            item.set();
+        } else {
+            item.clear();
+        }
+    }
+
+    // Write Room mode (fullscreen with centered text)
+    {
+        let wind_ref = wind_ref.clone();
+        let window_geometry = window_geometry.clone();
+        let active_editor = active_editor.clone();
+        let is_structured = is_structured.clone();
+        let statusbar = statusbar.clone();
+        let menu_handle = menu_bar.clone();
+        menu_bar.add(
+            VIEW_FULLSCREEN,
+            fullscreen_shortcut,
+            menu::MenuFlag::Toggle,
+            move |_| {
+                toggle_fullscreen(
+                    &wind_ref,
+                    &window_geometry,
+                    &active_editor,
+                    &is_structured,
+                    &statusbar,
+                    &menu_handle,
+                );
+            },
+        );
+    }
+
+    // Initialize write room menu state based on saved state
+    if let Some(mut item) = menu_bar.find_item(VIEW_FULLSCREEN) {
+        if window_geometry.borrow().fullscreen {
             item.set();
         } else {
             item.clear();
@@ -1290,4 +1340,101 @@ fn show_new_page_dialog(
     win.end();
     win.show();
     let _ = input.take_focus();
+}
+
+/// Calculate padding for write room mode to achieve target text width
+fn calculate_fullscreen_padding(window_width: i32, font_size: i32) -> i32 {
+    // Approximate character width as 0.5 * font_size for proportional fonts
+    // This is a rough estimate; actual measurement would be more accurate
+    let char_width = (font_size as f32 * 0.55) as i32;
+    let target_text_width = char_width * FULLSCREEN_TARGET_CHARS;
+
+    // Scrollbar width (must match SCROLLBAR_WIDTH in fltk_structured_rich_display.rs)
+    let scrollbar_width = 15;
+    let available_width = window_width - scrollbar_width;
+
+    // Calculate padding to center the text
+    let padding = (available_width - target_text_width) / 2;
+
+    // Ensure minimum padding
+    padding.max(DEFAULT_PADDING)
+}
+
+/// Toggle fullscreen mode (fullscreen with centered text)
+fn toggle_fullscreen<M: MenuExt>(
+    wind_ref: &Rc<RefCell<window::Window>>,
+    window_geometry: &Rc<RefCell<WindowGeometry>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    is_structured: &Rc<RefCell<bool>>,
+    statusbar: &Rc<RefCell<StatusBar>>,
+    menu_handle: &M,
+) {
+    let entering_fullscreen = !window_geometry.borrow().fullscreen;
+
+    // Get statusbar dimensions before toggling
+    let statusbar_height = statusbar.borrow().height();
+
+    if let Ok(mut win) = wind_ref.try_borrow_mut() {
+        if entering_fullscreen {
+            // Enter fullscreen mode
+            win.fullscreen(true);
+
+            // Calculate padding for ~90 char text width
+            // Use screen dimensions since we're going fullscreen
+            let (_, _, screen_w, screen_h) = app::screen_xywh(0);
+            let font_size = 14; // Default body text font size from theme
+            let padding = calculate_fullscreen_padding(screen_w, font_size);
+
+            // Apply padding and resize the editor to take full height
+            if *is_structured.borrow() {
+                if let Ok(active_ptr) = active_editor.try_borrow() {
+                    if let Ok(mut editor) = active_ptr.try_borrow_mut() {
+                        if let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
+                            structured.set_horizontal_padding(padding);
+                            // Expand editor to full screen height (no statusbar)
+                            let y = structured.y();
+                            structured.resize(0, y, screen_w, screen_h - y);
+                        }
+                    }
+                }
+            }
+
+            // Hide status bar
+            statusbar.borrow_mut().hide();
+        } else {
+            // Exit fullscreen mode
+            win.fullscreen(false);
+
+            // Restore default padding and resize editor to make room for statusbar
+            if *is_structured.borrow() {
+                if let Ok(active_ptr) = active_editor.try_borrow() {
+                    if let Ok(mut editor) = active_ptr.try_borrow_mut() {
+                        if let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
+                            structured.set_horizontal_padding(DEFAULT_PADDING);
+                            // Resize editor to window height minus statusbar
+                            let y = structured.y();
+                            structured.resize(0, y, win.width(), win.height() - y - statusbar_height);
+                        }
+                    }
+                }
+            }
+
+            // Show status bar again
+            statusbar.borrow_mut().show();
+        }
+    }
+
+    // Update state
+    window_geometry.borrow_mut().fullscreen = entering_fullscreen;
+
+    // Update menu item
+    if let Some(mut item) = menu_handle.find_item(VIEW_FULLSCREEN) {
+        if entering_fullscreen {
+            item.set();
+        } else {
+            item.clear();
+        }
+    }
+
+    app::redraw();
 }

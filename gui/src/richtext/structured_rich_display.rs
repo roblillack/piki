@@ -217,6 +217,17 @@ impl StructuredRichDisplay {
         self.layout_valid = false;
     }
 
+    /// Set horizontal padding (for write room mode)
+    pub fn set_horizontal_padding(&mut self, padding: i32) {
+        self.theme.padding_horizontal = padding;
+        self.layout_valid = false;
+    }
+
+    /// Get current horizontal padding
+    pub fn horizontal_padding(&self) -> i32 {
+        self.theme.padding_horizontal
+    }
+
     pub fn x(&self) -> i32 {
         self.x
     }

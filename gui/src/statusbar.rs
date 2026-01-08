@@ -222,4 +222,18 @@ impl StatusBar {
     pub fn y(&self) -> i32 {
         self.background.y()
     }
+
+    /// Hide the status bar
+    pub fn hide(&mut self) {
+        self.background.hide();
+        self.page_status.hide();
+        self.save_status.hide();
+    }
+
+    /// Show the status bar
+    pub fn show(&mut self) {
+        self.background.show();
+        self.page_status.show();
+        self.save_status.show();
+    }
 }

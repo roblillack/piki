@@ -363,6 +363,19 @@ fn main() {
     // Create a clone handle to the window for callbacks
     let wind_ref = Rc::new(RefCell::new(wind.clone()));
 
+    // Initialize window geometry state (with fullscreen from saved state if available)
+    let saved_fullscreen = window_state_path.as_ref()
+        .and_then(|path| window_state::load_state(path.as_path()))
+        .map(|state| state.fullscreen)
+        .unwrap_or(false);
+    let window_geometry = Rc::new(RefCell::new(WindowGeometry {
+        x: wind.x(),
+        y: wind.y(),
+        width: wind.width(),
+        height: wind.height(),
+        fullscreen: saved_fullscreen,
+    }));
+
     // Create menu (system menu bar on macOS, window menu bar on other platforms)
     #[cfg(target_os = "macos")]
     menu::setup_menu(
@@ -372,6 +385,7 @@ fn main() {
         is_structured.clone(),
         statusbar.clone(),
         wind_ref.clone(),
+        window_geometry.clone(),
         editor_x,
         editor_y,
         editor_w,
@@ -386,6 +400,7 @@ fn main() {
         is_structured.clone(),
         statusbar.clone(),
         wind_ref.clone(),
+        window_geometry.clone(),
         editor_x,
         editor_y,
         editor_w,
@@ -399,13 +414,6 @@ fn main() {
         .set_bg_color(enums::Color::from_rgb(255, 255, 245));
 
     wind.end();
-
-    let window_geometry = Rc::new(RefCell::new(WindowGeometry {
-        x: wind.x(),
-        y: wind.y(),
-        width: wind.width(),
-        height: wind.height(),
-    }));
     let pending_save_handle = Rc::new(RefCell::new(None::<app::TimeoutHandle>));
 
     {
@@ -476,6 +484,36 @@ fn main() {
 
     active_editor.borrow().borrow().set_resizable(&mut wind);
     wind.show();
+
+    // Restore fullscreen mode if it was previously enabled
+    if saved_fullscreen {
+        // Enter fullscreen mode
+        wind.fullscreen(true);
+
+        // Calculate and apply padding
+        let (_, _, screen_w, screen_h) = app::screen_xywh(0);
+        let font_size = 14; // Default body text font size from theme
+        let char_width = (font_size as f32 * 0.55) as i32;
+        let target_text_width = char_width * 90; // ~90 chars
+        let scrollbar_width = 15;
+        let available_width = screen_w - scrollbar_width;
+        let padding = ((available_width - target_text_width) / 2).max(25);
+
+        // Apply padding and resize the editor to take full height
+        if let Ok(active_ptr) = active_editor.try_borrow() {
+            if let Ok(mut editor) = active_ptr.try_borrow_mut() {
+                if let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
+                    structured.set_horizontal_padding(padding);
+                    // Expand editor to full screen height (no statusbar)
+                    let y = structured.y();
+                    structured.resize(0, y, screen_w, screen_h - y);
+                }
+            }
+        }
+
+        // Hide status bar
+        statusbar.borrow_mut().hide();
+    }
 
     // Clicking the page status opens the page picker
     {

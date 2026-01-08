@@ -104,6 +104,33 @@ impl StructuredRichUI {
         blocks.get(idx).map(|b| b.block_type.clone())
     }
 
+    /// Set horizontal padding (for write room mode)
+    pub fn set_horizontal_padding(&mut self, padding: i32) {
+        self.0.display.borrow_mut().set_horizontal_padding(padding);
+        self.0.group.redraw();
+    }
+
+    /// Get current horizontal padding
+    pub fn horizontal_padding(&self) -> i32 {
+        self.0.display.borrow().horizontal_padding()
+    }
+
+    /// Resize the editor widget
+    pub fn resize(&mut self, x: i32, y: i32, w: i32, h: i32) {
+        self.0.group.resize(x, y, w, h);
+        self.0.group.redraw();
+    }
+
+    /// Get current height
+    pub fn height(&self) -> i32 {
+        self.0.group.height()
+    }
+
+    /// Get current y position
+    pub fn y(&self) -> i32 {
+        self.0.group.y()
+    }
+
     fn apply_edit<F>(&mut self, edit: F) -> bool
     where
         F: FnOnce(&mut StructuredEditor) -> crate::richtext::structured_editor::EditResult,
