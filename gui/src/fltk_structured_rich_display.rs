@@ -685,11 +685,18 @@ impl FltkStructuredRichDisplay {
                                 d.xy_to_position(x_local, y_local)
                             };
 
+                            // Check if Shift is held for selection extension
+                            let shift_held = fltk::app::event_state().contains(Shortcut::Shift);
+
                             match effective_clicks {
                                 1 => {
-                                    // Single click: position cursor
+                                    // Single click: position cursor or extend selection if Shift is held
                                     let mut d = display.borrow_mut();
-                                    d.editor_mut().set_cursor(pos);
+                                    if shift_held {
+                                        d.editor_mut().extend_selection_to(pos);
+                                    } else {
+                                        d.editor_mut().set_cursor(pos);
+                                    }
                                     d.record_preferred_pos(pos);
                                 }
                                 2 => {
