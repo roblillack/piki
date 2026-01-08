@@ -487,11 +487,16 @@ fn main() {
 
     // Restore fullscreen mode if it was previously enabled
     if saved_fullscreen {
+        // Determine which screen the window is on using its center point
+        let win_center_x = wind.x() + wind.width() / 2;
+        let win_center_y = wind.y() + wind.height() / 2;
+        let screen_num = app::screen_num(win_center_x, win_center_y);
+
         // Enter fullscreen mode
         wind.fullscreen(true);
 
-        // Calculate and apply padding
-        let (_, _, screen_w, screen_h) = app::screen_xywh(0);
+        // Calculate and apply padding using the correct screen dimensions
+        let (_, _, screen_w, screen_h) = app::screen_xywh(screen_num);
         let font_size = 14; // Default body text font size from theme
         let char_width = (font_size as f32 * 0.55) as i32;
         let target_text_width = char_width * 90; // ~90 chars
