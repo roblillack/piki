@@ -427,9 +427,9 @@ fn main() {
 
         // On search text change
         search_bar.borrow().on_search(move |term| {
-            if let Ok(ed_ptr) = editor_for_search.try_borrow() {
-                if let Ok(mut ed) = ed_ptr.try_borrow_mut() {
-                    if let Some(structured) = ed.as_any_mut().downcast_mut::<StructuredRichUI>() {
+            if let Ok(ed_ptr) = editor_for_search.try_borrow()
+                && let Ok(mut ed) = ed_ptr.try_borrow_mut()
+                    && let Some(structured) = ed.as_any_mut().downcast_mut::<StructuredRichUI>() {
                         let count = structured.search(&term);
                         if let Ok(mut sb) = search_bar_for_search.try_borrow_mut() {
                             sb.set_match_count(
@@ -443,8 +443,6 @@ fn main() {
                         }
                         app::redraw();
                     }
-                }
-            }
         });
     }
 
@@ -454,10 +452,10 @@ fn main() {
 
         // On next match
         search_bar.borrow().on_next(move || {
-            if let Ok(ed_ptr) = editor_for_next.try_borrow() {
-                if let Ok(mut ed) = ed_ptr.try_borrow_mut() {
-                    if let Some(structured) = ed.as_any_mut().downcast_mut::<StructuredRichUI>() {
-                        if structured.next_match() {
+            if let Ok(ed_ptr) = editor_for_next.try_borrow()
+                && let Ok(mut ed) = ed_ptr.try_borrow_mut()
+                    && let Some(structured) = ed.as_any_mut().downcast_mut::<StructuredRichUI>()
+                        && structured.next_match() {
                             let total = structured.search_matches().len();
                             let current = structured.search_current_index();
                             if let Ok(mut sb) = search_bar_for_next.try_borrow_mut() {
@@ -466,9 +464,6 @@ fn main() {
                             structured.scroll_to_current_match();
                             app::redraw();
                         }
-                    }
-                }
-            }
         });
     }
 
@@ -478,10 +473,10 @@ fn main() {
 
         // On previous match
         search_bar.borrow().on_prev(move || {
-            if let Ok(ed_ptr) = editor_for_prev.try_borrow() {
-                if let Ok(mut ed) = ed_ptr.try_borrow_mut() {
-                    if let Some(structured) = ed.as_any_mut().downcast_mut::<StructuredRichUI>() {
-                        if structured.prev_match() {
+            if let Ok(ed_ptr) = editor_for_prev.try_borrow()
+                && let Ok(mut ed) = ed_ptr.try_borrow_mut()
+                    && let Some(structured) = ed.as_any_mut().downcast_mut::<StructuredRichUI>()
+                        && structured.prev_match() {
                             let total = structured.search_matches().len();
                             let current = structured.search_current_index();
                             if let Ok(mut sb) = search_bar_for_prev.try_borrow_mut() {
@@ -490,9 +485,6 @@ fn main() {
                             structured.scroll_to_current_match();
                             app::redraw();
                         }
-                    }
-                }
-            }
         });
     }
 
@@ -503,9 +495,9 @@ fn main() {
         // On close
         search_bar.borrow().on_close(move || {
             // Restore editor position (move up to fill the space)
-            if let Ok(ed_ptr) = editor_for_close.try_borrow() {
-                if let Ok(mut ed) = ed_ptr.try_borrow_mut() {
-                    if let Some(structured) = ed.as_any_mut().downcast_mut::<StructuredRichUI>() {
+            if let Ok(ed_ptr) = editor_for_close.try_borrow()
+                && let Ok(mut ed) = ed_ptr.try_borrow_mut()
+                    && let Some(structured) = ed.as_any_mut().downcast_mut::<StructuredRichUI>() {
                         let bar_h = search_bar::BAR_HEIGHT;
                         let x = structured.x();
                         let y = structured.y();
@@ -514,19 +506,16 @@ fn main() {
                         structured.resize(x, y - bar_h, w, h + bar_h);
                         structured.clear_search();
                     }
-                }
-            }
 
             if let Ok(mut sb) = search_bar_for_close.try_borrow_mut() {
                 sb.hide();
             }
 
             // Return focus to editor
-            if let Ok(ed_ptr) = editor_for_close.try_borrow() {
-                if let Ok(mut ed) = ed_ptr.try_borrow_mut() {
+            if let Ok(ed_ptr) = editor_for_close.try_borrow()
+                && let Ok(mut ed) = ed_ptr.try_borrow_mut() {
                     ed.take_focus();
                 }
-            }
             app::redraw();
         });
     }
@@ -564,11 +553,10 @@ fn main() {
                         .unwrap_or(false);
 
                     // Only resize search bar when visible to avoid FLTK resize side effects
-                    if search_bar_visible {
-                        if let Ok(mut sb) = search_bar_for_resize.try_borrow_mut() {
+                    if search_bar_visible
+                        && let Ok(mut sb) = search_bar_for_resize.try_borrow_mut() {
                             sb.resize(0, editor_y, win.width());
                         }
-                    }
 
                     // Resize editor based on whether search bar is visible
                     let statusbar_h = statusbar_for_resize
@@ -576,9 +564,9 @@ fn main() {
                         .map(|s| if s.visible() { s.height() } else { 0 })
                         .unwrap_or(0);
 
-                    if let Ok(ed_ptr) = active_editor_for_resize.try_borrow() {
-                        if let Ok(mut ed) = ed_ptr.try_borrow_mut() {
-                            if let Some(structured) =
+                    if let Ok(ed_ptr) = active_editor_for_resize.try_borrow()
+                        && let Ok(mut ed) = ed_ptr.try_borrow_mut()
+                            && let Some(structured) =
                                 ed.as_any_mut().downcast_mut::<StructuredRichUI>()
                             {
                                 if search_bar_visible {
@@ -592,8 +580,6 @@ fn main() {
                                     structured.resize(0, editor_y, win.width(), editor_h);
                                 }
                             }
-                        }
-                    }
                 }
 
                 {
