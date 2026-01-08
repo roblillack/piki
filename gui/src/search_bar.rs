@@ -174,15 +174,22 @@ impl SearchBar {
 
     /// Show the search bar and focus the input
     /// Selects all existing text so typing replaces it
+    /// If there's existing text, triggers the search callback to highlight matches
     pub fn show(&mut self) {
         self.group.show();
-        let len = self.input.value().len() as i32;
+        let text = self.input.value();
+        let len = text.len() as i32;
         self.input.take_focus().ok();
         if len > 0 {
             // In FLTK, position is cursor, mark is selection anchor
             // Setting position to end first, then mark to 0 selects all
             self.input.set_position(len).ok();
             self.input.set_mark(0).ok();
+
+            // Trigger the search callback with existing text to highlight matches
+            if let Some(cb) = &mut *self.on_search.borrow_mut() {
+                cb(text);
+            }
         }
     }
 
