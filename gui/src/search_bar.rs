@@ -203,25 +203,6 @@ impl SearchBar {
         self.group.visible()
     }
 
-    /// Toggle visibility
-    pub fn toggle(&mut self) {
-        if self.visible() {
-            self.hide();
-        } else {
-            self.show();
-        }
-    }
-
-    /// Get the current search term
-    pub fn search_term(&self) -> String {
-        self.input.value()
-    }
-
-    /// Set the search term (for restoring state)
-    pub fn set_search_term(&mut self, term: &str) {
-        self.input.set_value(term);
-    }
-
     /// Update the match count display
     pub fn set_match_count(&mut self, current: Option<usize>, total: usize) {
         if total == 0 {
@@ -283,16 +264,6 @@ impl SearchBar {
 
         self.count_label
             .resize(right_x, 4, COUNT_WIDTH, BAR_HEIGHT - 8);
-    }
-
-    /// Get the height of the search bar
-    pub fn height(&self) -> i32 {
-        BAR_HEIGHT
-    }
-
-    /// Get the group widget
-    pub fn group(&self) -> &group::Group {
-        &self.group
     }
 
     /// Focus the input field and select all text
