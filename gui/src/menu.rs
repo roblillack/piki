@@ -1,6 +1,6 @@
 use super::{
     AppState, AutoSaveState, load_page_helper, markdown_editor::MarkdownEditor, navigate_back,
-    navigate_forward, page_picker, statusbar::StatusBar, wire_editor_callbacks,
+    navigate_forward, page_picker, search_bar::SearchBar, statusbar::StatusBar, wire_editor_callbacks,
     window_state::WindowGeometry,
 };
 use fltk::{
@@ -82,6 +82,7 @@ pub fn setup_menu(
     statusbar: Rc<RefCell<StatusBar>>,
     wind_ref: Rc<RefCell<window::Window>>,
     window_geometry: Rc<RefCell<WindowGeometry>>,
+    search_bar: Rc<RefCell<SearchBar>>,
     editor_x: i32,
     editor_y: i32,
     editor_w: i32,
@@ -97,6 +98,7 @@ pub fn setup_menu(
         statusbar,
         wind_ref,
         window_geometry,
+        search_bar,
         editor_x,
         editor_y,
         editor_w,
@@ -114,6 +116,7 @@ pub fn setup_menu(
     statusbar: Rc<RefCell<StatusBar>>,
     wind_ref: Rc<RefCell<window::Window>>,
     window_geometry: Rc<RefCell<WindowGeometry>>,
+    search_bar: Rc<RefCell<SearchBar>>,
     editor_x: i32,
     editor_y: i32,
     editor_w: i32,
@@ -129,6 +132,7 @@ pub fn setup_menu(
         statusbar,
         wind_ref,
         window_geometry,
+        search_bar,
         editor_x,
         editor_y,
         editor_w,
@@ -147,6 +151,7 @@ fn populate_menu<M>(
     statusbar: Rc<RefCell<StatusBar>>,
     wind_ref: Rc<RefCell<window::Window>>,
     window_geometry: Rc<RefCell<WindowGeometry>>,
+    search_bar: Rc<RefCell<SearchBar>>,
     editor_x: i32,
     editor_y: i32,
     editor_w: i32,
@@ -365,6 +370,41 @@ fn populate_menu<M>(
             menu::MenuFlag::Normal,
             move |_| {
                 perform_paste(&active_editor, &is_structured);
+            },
+        );
+    }
+
+    // Find (Cmd/Ctrl+F)
+    {
+        let search_bar = search_bar.clone();
+        let active_editor = active_editor.clone();
+        menu_bar.add(
+            "Edit/Find…",
+            cmd | Key::from_char('f'),
+            menu::MenuFlag::Normal,
+            move |_| {
+                if let Ok(mut sb) = search_bar.try_borrow_mut() {
+                    if sb.visible() {
+                        // If already visible, just focus the input
+                        sb.take_focus();
+                    } else {
+                        // Move editor down to make room for search bar
+                        if let Ok(ed_ptr) = active_editor.try_borrow() {
+                            if let Ok(mut ed) = ed_ptr.try_borrow_mut() {
+                                if let Some(structured) = ed.as_any_mut().downcast_mut::<StructuredRichUI>() {
+                                    let bar_h = crate::search_bar::BAR_HEIGHT;
+                                    let x = structured.x();
+                                    let y = structured.y();
+                                    let w = structured.width();
+                                    let h = structured.height();
+                                    structured.resize(x, y + bar_h, w, h - bar_h);
+                                }
+                            }
+                        }
+                        sb.show();
+                    }
+                    app::redraw();
+                }
             },
         );
     }

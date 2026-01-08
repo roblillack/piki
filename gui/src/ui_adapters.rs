@@ -1,9 +1,11 @@
 use crate::content::{ContentLoader, ContentProvider};
+use crate::fltk_draw_context::FltkDrawContext;
 use crate::fltk_structured_rich_display::FltkStructuredRichDisplay;
 use crate::page_ui::PageUI;
 use crate::richtext::markdown_converter::{document_to_markdown, markdown_to_document};
 use crate::richtext::structured_document::BlockType;
 use crate::richtext::structured_editor::StructuredEditor;
+use crate::richtext::structured_rich_display::SearchMatch;
 use fltk::{app, enums::Color, prelude::*, window};
 use std::any::Any;
 
@@ -126,9 +128,63 @@ impl StructuredRichUI {
         self.0.group.height()
     }
 
+    /// Get current width
+    pub fn width(&self) -> i32 {
+        self.0.group.width()
+    }
+
+    /// Get current x position
+    pub fn x(&self) -> i32 {
+        self.0.group.x()
+    }
+
     /// Get current y position
     pub fn y(&self) -> i32 {
         self.0.group.y()
+    }
+
+    // ==================== Search Methods ====================
+
+    /// Perform a case-insensitive search for the given term
+    pub fn search(&mut self, term: &str) -> usize {
+        self.0.display.borrow_mut().search(term)
+    }
+
+    /// Clear the search state
+    pub fn clear_search(&mut self) {
+        self.0.display.borrow_mut().clear_search();
+    }
+
+    /// Get all search matches
+    pub fn search_matches(&self) -> Vec<SearchMatch> {
+        self.0.display.borrow().search_matches().to_vec()
+    }
+
+    /// Get the current match index
+    pub fn search_current_index(&self) -> Option<usize> {
+        self.0.display.borrow().search_current_index()
+    }
+
+    /// Move to the next match
+    pub fn next_match(&mut self) -> bool {
+        self.0.display.borrow_mut().next_match()
+    }
+
+    /// Move to the previous match
+    pub fn prev_match(&mut self) -> bool {
+        self.0.display.borrow_mut().prev_match()
+    }
+
+    /// Scroll to make the current match visible
+    pub fn scroll_to_current_match(&mut self) {
+        let mut ctx = FltkDrawContext::new(true, true);
+        self.0.display.borrow_mut().scroll_to_current_match(&mut ctx);
+        self.0.group.redraw();
+    }
+
+    /// Focus the editor widget
+    pub fn take_focus(&mut self) {
+        let _ = self.0.group.take_focus();
     }
 
     fn apply_edit<F>(&mut self, edit: F) -> bool
@@ -224,5 +280,9 @@ impl PageUI for StructuredRichUI {
 
     fn hide(&mut self) {
         self.0.group.hide();
+    }
+
+    fn take_focus(&mut self) {
+        let _ = self.0.group.take_focus();
     }
 }
