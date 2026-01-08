@@ -397,6 +397,8 @@ fn populate_menu<M>(
                                     let y = structured.y();
                                     let w = structured.width();
                                     let h = structured.height();
+                                    // Resize search bar to match editor width and position
+                                    sb.resize(x, y, w);
                                     structured.resize(x, y + bar_h, w, h - bar_h);
                                 }
                             }
@@ -473,6 +475,7 @@ fn populate_menu<M>(
         let active_editor = active_editor.clone();
         let is_structured = is_structured.clone();
         let statusbar = statusbar.clone();
+        let search_bar = search_bar.clone();
         let menu_handle = menu_bar.clone();
         menu_bar.add(
             VIEW_FULLSCREEN,
@@ -485,6 +488,7 @@ fn populate_menu<M>(
                     &active_editor,
                     &is_structured,
                     &statusbar,
+                    &search_bar,
                     &menu_handle,
                 );
             },
@@ -1407,12 +1411,28 @@ fn toggle_fullscreen<M: MenuExt>(
     active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
     is_structured: &Rc<RefCell<bool>>,
     statusbar: &Rc<RefCell<StatusBar>>,
+    search_bar: &Rc<RefCell<SearchBar>>,
     menu_handle: &M,
 ) {
     let entering_fullscreen = !window_geometry.borrow().fullscreen;
 
     // Get statusbar dimensions before toggling
     let statusbar_height = statusbar.borrow().height();
+
+    // Update fullscreen state BEFORE triggering resize events
+    // so that resize handlers know to skip their logic
+    window_geometry.borrow_mut().fullscreen = entering_fullscreen;
+
+    // Check if search bar is visible
+    let search_bar_visible = search_bar
+        .try_borrow()
+        .map(|sb| sb.visible())
+        .unwrap_or(false);
+    let search_bar_height = if search_bar_visible {
+        crate::search_bar::BAR_HEIGHT
+    } else {
+        0
+    };
 
     if let Ok(mut win) = wind_ref.try_borrow_mut() {
         if entering_fullscreen {
@@ -1425,6 +1445,18 @@ fn toggle_fullscreen<M: MenuExt>(
             let font_size = 14; // Default body text font size from theme
             let padding = calculate_fullscreen_padding(screen_w, font_size);
 
+            // Resize search bar if visible
+            if search_bar_visible {
+                if let Ok(mut sb) = search_bar.try_borrow_mut() {
+                    // On macOS, editor_y is 0; otherwise it's 25 for menu bar
+                    #[cfg(target_os = "macos")]
+                    let editor_y = 0;
+                    #[cfg(not(target_os = "macos"))]
+                    let editor_y = 25;
+                    sb.resize(0, editor_y, screen_w);
+                }
+            }
+
             // Apply padding and resize the editor to take full height
             if *is_structured.borrow() {
                 if let Ok(active_ptr) = active_editor.try_borrow() {
@@ -1432,8 +1464,13 @@ fn toggle_fullscreen<M: MenuExt>(
                         if let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
                             structured.set_horizontal_padding(padding);
                             // Expand editor to full screen height (no statusbar)
-                            let y = structured.y();
-                            structured.resize(0, y, screen_w, screen_h - y);
+                            // Account for search bar if visible
+                            #[cfg(target_os = "macos")]
+                            let editor_y = 0;
+                            #[cfg(not(target_os = "macos"))]
+                            let editor_y = 25;
+                            let editor_top = editor_y + search_bar_height;
+                            structured.resize(0, editor_top, screen_w, screen_h - editor_top);
                         }
                     }
                 }
@@ -1445,6 +1482,17 @@ fn toggle_fullscreen<M: MenuExt>(
             // Exit fullscreen mode
             win.fullscreen(false);
 
+            // Resize search bar if visible
+            if search_bar_visible {
+                if let Ok(mut sb) = search_bar.try_borrow_mut() {
+                    #[cfg(target_os = "macos")]
+                    let editor_y = 0;
+                    #[cfg(not(target_os = "macos"))]
+                    let editor_y = 25;
+                    sb.resize(0, editor_y, win.width());
+                }
+            }
+
             // Restore default padding and resize editor to make room for statusbar
             if *is_structured.borrow() {
                 if let Ok(active_ptr) = active_editor.try_borrow() {
@@ -1452,8 +1500,13 @@ fn toggle_fullscreen<M: MenuExt>(
                         if let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
                             structured.set_horizontal_padding(DEFAULT_PADDING);
                             // Resize editor to window height minus statusbar
-                            let y = structured.y();
-                            structured.resize(0, y, win.width(), win.height() - y - statusbar_height);
+                            // Account for search bar if visible
+                            #[cfg(target_os = "macos")]
+                            let editor_y = 0;
+                            #[cfg(not(target_os = "macos"))]
+                            let editor_y = 25;
+                            let editor_top = editor_y + search_bar_height;
+                            structured.resize(0, editor_top, win.width(), win.height() - editor_top - statusbar_height);
                         }
                     }
                 }
@@ -1463,9 +1516,6 @@ fn toggle_fullscreen<M: MenuExt>(
             statusbar.borrow_mut().show();
         }
     }
-
-    // Update state
-    window_geometry.borrow_mut().fullscreen = entering_fullscreen;
 
     // Update menu item
     if let Some(mut item) = menu_handle.find_item(VIEW_FULLSCREEN) {

@@ -538,6 +538,9 @@ fn main() {
         let geometry = window_geometry.clone();
         let pending = pending_save_handle.clone();
         let state_path_for_handler = window_state_path.clone();
+        let search_bar_for_resize = search_bar.clone();
+        let active_editor_for_resize = active_editor.clone();
+        let statusbar_for_resize = statusbar.clone();
 
         wind.handle(move |win, event| match event {
             enums::Event::Move | enums::Event::Resize => {
@@ -547,6 +550,50 @@ fn main() {
                     && (win.height() == geometry.borrow().height)
                 {
                     return false;
+                }
+
+                // Skip custom resize logic when in fullscreen mode
+                // (fullscreen has its own layout with padding)
+                let is_fullscreen = geometry.borrow().fullscreen;
+
+                if !is_fullscreen {
+                    // Check if search bar is visible
+                    let search_bar_visible = search_bar_for_resize
+                        .try_borrow()
+                        .map(|sb| sb.visible())
+                        .unwrap_or(false);
+
+                    // Only resize search bar when visible to avoid FLTK resize side effects
+                    if search_bar_visible {
+                        if let Ok(mut sb) = search_bar_for_resize.try_borrow_mut() {
+                            sb.resize(0, editor_y, win.width());
+                        }
+                    }
+
+                    // Resize editor based on whether search bar is visible
+                    let statusbar_h = statusbar_for_resize
+                        .try_borrow()
+                        .map(|s| if s.visible() { s.height() } else { 0 })
+                        .unwrap_or(0);
+
+                    if let Ok(ed_ptr) = active_editor_for_resize.try_borrow() {
+                        if let Ok(mut ed) = ed_ptr.try_borrow_mut() {
+                            if let Some(structured) =
+                                ed.as_any_mut().downcast_mut::<StructuredRichUI>()
+                            {
+                                if search_bar_visible {
+                                    let bar_h = search_bar::BAR_HEIGHT;
+                                    let editor_top = editor_y + bar_h;
+                                    let editor_h = win.height() - editor_top - statusbar_h;
+                                    structured.resize(0, editor_top, win.width(), editor_h);
+                                } else {
+                                    // Search bar hidden - editor fills full space
+                                    let editor_h = win.height() - editor_y - statusbar_h;
+                                    structured.resize(0, editor_y, win.width(), editor_h);
+                                }
+                            }
+                        }
+                    }
                 }
 
                 {

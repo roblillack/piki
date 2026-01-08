@@ -36,39 +36,41 @@ impl SearchBar {
         // group.set_frame(FrameType::FlatBox);
         // group.set_color(Color::from_rgb(240, 240, 240));
 
-        // Calculate positions (relative to groupdow, not screen)
+        // Calculate positions - buttons fixed to right, input takes remaining space
         let padding = 4;
-        let mut current_x = padding;
+        let right_section_width = 3 * BUTTON_WIDTH + COUNT_WIDTH + 4 * padding;
 
-        // Input field (takes most of the space)
-        let input_width = (w - 4 * BUTTON_WIDTH - COUNT_WIDTH - 6 * padding).max(INPUT_MIN_WIDTH);
-        let mut input = input::Input::new(current_x, 4, input_width, BAR_HEIGHT - 8, None);
+        // Input field (takes remaining space on the left)
+        let input_width = (w - right_section_width - padding).max(INPUT_MIN_WIDTH);
+        let mut input = input::Input::new(padding, 4, input_width, BAR_HEIGHT - 8, None);
         // input.set_frame(FrameType::BorderBox);
         input.set_text_size(14);
-        current_x += input_width + padding;
 
-        // Match count label
-        let mut count_label = frame::Frame::new(current_x, 4, COUNT_WIDTH, BAR_HEIGHT - 8, None);
-        count_label.set_label_size(12);
-        count_label.set_align(Align::Inside | Align::Left);
-        current_x += COUNT_WIDTH + padding;
+        // Position elements from the right edge
+        let mut right_x = w - padding - BUTTON_WIDTH;
 
-        // Previous button
-        let mut prev_btn = button::Button::new(current_x, 4, BUTTON_WIDTH, BAR_HEIGHT - 8, "@<");
-        // prev_btn.set_frame(FrameType::FlatBox);
-        prev_btn.set_tooltip("Previous match (Shift+Enter)");
-        current_x += BUTTON_WIDTH + padding;
-
-        // Next button
-        let mut next_btn = button::Button::new(current_x, 4, BUTTON_WIDTH, BAR_HEIGHT - 8, "@>");
-        // next_btn.set_frame(FrameType::FlatBox);
-        next_btn.set_tooltip("Next match (Enter)");
-        current_x += BUTTON_WIDTH + padding;
-
-        // Close button
-        let mut close_btn = button::Button::new(current_x, 4, BUTTON_WIDTH, BAR_HEIGHT - 8, "@1+");
+        // Close button (rightmost)
+        let mut close_btn = button::Button::new(right_x, 4, BUTTON_WIDTH, BAR_HEIGHT - 8, "@1+");
         // close_btn.set_frame(FrameType::FlatBox);
         close_btn.set_tooltip("Close (Escape)");
+        right_x -= BUTTON_WIDTH + padding;
+
+        // Next button
+        let mut next_btn = button::Button::new(right_x, 4, BUTTON_WIDTH, BAR_HEIGHT - 8, "@>");
+        // next_btn.set_frame(FrameType::FlatBox);
+        next_btn.set_tooltip("Next match (Enter)");
+        right_x -= BUTTON_WIDTH + padding;
+
+        // Previous button
+        let mut prev_btn = button::Button::new(right_x, 4, BUTTON_WIDTH, BAR_HEIGHT - 8, "@<");
+        // prev_btn.set_frame(FrameType::FlatBox);
+        prev_btn.set_tooltip("Previous match (Shift+Enter)");
+        right_x -= COUNT_WIDTH + padding;
+
+        // Match count label
+        let mut count_label = frame::Frame::new(right_x, 4, COUNT_WIDTH, BAR_HEIGHT - 8, None);
+        count_label.set_label_size(12);
+        count_label.set_align(Align::Inside | Align::Right);
 
         group.end();
         group.hide();
@@ -249,28 +251,31 @@ impl SearchBar {
     pub fn resize(&mut self, x: i32, y: i32, w: i32) {
         self.group.resize(x, y, w, BAR_HEIGHT);
 
-        // Recalculate positions (relative to groupdow, not screen)
+        // Recalculate positions - buttons fixed to right, input takes remaining space
         let padding = 4;
-        let mut current_x = padding;
+        let right_section_width = 3 * BUTTON_WIDTH + COUNT_WIDTH + 4 * padding;
 
-        let input_width = (w - 4 * BUTTON_WIDTH - COUNT_WIDTH - 6 * padding).max(INPUT_MIN_WIDTH);
-        self.input.resize(current_x, 4, input_width, BAR_HEIGHT - 8);
-        current_x += input_width + padding;
+        // Input field takes remaining space on the left
+        let input_width = (w - right_section_width - padding).max(INPUT_MIN_WIDTH);
+        self.input.resize(padding, 4, input_width, BAR_HEIGHT - 8);
 
-        self.count_label
-            .resize(current_x, 4, COUNT_WIDTH, BAR_HEIGHT - 8);
-        current_x += COUNT_WIDTH + padding;
-
-        self.prev_btn
-            .resize(current_x, 4, BUTTON_WIDTH, BAR_HEIGHT - 8);
-        current_x += BUTTON_WIDTH + padding;
-
-        self.next_btn
-            .resize(current_x, 4, BUTTON_WIDTH, BAR_HEIGHT - 8);
-        current_x += BUTTON_WIDTH + padding;
+        // Position elements from the right edge
+        let mut right_x = w - padding - BUTTON_WIDTH;
 
         self.close_btn
-            .resize(current_x, 4, BUTTON_WIDTH, BAR_HEIGHT - 8);
+            .resize(right_x, 4, BUTTON_WIDTH, BAR_HEIGHT - 8);
+        right_x -= BUTTON_WIDTH + padding;
+
+        self.next_btn
+            .resize(right_x, 4, BUTTON_WIDTH, BAR_HEIGHT - 8);
+        right_x -= BUTTON_WIDTH + padding;
+
+        self.prev_btn
+            .resize(right_x, 4, BUTTON_WIDTH, BAR_HEIGHT - 8);
+        right_x -= COUNT_WIDTH + padding;
+
+        self.count_label
+            .resize(right_x, 4, COUNT_WIDTH, BAR_HEIGHT - 8);
     }
 
     /// Get the height of the search bar
