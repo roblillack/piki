@@ -364,7 +364,8 @@ fn main() {
     let wind_ref = Rc::new(RefCell::new(wind.clone()));
 
     // Initialize window geometry state (with fullscreen from saved state if available)
-    let saved_fullscreen = window_state_path.as_ref()
+    let saved_fullscreen = window_state_path
+        .as_ref()
         .and_then(|path| window_state::load_state(path.as_path()))
         .map(|state| state.fullscreen)
         .unwrap_or(false);
@@ -513,12 +514,13 @@ fn main() {
         // Apply padding and resize the editor to take full height
         if let Ok(active_ptr) = active_editor.try_borrow()
             && let Ok(mut editor) = active_ptr.try_borrow_mut()
-                && let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
-                    structured.set_horizontal_padding(padding);
-                    // Expand editor to full screen height (no statusbar)
-                    let y = structured.y();
-                    structured.resize(0, y, screen_w, screen_h - y);
-                }
+            && let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>()
+        {
+            structured.set_horizontal_padding(padding);
+            // Expand editor to full screen height (no statusbar)
+            let y = structured.y();
+            structured.resize(0, y, screen_w, screen_h - y);
+        }
 
         // Hide status bar
         statusbar.borrow_mut().hide();

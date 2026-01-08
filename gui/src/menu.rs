@@ -1,7 +1,7 @@
 use super::{
     AppState, AutoSaveState, load_page_helper, markdown_editor::MarkdownEditor, navigate_back,
-    navigate_forward, page_picker, statusbar::StatusBar, wire_editor_callbacks,
-    window_state::WindowGeometry,
+    navigate_forward, page_picker, statusbar::StatusBar, window_state::WindowGeometry,
+    wire_editor_callbacks,
 };
 use fltk::{
     app, button,
@@ -1397,13 +1397,14 @@ fn toggle_fullscreen<M: MenuExt>(
             // Apply padding and resize the editor to take full height
             if *is_structured.borrow()
                 && let Ok(active_ptr) = active_editor.try_borrow()
-                    && let Ok(mut editor) = active_ptr.try_borrow_mut()
-                        && let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
-                            structured.set_horizontal_padding(padding);
-                            // Expand editor to full screen height (no statusbar)
-                            let y = structured.y();
-                            structured.resize(0, y, screen_w, screen_h - y);
-                        }
+                && let Ok(mut editor) = active_ptr.try_borrow_mut()
+                && let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>()
+            {
+                structured.set_horizontal_padding(padding);
+                // Expand editor to full screen height (no statusbar)
+                let y = structured.y();
+                structured.resize(0, y, screen_w, screen_h - y);
+            }
 
             // Hide status bar
             statusbar.borrow_mut().hide();
@@ -1414,13 +1415,14 @@ fn toggle_fullscreen<M: MenuExt>(
             // Restore default padding and resize editor to make room for statusbar
             if *is_structured.borrow()
                 && let Ok(active_ptr) = active_editor.try_borrow()
-                    && let Ok(mut editor) = active_ptr.try_borrow_mut()
-                        && let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
-                            structured.set_horizontal_padding(DEFAULT_PADDING);
-                            // Resize editor to window height minus statusbar
-                            let y = structured.y();
-                            structured.resize(0, y, win.width(), win.height() - y - statusbar_height);
-                        }
+                && let Ok(mut editor) = active_ptr.try_borrow_mut()
+                && let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>()
+            {
+                structured.set_horizontal_padding(DEFAULT_PADDING);
+                // Resize editor to window height minus statusbar
+                let y = structured.y();
+                structured.resize(0, y, win.width(), win.height() - y - statusbar_height);
+            }
 
             // Show status bar again
             statusbar.borrow_mut().show();
