@@ -1436,12 +1436,17 @@ fn toggle_fullscreen<M: MenuExt>(
 
     if let Ok(mut win) = wind_ref.try_borrow_mut() {
         if entering_fullscreen {
+            // Determine which screen the window is on using its center point
+            let win_center_x = win.x() + win.width() / 2;
+            let win_center_y = win.y() + win.height() / 2;
+            let screen_num = app::screen_num(win_center_x, win_center_y);
+
             // Enter fullscreen mode
             win.fullscreen(true);
 
             // Calculate padding for ~90 char text width
-            // Use screen dimensions since we're going fullscreen
-            let (_, _, screen_w, screen_h) = app::screen_xywh(0);
+            // Use the screen dimensions where the window is located
+            let (_, _, screen_w, screen_h) = app::screen_xywh(screen_num);
             let font_size = 14; // Default body text font size from theme
             let padding = calculate_fullscreen_padding(screen_w, font_size);
 
