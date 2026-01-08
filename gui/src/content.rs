@@ -34,6 +34,8 @@ impl ContentLoader for crate::richtext::structured_rich_display::StructuredRichD
         use crate::richtext::markdown_converter::markdown_to_document;
         let editor = self.editor_mut();
         *editor.document_mut() = markdown_to_document(markdown);
+        // Clear selection to prevent stale selection from being applied to new content
+        editor.clear_selection();
         // Reset scroll to top after loading new content
         self.set_scroll(0);
     }
