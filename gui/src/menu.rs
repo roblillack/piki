@@ -1391,18 +1391,15 @@ fn toggle_fullscreen<M: MenuExt>(
             let padding = calculate_fullscreen_padding(screen_w, font_size);
 
             // Apply padding and resize the editor to take full height
-            if *is_structured.borrow() {
-                if let Ok(active_ptr) = active_editor.try_borrow() {
-                    if let Ok(mut editor) = active_ptr.try_borrow_mut() {
-                        if let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
+            if *is_structured.borrow()
+                && let Ok(active_ptr) = active_editor.try_borrow()
+                    && let Ok(mut editor) = active_ptr.try_borrow_mut()
+                        && let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
                             structured.set_horizontal_padding(padding);
                             // Expand editor to full screen height (no statusbar)
                             let y = structured.y();
                             structured.resize(0, y, screen_w, screen_h - y);
                         }
-                    }
-                }
-            }
 
             // Hide status bar
             statusbar.borrow_mut().hide();
@@ -1411,18 +1408,15 @@ fn toggle_fullscreen<M: MenuExt>(
             win.fullscreen(false);
 
             // Restore default padding and resize editor to make room for statusbar
-            if *is_structured.borrow() {
-                if let Ok(active_ptr) = active_editor.try_borrow() {
-                    if let Ok(mut editor) = active_ptr.try_borrow_mut() {
-                        if let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
+            if *is_structured.borrow()
+                && let Ok(active_ptr) = active_editor.try_borrow()
+                    && let Ok(mut editor) = active_ptr.try_borrow_mut()
+                        && let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>() {
                             structured.set_horizontal_padding(DEFAULT_PADDING);
                             // Resize editor to window height minus statusbar
                             let y = structured.y();
                             structured.resize(0, y, win.width(), win.height() - y - statusbar_height);
                         }
-                    }
-                }
-            }
 
             // Show status bar again
             statusbar.borrow_mut().show();
