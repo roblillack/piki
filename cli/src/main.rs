@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use crossterm::terminal;
 use fuzzypicker::FuzzyPicker;
-use piki_core::{DocumentStore, IndexPlugin, PluginRegistry, TodoPlugin};
+use piki_core::{DocumentStore, IndexPlugin, PluginRegistry, TodoPlugin, has_md_extension};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::env;
@@ -514,9 +514,15 @@ fn resolve_link_target(
         base_dir.join(raw_path)
     };
 
+    // Prefer the `.md` version of the target, falling back to the raw path
+    // (e.g. for links to assets). We append `.md` rather than using
+    // `with_extension`, which would mangle dotted page names like
+    // "sprint-q2.6" into "sprint-q2.md".
     let mut candidates = Vec::new();
-    if raw_path.extension().is_none() {
-        candidates.push(resolved_base.with_extension("md"));
+    if !has_md_extension(path_part) {
+        let mut with_md = resolved_base.clone().into_os_string();
+        with_md.push(".md");
+        candidates.push(PathBuf::from(with_md));
     }
     candidates.push(resolved_base);
 
