@@ -198,6 +198,8 @@ fn populate_menu<M>(
     let strike_shortcut = cmd | Shortcut::Shift | 'x';
     let edit_link_shortcut = cmd | 'k';
     let clear_shortcut = cmd | '\\';
+    let undo_shortcut = cmd | 'z';
+    let redo_shortcut = cmd | Shortcut::Shift | 'z';
 
     // Write room shortcut: Ctrl/Cmd-Shift-F
     let fullscreen_shortcut = cmd | Shortcut::Shift | 'f';
@@ -330,6 +332,32 @@ fn populate_menu<M>(
     });
 
     // Edit menu
+    {
+        let active_editor = active_editor.clone();
+        let is_structured = is_structured.clone();
+        menu_bar.add(
+            "Edit/Undo",
+            undo_shortcut,
+            menu::MenuFlag::Normal,
+            move |_| {
+                perform_undo(&active_editor, &is_structured);
+            },
+        );
+    }
+
+    {
+        let active_editor = active_editor.clone();
+        let is_structured = is_structured.clone();
+        menu_bar.add(
+            "Edit/_Redo",
+            redo_shortcut,
+            menu::MenuFlag::Normal,
+            move |_| {
+                perform_redo(&active_editor, &is_structured);
+            },
+        );
+    }
+
     {
         let active_editor = active_editor.clone();
         let is_structured = is_structured.clone();
@@ -734,6 +762,24 @@ fn populate_menu<M>(
 
     update_format_menu_state(menu_bar, &active_editor, &is_structured);
     register_paragraph_callback(menu_bar, &active_editor, &is_structured);
+}
+
+fn perform_undo(
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    is_structured: &Rc<RefCell<bool>>,
+) {
+    let _ = with_structured_editor(active_editor, is_structured, true, |editor| {
+        editor.undo();
+    });
+}
+
+fn perform_redo(
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    is_structured: &Rc<RefCell<bool>>,
+) {
+    let _ = with_structured_editor(active_editor, is_structured, true, |editor| {
+        editor.redo();
+    });
 }
 
 fn perform_cut(

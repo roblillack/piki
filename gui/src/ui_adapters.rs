@@ -44,6 +44,30 @@ impl StructuredRichUI {
         app::paste(&group);
     }
 
+    pub fn undo(&mut self) -> bool {
+        let changed = {
+            let mut disp = self.0.display.borrow_mut();
+            disp.editor_mut().undo()
+        };
+        if changed {
+            self.0.notify_change();
+            self.0.emit_paragraph_state();
+        }
+        changed
+    }
+
+    pub fn redo(&mut self) -> bool {
+        let changed = {
+            let mut disp = self.0.display.borrow_mut();
+            disp.editor_mut().redo()
+        };
+        if changed {
+            self.0.notify_change();
+            self.0.emit_paragraph_state();
+        }
+        changed
+    }
+
     pub fn clear_formatting(&mut self) -> bool {
         self.apply_edit(|editor| editor.clear_formatting())
     }
@@ -163,6 +187,8 @@ impl ContentLoader for StructuredRichUI {
         let mut disp = self.0.display.borrow_mut();
         let editor = disp.editor_mut();
         *editor.document_mut() = markdown_to_document(markdown);
+        // Loading a different page starts a fresh undo history.
+        editor.reset_undo_history();
         disp.set_scroll(0);
         drop(disp);
         self.0.emit_paragraph_state();
