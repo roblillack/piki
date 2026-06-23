@@ -13,7 +13,7 @@ use std::ffi::CStr;
 #[cfg(target_os = "macos")]
 use std::ffi::CString;
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[cfg(target_os = "macos")]
 use objc::rc::autoreleasepool;
@@ -38,6 +38,11 @@ pub struct FltkStructuredRichDisplay {
 
 const SCROLLBAR_WIDTH: i32 = 15;
 
+/// Minimum time between two Alt+Up/Down paragraph moves. Shorter intervals are treated as a
+/// duplicate or auto-repeating key-down event for the same physical press and ignored, so one
+/// press only ever moves the paragraph by a single increment.
+const BLOCK_MOVE_DEBOUNCE: Duration = Duration::from_millis(120);
+
 impl FltkStructuredRichDisplay {
     pub fn new(x: i32, y: i32, w: i32, h: i32, edit_mode: bool) -> Self {
         let mut widget = fltk::group::Group::new(x, y, w, h, None);
@@ -53,6 +58,11 @@ impl FltkStructuredRichDisplay {
         // Track click count for triple-click detection
         let last_click_time = Rc::new(RefCell::new(Instant::now()));
         let last_click_count = Rc::new(RefCell::new(0));
+
+        // Track the time of the last Alt+Up/Down paragraph move so a single physical key
+        // press only moves by one increment, even if the platform delivers a duplicate or
+        // auto-repeating key-down event for it.
+        let last_block_move = Rc::new(RefCell::new(Instant::now()));
 
         // Track when a link click is in progress to prevent cursor repositioning
         let link_click_in_progress = Rc::new(RefCell::new(false));
@@ -132,6 +142,7 @@ impl FltkStructuredRichDisplay {
             let link_cb = link_callback.clone();
             let hover_cb = hover_callback.clone();
             let change_cb = change_callback.clone();
+            let last_block_move = last_block_move.clone();
             move |w, event| {
                 // Handle hover checking for Push, Drag, Move, and Enter
                 let check_hover = matches!(
@@ -1324,6 +1335,12 @@ impl FltkStructuredRichDisplay {
                                     .contains(Shortcut::Ctrl | Shortcut::Alt)
                                     && !state.contains(Shortcut::Shift);
 
+                                // Plain Alt (no Cmd/Ctrl/Shift): used to move paragraphs up/down
+                                let alt_move_modifier = state.contains(Shortcut::Alt)
+                                    && !state.contains(Shortcut::Command)
+                                    && !state.contains(Shortcut::Ctrl)
+                                    && !state.contains(Shortcut::Shift);
+
                                 // Cmd/Ctrl-A (Select All) - no content change
                                 if cmd_modifier && key == Key::from_char('a') {
                                     let mut disp = display.borrow_mut();
@@ -1545,6 +1562,31 @@ impl FltkStructuredRichDisplay {
                                     let mut disp = display.borrow_mut();
                                     disp.editor_mut().set_block_type(BlockType::Paragraph).ok();
                                     if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                        (cb)();
+                                    }
+                                    handled = true;
+                                }
+                                // Alt-Up / Alt-Down: move the current paragraph(s) up/down to
+                                // quickly resort lists and other blocks.
+                                else if alt_move_modifier && (key == Key::Up || key == Key::Down)
+                                {
+                                    // Debounce duplicate/auto-repeating key-down events so a
+                                    // single press moves the paragraph by just one increment.
+                                    let now = Instant::now();
+                                    let is_repeat = now.duration_since(*last_block_move.borrow())
+                                        < BLOCK_MOVE_DEBOUNCE;
+                                    let moved = if is_repeat {
+                                        false
+                                    } else {
+                                        *last_block_move.borrow_mut() = now;
+                                        let mut disp = display.borrow_mut();
+                                        if key == Key::Up {
+                                            disp.editor_mut().move_blocks_up().unwrap_or(false)
+                                        } else {
+                                            disp.editor_mut().move_blocks_down().unwrap_or(false)
+                                        }
+                                    };
+                                    if moved && let Some(cb) = &mut *change_cb.borrow_mut() {
                                         (cb)();
                                     }
                                     handled = true;

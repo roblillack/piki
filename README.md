@@ -203,6 +203,8 @@ piki-gui -d /path/to/wiki
 | `Cmd+Shift+7`         | Numbered list     |
 | `Cmd+Shift+8`         | Bulleted list     |
 | `Cmd+Shift+9`         | Checklist         |
+| `Option+Up`           | Move paragraph up   |
+| `Option+Down`         | Move paragraph down |
 
 **Auto-Save**
 

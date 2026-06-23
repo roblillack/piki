@@ -2724,6 +2724,134 @@ impl StructuredEditor {
         Ok(())
     }
 
+    /// Move the block(s) covered by the selection (or the cursor's block when there is no
+    /// selection) up by one position, swapping with the block directly above.
+    ///
+    /// Always moves by the smallest increment (a single block) so it can be used to quickly
+    /// resort lists. The cursor and selection follow the moved block(s).
+    /// Returns `Ok(true)` when a move occurred, `Ok(false)` when already at the top.
+    pub fn move_blocks_up(&mut self) -> Result<bool, EditError> {
+        self.move_blocks(true)
+    }
+
+    /// Move the block(s) covered by the selection (or the cursor's block when there is no
+    /// selection) down by one position, swapping with the block directly below.
+    ///
+    /// Always moves by the smallest increment (a single block). The cursor and selection
+    /// follow the moved block(s). Returns `Ok(true)` when a move occurred, `Ok(false)` when
+    /// already at the bottom.
+    pub fn move_blocks_down(&mut self) -> Result<bool, EditError> {
+        self.move_blocks(false)
+    }
+
+    fn move_blocks(&mut self, up: bool) -> Result<bool, EditError> {
+        let block_count = self.document.block_count();
+        if block_count < 2 {
+            return Ok(false);
+        }
+
+        // Determine the contiguous range of blocks to move. A multi-block selection moves the
+        // whole group; otherwise just the block holding the cursor.
+        let indices = self.collect_selection_block_indices();
+        let (first, last) = match (indices.first(), indices.last()) {
+            (Some(&f), Some(&l)) => (f, l),
+            _ => {
+                let idx = self.cursor.block_index;
+                if idx >= block_count {
+                    return Err(EditError::InvalidBlockIndex);
+                }
+                (idx, idx)
+            }
+        };
+
+        let touched = if up {
+            if first == 0 {
+                return Ok(false);
+            }
+            // Lift the block above the group and reinsert it just after the group.
+            let blocks = self.document.blocks_mut();
+            let moved = blocks.remove(first - 1);
+            blocks.insert(last, moved);
+            self.offset_positions(-1);
+            (first - 1, last)
+        } else {
+            if last + 1 >= block_count {
+                return Ok(false);
+            }
+            // Lift the block below the group and reinsert it just before the group.
+            let blocks = self.document.blocks_mut();
+            let moved = blocks.remove(last + 1);
+            blocks.insert(first, moved);
+            self.offset_positions(1);
+            (first, last + 1)
+        };
+
+        // Reordering can merge/split ordered-list runs, so renumber any runs in the touched span.
+        self.renumber_ordered_runs_in(touched.0, touched.1);
+
+        self.trigger_paragraph_change();
+        Ok(true)
+    }
+
+    /// Shift the cursor (and selection, if any) block indices by `delta`, keeping offsets.
+    /// Used after moving blocks so the cursor/selection stay anchored to the moved content.
+    fn offset_positions(&mut self, delta: isize) {
+        let max_index = self.document.block_count().saturating_sub(1) as isize;
+        let shift = |pos: DocumentPosition| {
+            let block_index = (pos.block_index as isize + delta).clamp(0, max_index) as usize;
+            DocumentPosition::new(block_index, pos.offset)
+        };
+        self.cursor = shift(self.cursor);
+        if let Some((start, end)) = self.selection {
+            self.selection = Some((shift(start), shift(end)));
+        }
+    }
+
+    /// Renumber every ordered-list run that overlaps the inclusive block range `[lo, hi]`,
+    /// preserving each run's starting number. Runs extending past the range are renumbered fully.
+    fn renumber_ordered_runs_in(&mut self, lo: usize, hi: usize) {
+        let block_count = self.document.block_count();
+        if block_count == 0 {
+            return;
+        }
+        let lo = lo.min(block_count - 1);
+        let hi = hi.min(block_count - 1);
+
+        let is_ordered = |editor: &Self, idx: usize| {
+            matches!(
+                editor.document.blocks()[idx].block_type,
+                BlockType::ListItem { ordered: true, .. }
+            )
+        };
+
+        // Back up to the start of a run that may begin before `lo`.
+        let mut start = lo;
+        while start > 0 && is_ordered(self, start) && is_ordered(self, start - 1) {
+            start -= 1;
+        }
+
+        let mut i = start;
+        while i <= hi {
+            if is_ordered(self, i) {
+                let start_number = match self.document.blocks()[i].block_type {
+                    BlockType::ListItem {
+                        ordered: true,
+                        number,
+                        ..
+                    } => number.unwrap_or(1),
+                    _ => 1,
+                };
+                self.renumber_ordered_from(i, start_number);
+                // Skip past the run we just renumbered.
+                while i < block_count && is_ordered(self, i) {
+                    i += 1;
+                }
+            } else {
+                i += 1;
+            }
+        }
+    }
+
     /// Toggle code style on the current selection
     pub fn toggle_code(&mut self) -> EditResult {
         self.toggle_style_attribute(|style| {
@@ -3813,6 +3941,119 @@ mod tests {
         let sel = editor.selection().unwrap();
         assert_eq!(sel.0, DocumentPosition::new(0, 7));
         assert_eq!(sel.1, DocumentPosition::new(0, 12));
+    }
+
+    fn editor_with_paragraphs(texts: &[&str]) -> StructuredEditor {
+        let mut doc = StructuredDocument::new();
+        for t in texts {
+            doc.add_block(Block::paragraph().with_plain_text(*t));
+        }
+        StructuredEditor::with_document(doc)
+    }
+
+    fn paragraph_texts(editor: &StructuredEditor) -> Vec<String> {
+        editor
+            .document()
+            .blocks()
+            .iter()
+            .map(|b| b.to_plain_text())
+            .collect()
+    }
+
+    #[test]
+    fn move_block_up_swaps_with_previous_and_follows_cursor() {
+        let mut editor = editor_with_paragraphs(&["A", "B", "C"]);
+        editor.set_cursor(DocumentPosition::new(1, 1)); // inside "B"
+
+        assert_eq!(editor.move_blocks_up(), Ok(true));
+        assert_eq!(paragraph_texts(&editor), ["B", "A", "C"]);
+        // Cursor stays on "B", which is now at index 0, keeping its offset.
+        assert_eq!(editor.cursor(), DocumentPosition::new(0, 1));
+    }
+
+    #[test]
+    fn move_block_down_swaps_with_next_and_follows_cursor() {
+        let mut editor = editor_with_paragraphs(&["A", "B", "C"]);
+        editor.set_cursor(DocumentPosition::new(1, 0)); // inside "B"
+
+        assert_eq!(editor.move_blocks_down(), Ok(true));
+        assert_eq!(paragraph_texts(&editor), ["A", "C", "B"]);
+        assert_eq!(editor.cursor(), DocumentPosition::new(2, 0));
+    }
+
+    #[test]
+    fn move_block_up_at_top_is_noop() {
+        let mut editor = editor_with_paragraphs(&["A", "B"]);
+        editor.set_cursor(DocumentPosition::new(0, 0));
+
+        assert_eq!(editor.move_blocks_up(), Ok(false));
+        assert_eq!(paragraph_texts(&editor), ["A", "B"]);
+        assert_eq!(editor.cursor(), DocumentPosition::new(0, 0));
+    }
+
+    #[test]
+    fn move_block_down_at_bottom_is_noop() {
+        let mut editor = editor_with_paragraphs(&["A", "B"]);
+        editor.set_cursor(DocumentPosition::new(1, 0));
+
+        assert_eq!(editor.move_blocks_down(), Ok(false));
+        assert_eq!(paragraph_texts(&editor), ["A", "B"]);
+        assert_eq!(editor.cursor(), DocumentPosition::new(1, 0));
+    }
+
+    #[test]
+    fn move_block_in_single_block_document_is_noop() {
+        let mut editor = editor_with_paragraphs(&["Only"]);
+        assert_eq!(editor.move_blocks_up(), Ok(false));
+        assert_eq!(editor.move_blocks_down(), Ok(false));
+        assert_eq!(paragraph_texts(&editor), ["Only"]);
+    }
+
+    #[test]
+    fn move_selected_block_group_moves_together() {
+        let mut editor = editor_with_paragraphs(&["A", "B", "C", "D"]);
+        // Select across blocks 1 and 2 ("B" and "C").
+        editor.set_selection(DocumentPosition::new(1, 0), DocumentPosition::new(2, 1));
+
+        assert_eq!(editor.move_blocks_down(), Ok(true));
+        assert_eq!(paragraph_texts(&editor), ["A", "D", "B", "C"]);
+        // Selection follows the moved group.
+        let (start, end) = editor.selection().unwrap();
+        assert_eq!(start, DocumentPosition::new(2, 0));
+        assert_eq!(end, DocumentPosition::new(3, 1));
+    }
+
+    #[test]
+    fn move_ordered_list_item_renumbers_run() {
+        let mut doc = StructuredDocument::new();
+        for n in 1..=3u64 {
+            doc.add_block(
+                Block::new(BlockType::ListItem {
+                    ordered: true,
+                    number: Some(n),
+                    checkbox: None,
+                })
+                .with_plain_text(format!("item {n}")),
+            );
+        }
+        let mut editor = StructuredEditor::with_document(doc);
+        editor.set_cursor(DocumentPosition::new(2, 0)); // third item ("item 3")
+
+        assert_eq!(editor.move_blocks_up(), Ok(true));
+
+        // Text order reflects the move ...
+        assert_eq!(paragraph_texts(&editor), ["item 1", "item 3", "item 2"]);
+        // ... but the visible numbering stays sequential 1, 2, 3.
+        let numbers: Vec<Option<u64>> = editor
+            .document()
+            .blocks()
+            .iter()
+            .map(|b| match b.block_type {
+                BlockType::ListItem { number, .. } => number,
+                _ => None,
+            })
+            .collect();
+        assert_eq!(numbers, [Some(1), Some(2), Some(3)]);
     }
 
     #[test]
