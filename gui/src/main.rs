@@ -7,6 +7,7 @@ mod markdown_editor;
 mod menu;
 mod page_picker;
 pub mod responsive_scrollbar;
+mod search_bar;
 mod statusbar;
 mod window_state;
 
@@ -17,6 +18,7 @@ use history::History;
 use piki_core::{DocumentStore, IndexPlugin, PluginRegistry, TodoPlugin};
 use piki_gui::page_ui::PageUI;
 use piki_gui::ui_adapters::StructuredRichUI;
+use search_bar::SearchBar;
 use statusbar::StatusBar;
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -377,6 +379,9 @@ fn main() {
         fullscreen: saved_fullscreen,
     }));
 
+    // Create search bar (uses a sub-window so it floats on top)
+    let search_bar = Rc::new(RefCell::new(SearchBar::new(editor_x, editor_y, editor_w)));
+
     // Create menu (system menu bar on macOS, window menu bar on other platforms)
     #[cfg(target_os = "macos")]
     menu::setup_menu(
@@ -387,6 +392,7 @@ fn main() {
         statusbar.clone(),
         wind_ref.clone(),
         window_geometry.clone(),
+        search_bar.clone(),
         editor_x,
         editor_y,
         editor_w,
@@ -402,6 +408,7 @@ fn main() {
         statusbar.clone(),
         wind_ref.clone(),
         window_geometry.clone(),
+        search_bar.clone(),
         editor_x,
         editor_y,
         editor_w,
@@ -414,6 +421,108 @@ fn main() {
         .borrow_mut()
         .set_bg_color(enums::Color::from_rgb(255, 255, 245));
 
+    // Wire up search bar callbacks
+    {
+        let search_bar_for_search = search_bar.clone();
+        let editor_for_search = active_editor.clone();
+
+        // On search text change
+        search_bar.borrow().on_search(move |term| {
+            if let Ok(ed_ptr) = editor_for_search.try_borrow()
+                && let Ok(mut ed) = ed_ptr.try_borrow_mut()
+                && let Some(structured) = ed.as_any_mut().downcast_mut::<StructuredRichUI>()
+            {
+                let count = structured.search(&term);
+                if let Ok(mut sb) = search_bar_for_search.try_borrow_mut() {
+                    sb.set_match_count(if count > 0 { Some(0) } else { None }, count);
+                }
+                // Scroll to first match if any
+                if count > 0 {
+                    structured.scroll_to_current_match();
+                }
+                app::redraw();
+            }
+        });
+    }
+
+    {
+        let search_bar_for_next = search_bar.clone();
+        let editor_for_next = active_editor.clone();
+
+        // On next match
+        search_bar.borrow().on_next(move || {
+            if let Ok(ed_ptr) = editor_for_next.try_borrow()
+                && let Ok(mut ed) = ed_ptr.try_borrow_mut()
+                && let Some(structured) = ed.as_any_mut().downcast_mut::<StructuredRichUI>()
+                && structured.next_match()
+            {
+                let total = structured.search_matches().len();
+                let current = structured.search_current_index();
+                if let Ok(mut sb) = search_bar_for_next.try_borrow_mut() {
+                    sb.set_match_count(current, total);
+                }
+                structured.scroll_to_current_match();
+                app::redraw();
+            }
+        });
+    }
+
+    {
+        let search_bar_for_prev = search_bar.clone();
+        let editor_for_prev = active_editor.clone();
+
+        // On previous match
+        search_bar.borrow().on_prev(move || {
+            if let Ok(ed_ptr) = editor_for_prev.try_borrow()
+                && let Ok(mut ed) = ed_ptr.try_borrow_mut()
+                && let Some(structured) = ed.as_any_mut().downcast_mut::<StructuredRichUI>()
+                && structured.prev_match()
+            {
+                let total = structured.search_matches().len();
+                let current = structured.search_current_index();
+                if let Ok(mut sb) = search_bar_for_prev.try_borrow_mut() {
+                    sb.set_match_count(current, total);
+                }
+                structured.scroll_to_current_match();
+                app::redraw();
+            }
+        });
+    }
+
+    {
+        let search_bar_for_close = search_bar.clone();
+        let editor_for_close = active_editor.clone();
+
+        // On close
+        search_bar.borrow().on_close(move || {
+            // Restore editor position (move up to fill the space)
+            if let Ok(ed_ptr) = editor_for_close.try_borrow()
+                && let Ok(mut ed) = ed_ptr.try_borrow_mut()
+                && let Some(structured) = ed.as_any_mut().downcast_mut::<StructuredRichUI>()
+            {
+                let bar_h = search_bar::BAR_HEIGHT;
+                let x = structured.x();
+                let y = structured.y();
+                let w = structured.width();
+                let h = structured.height();
+                structured.resize(x, y - bar_h, w, h + bar_h);
+                structured.clear_search();
+            }
+
+            if let Ok(mut sb) = search_bar_for_close.try_borrow_mut() {
+                sb.hide();
+            }
+
+            // Return focus to editor
+            if let Ok(ed_ptr) = editor_for_close.try_borrow()
+                && let Ok(mut ed) = ed_ptr.try_borrow_mut()
+            {
+                ed.take_focus();
+            }
+            app::redraw();
+        });
+    }
+
     wind.end();
     let pending_save_handle = Rc::new(RefCell::new(None::<app::TimeoutHandle>));
 
@@ -421,6 +530,9 @@ fn main() {
         let geometry = window_geometry.clone();
         let pending = pending_save_handle.clone();
         let state_path_for_handler = window_state_path.clone();
+        let search_bar_for_resize = search_bar.clone();
+        let active_editor_for_resize = active_editor.clone();
+        let statusbar_for_resize = statusbar.clone();
 
         wind.handle(move |win, event| match event {
             enums::Event::Move | enums::Event::Resize => {
@@ -436,6 +548,46 @@ fn main() {
                     && (win.height() == geometry.borrow().height)
                 {
                     return false;
+                }
+
+                // Skip custom resize logic when in fullscreen mode
+                // (fullscreen has its own layout with padding)
+                let is_fullscreen = geometry.borrow().fullscreen;
+
+                if !is_fullscreen {
+                    // Check if search bar is visible
+                    let search_bar_visible = search_bar_for_resize
+                        .try_borrow()
+                        .map(|sb| sb.visible())
+                        .unwrap_or(false);
+
+                    // Only resize search bar when visible to avoid FLTK resize side effects
+                    if search_bar_visible && let Ok(mut sb) = search_bar_for_resize.try_borrow_mut()
+                    {
+                        sb.resize(0, editor_y, win.width());
+                    }
+
+                    // Resize editor based on whether search bar is visible
+                    let statusbar_h = statusbar_for_resize
+                        .try_borrow()
+                        .map(|s| if s.visible() { s.height() } else { 0 })
+                        .unwrap_or(0);
+
+                    if let Ok(ed_ptr) = active_editor_for_resize.try_borrow()
+                        && let Ok(mut ed) = ed_ptr.try_borrow_mut()
+                        && let Some(structured) = ed.as_any_mut().downcast_mut::<StructuredRichUI>()
+                    {
+                        if search_bar_visible {
+                            let bar_h = search_bar::BAR_HEIGHT;
+                            let editor_top = editor_y + bar_h;
+                            let editor_h = win.height() - editor_top - statusbar_h;
+                            structured.resize(0, editor_top, win.width(), editor_h);
+                        } else {
+                            // Search bar hidden - editor fills full space
+                            let editor_h = win.height() - editor_y - statusbar_h;
+                            structured.resize(0, editor_y, win.width(), editor_h);
+                        }
+                    }
                 }
 
                 {

@@ -46,4 +46,7 @@ pub trait PageUI: ContentProvider + ContentLoader + 'static {
 
     // Hide the widget (called when switching editors).
     fn hide(&mut self);
+
+    // Focus the widget.
+    fn take_focus(&mut self) {}
 }

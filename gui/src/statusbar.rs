@@ -236,4 +236,9 @@ impl StatusBar {
         self.page_status.show();
         self.save_status.show();
     }
+
+    /// Check if the status bar is visible
+    pub fn visible(&self) -> bool {
+        self.background.visible()
+    }
 }

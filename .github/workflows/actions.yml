@@ -81,7 +81,7 @@ jobs:
             runner: ubuntu-latest
             arch: x86_64
             target: x86_64-unknown-linux-gnu
-            deps: sudo apt install -y libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev libwayland-dev libxkbcommon-dev libdbus-1-dev
+            deps: sudo apt update && sudo apt install -y libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev libwayland-dev libxkbcommon-dev libdbus-1-dev
             artifact_name: piki-gui-linux-x86_64
 
           # Linux ARM64
@@ -89,12 +89,12 @@ jobs:
             runner: ubuntu-24.04-arm
             arch: aarch64
             target: aarch64-unknown-linux-gnu
-            deps: sudo apt install -y libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev libwayland-dev libxkbcommon-dev libdbus-1-dev
+            deps: sudo apt update && sudo apt install -y libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev libwayland-dev libxkbcommon-dev libdbus-1-dev
             artifact_name: piki-gui-linux-aarch64
 
           # macOS x64 (Intel)
           - name: macOS
-            runner: macos-13
+            runner: macos-15-intel
             arch: x86_64
             target: x86_64-apple-darwin
             deps: echo "No additional dependencies needed for macOS"
