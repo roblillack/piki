@@ -22,6 +22,8 @@ pub struct Theme {
     pub link_hover_color: u32,
 
     pub highlight_color: u32,
+    pub search_highlight_color: u32,
+    pub search_current_highlight_color: u32,
 
     pub padding_vertical: i32,
     pub padding_horizontal: i32,
@@ -39,15 +41,17 @@ pub struct Theme {
 impl Default for Theme {
     fn default() -> Self {
         Self {
-            background_color: 0xFFFFF5FF,      // Off-white background
-            selection_color: 0xB4D5FEFF,       // Light blue selection color
-            cursor_color: 0x000000FF,          // Black cursor
-            quote_bar_color: 0xCCCCCCFF,       // Light gray quote bar
-            quote_bar_width: 4,                // Width of the quote bar
-            link_color: 0x0000EEFF,            // Standard blue link color
-            link_hover_background: 0xDDDDDDFF, // Light gray hover background
-            link_hover_color: 0x0000AAFF,      // Darker blue link color
-            highlight_color: 0xFFFF00FF,       // Yellow highlight color
+            background_color: 0xFFFFF5FF,               // Off-white background
+            selection_color: 0xB4D5FEFF,                // Light blue selection color
+            cursor_color: 0x000000FF,                   // Black cursor
+            quote_bar_color: 0xCCCCCCFF,                // Light gray quote bar
+            quote_bar_width: 4,                         // Width of the quote bar
+            link_color: 0x0000EEFF,                     // Standard blue link color
+            link_hover_background: 0xDDDDDDFF,          // Light gray hover background
+            link_hover_color: 0x0000AAFF,               // Darker blue link color
+            highlight_color: 0xFFFF00FF,                // Yellow highlight color
+            search_highlight_color: 0xFFE4B5FF,         // Light orange for search matches
+            search_current_highlight_color: 0xFFA500FF, // Orange for current match
 
             padding_vertical: 10,
             padding_horizontal: 25,

@@ -9,6 +9,17 @@ use crate::draw_context::FontStyle;
 use crate::draw_context::FontType;
 use crate::theme::{FontSettings, Theme};
 
+/// A search match in the document
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchMatch {
+    /// Block index where the match starts
+    pub block_index: usize,
+    /// Character offset within the block where match starts
+    pub start_offset: usize,
+    /// Character offset within the block where match ends (exclusive)
+    pub end_offset: usize,
+}
+
 /// Layout information for a rendered line
 #[derive(Debug, Clone)]
 pub struct LayoutLine {
@@ -117,6 +128,11 @@ pub struct StructuredRichDisplay {
     // Sticky horizontal position for vertical navigation across proportional fonts
     cursor_preferred_line_offset: Option<usize>,
 
+    // Search state
+    search_term: String,
+    search_matches: Vec<SearchMatch>,
+    search_current_index: Option<usize>,
+
     // Theme
     theme: Theme,
 }
@@ -137,6 +153,9 @@ impl StructuredRichDisplay {
             blink_period_ms: 1000, // 1s full period (500ms on/off)
             hovered_link: None,
             cursor_preferred_line_offset: None,
+            search_term: String::new(),
+            search_matches: Vec::new(),
+            search_current_index: None,
             theme: Theme::default(),
         }
     }
@@ -1500,6 +1519,44 @@ impl StructuredRichDisplay {
                     ctx.set_color(run.font_color); // Restore text color
                 }
 
+                // Draw search highlight (if run contains a search match)
+                // Draw BEFORE selection so selection takes priority
+                if let Some((search_start, search_end, is_current)) =
+                    self.get_run_search_highlight(run)
+                    && search_end > search_start
+                {
+                    let text_before = if search_start < run.text.len() {
+                        &run.text[..search_start]
+                    } else {
+                        &run.text
+                    };
+                    let text_match = if search_end <= run.text.len() {
+                        &run.text[search_start..search_end]
+                    } else if search_start < run.text.len() {
+                        &run.text[search_start..]
+                    } else {
+                        ""
+                    };
+
+                    let before_width =
+                        ctx.text_width(text_before, run.font_type, run.font_style, run.font_size)
+                            as i32;
+                    let match_width =
+                        ctx.text_width(text_match, run.font_type, run.font_style, run.font_size)
+                            as i32;
+
+                    // Use different color for current match vs other matches
+                    let highlight_color = if is_current {
+                        self.theme.search_current_highlight_color
+                    } else {
+                        self.theme.search_highlight_color
+                    };
+
+                    ctx.set_color(highlight_color);
+                    ctx.draw_rect_filled(draw_x + before_width, line_top, match_width, line.height);
+                    ctx.set_color(run.font_color); // Restore text color
+                }
+
                 // Draw selection highlight (if run is selected)
                 // Draw AFTER hover so the selection rectangle is on top
                 if let Some((sel_start, sel_end)) = self.get_run_selection_range(run)
@@ -1855,6 +1912,183 @@ impl StructuredRichDisplay {
                 }
             }
             pos += len;
+        }
+
+        None
+    }
+
+    // ==================== Search Methods ====================
+
+    /// Perform a case-insensitive search for the given term.
+    /// Updates the internal search state with all matches found.
+    /// Returns the number of matches found.
+    pub fn search(&mut self, term: &str) -> usize {
+        self.search_term = term.to_string();
+        self.search_matches.clear();
+        self.search_current_index = None;
+
+        if term.is_empty() {
+            return 0;
+        }
+
+        let term_lower = term.to_lowercase();
+        let doc = self.editor.document();
+
+        for (block_idx, block) in doc.blocks().iter().enumerate() {
+            let text = block.to_plain_text();
+            let text_lower = text.to_lowercase();
+
+            // Find all occurrences in this block
+            let mut search_start = 0;
+            while let Some(pos) = text_lower[search_start..].find(&term_lower) {
+                let start_offset = search_start + pos;
+                let end_offset = start_offset + term.len();
+                self.search_matches.push(SearchMatch {
+                    block_index: block_idx,
+                    start_offset,
+                    end_offset,
+                });
+                search_start = start_offset + 1; // Move past this match to find overlapping matches
+            }
+        }
+
+        // If we found matches, set current index to 0
+        if !self.search_matches.is_empty() {
+            self.search_current_index = Some(0);
+        }
+
+        self.search_matches.len()
+    }
+
+    /// Clear the search state
+    pub fn clear_search(&mut self) {
+        self.search_term.clear();
+        self.search_matches.clear();
+        self.search_current_index = None;
+    }
+
+    /// Get the current search term
+    pub fn search_term(&self) -> &str {
+        &self.search_term
+    }
+
+    /// Get all search matches
+    pub fn search_matches(&self) -> &[SearchMatch] {
+        &self.search_matches
+    }
+
+    /// Get the current match index (0-based)
+    pub fn search_current_index(&self) -> Option<usize> {
+        self.search_current_index
+    }
+
+    /// Get the current search match
+    pub fn current_search_match(&self) -> Option<&SearchMatch> {
+        self.search_current_index
+            .and_then(|idx| self.search_matches.get(idx))
+    }
+
+    /// Move to the next search match. Returns true if moved.
+    pub fn next_match(&mut self) -> bool {
+        if self.search_matches.is_empty() {
+            return false;
+        }
+
+        let next_idx = match self.search_current_index {
+            Some(idx) => (idx + 1) % self.search_matches.len(),
+            None => 0,
+        };
+
+        self.search_current_index = Some(next_idx);
+        true
+    }
+
+    /// Move to the previous search match. Returns true if moved.
+    pub fn prev_match(&mut self) -> bool {
+        if self.search_matches.is_empty() {
+            return false;
+        }
+
+        let prev_idx = match self.search_current_index {
+            Some(idx) => {
+                if idx == 0 {
+                    self.search_matches.len() - 1
+                } else {
+                    idx - 1
+                }
+            }
+            None => self.search_matches.len() - 1,
+        };
+
+        self.search_current_index = Some(prev_idx);
+        true
+    }
+
+    /// Scroll to make the current search match visible.
+    /// Should be called after search() or next_match()/prev_match().
+    pub fn scroll_to_current_match(&mut self, ctx: &mut dyn DrawContext) {
+        let Some(current_match) = self.current_search_match().cloned() else {
+            return;
+        };
+
+        // Ensure layout is up to date
+        self.layout(ctx);
+
+        // Find the layout line containing this match
+        for line in &self.layout_lines {
+            if line.block_index == current_match.block_index
+                && current_match.start_offset >= line.char_start
+                && current_match.start_offset < line.char_end
+            {
+                // Calculate the target scroll position to center the match in the viewport
+                let line_center_y = line.y + line.height / 2;
+                let viewport_center = self.h / 2;
+                let target_scroll = (line_center_y - viewport_center).max(0);
+
+                // Clamp to valid scroll range
+                let max_scroll = (self.content_height() - self.h).max(0);
+                self.scroll_offset = target_scroll.min(max_scroll);
+                return;
+            }
+        }
+    }
+
+    /// Check if a visual run intersects with any search match.
+    /// Returns Some((start_offset_in_run, end_offset_in_run, is_current)) if there's an intersection.
+    fn get_run_search_highlight(&self, run: &VisualRun) -> Option<(usize, usize, bool)> {
+        if self.search_matches.is_empty() {
+            return None;
+        }
+
+        let current_idx = self.search_current_index;
+
+        for (idx, search_match) in self.search_matches.iter().enumerate() {
+            // Check if this match is in the same block as the run
+            if search_match.block_index != run.block_index {
+                continue;
+            }
+
+            // Check if match intersects with run's char range
+            let run_start = run.char_range.0;
+            let run_end = run.char_range.1;
+            let match_start = search_match.start_offset;
+            let match_end = search_match.end_offset;
+
+            // Check for intersection
+            if match_end <= run_start || match_start >= run_end {
+                continue;
+            }
+
+            // Calculate intersection within the run
+            let start_in_run = match_start
+                .saturating_sub(run_start)
+                .min(run_end - run_start);
+            let end_in_run = match_end.saturating_sub(run_start).min(run_end - run_start);
+
+            if end_in_run > start_in_run {
+                let is_current = current_idx == Some(idx);
+                return Some((start_in_run, end_in_run, is_current));
+            }
         }
 
         None
