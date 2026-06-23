@@ -736,8 +736,7 @@ impl StructuredDocument {
         // Subsequent paragraphs become new blocks after the current block
         let mut last_block_index = insert_block_index;
         if paragraphs.len() > 1 {
-            for (offset, p) in paragraphs.iter().skip(1).enumerate() {
-                let insert_at = insert_block_index + 1 + offset;
+            for (insert_at, p) in (insert_block_index + 1..).zip(paragraphs.iter().skip(1)) {
                 let mut block = Block::paragraph();
                 if !p.is_empty() {
                     block.content.push(InlineContent::Text(TextRun::plain(*p)));
