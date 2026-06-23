@@ -2707,7 +2707,7 @@ impl StructuredEditor {
 
         {
             let blocks = self.document.blocks_mut();
-            for (idx, new_type) in target_blocks.iter().copied().zip(new_types.into_iter()) {
+            for (idx, new_type) in target_blocks.iter().copied().zip(new_types) {
                 blocks[idx].block_type = new_type;
             }
         }
@@ -3859,7 +3859,10 @@ mod tests {
         // After a long silence, the next typing begins a fresh undo step even
         // though the caret never moved.
         editor.insert_text(" fix").unwrap();
-        editor.commit_undo_step(UndoKind::Typing, t + UNDO_COALESCE_IDLE + Duration::from_millis(1));
+        editor.commit_undo_step(
+            UndoKind::Typing,
+            t + UNDO_COALESCE_IDLE + Duration::from_millis(1),
+        );
         assert_eq!(editor.document().to_plain_text(), "para fix");
 
         // Undoing the small adjustment leaves the original passage intact.

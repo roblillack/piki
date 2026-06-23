@@ -1794,7 +1794,8 @@ impl FltkStructuredRichDisplay {
                                     // Record an undo checkpoint for whatever edit this
                                     // key made. No-op for pure cursor movement, and for
                                     // undo/redo themselves (document already restored).
-                                    disp.editor_mut().commit_undo_step(undo_kind, Instant::now());
+                                    disp.editor_mut()
+                                        .commit_undo_step(undo_kind, Instant::now());
                                     if did_horizontal {
                                         let cursor = disp.editor().cursor();
                                         disp.record_preferred_pos(cursor);

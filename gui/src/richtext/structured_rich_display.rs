@@ -1009,7 +1009,7 @@ impl StructuredRichDisplay {
         } else {
             for (line_runs, ((char_start, char_end), wrapped)) in lines
                 .into_iter()
-                .zip(line_ranges.into_iter().zip(line_wraps.into_iter()))
+                .zip(line_ranges.into_iter().zip(line_wraps))
             {
                 let base_x = line_runs
                     .iter()
