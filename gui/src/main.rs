@@ -826,6 +826,21 @@ fn wire_editor_callbacks(
         let mut cur = current_for_links.borrow_mut();
         let active_clone = active_editor.clone();
         cur.on_link_click(Box::new(move |link_dest: String| {
+            // External links (http(s)://, mailto:, ...) open in the system
+            // browser/handler instead of being loaded as a wiki page.
+            if link_handler::is_external_link(&link_dest) {
+                let statusbar = statusbar_links.clone();
+                app::awake_callback(move || {
+                    if let Err(e) = webbrowser::open(&link_dest) {
+                        statusbar
+                            .borrow_mut()
+                            .set_status(&format!("Failed to open link: {}", e));
+                        app::redraw();
+                    }
+                });
+                return;
+            }
+
             let app_state = app_state_links.clone();
             let autosave_state = autosave_links.clone();
             let editor_ref = active_clone.clone();

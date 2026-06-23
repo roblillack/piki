@@ -23,6 +23,7 @@ arboard = "3.4"
 tdoc = { version="0.10.0", default-features=false }
 objc = "0.2"
 rtf-parser = "0.4"
+webbrowser = { version = "1.2.1", features = ["disable-wsl"] }
 
 [dev-dependencies]
 insta = "1.34"

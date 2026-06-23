@@ -67,6 +67,34 @@ pub fn find_link_at_position(links: &[Link], pos: usize) -> Option<&Link> {
         .find(|link| pos >= link.start && pos < link.end)
 }
 
+/// Returns true if the destination is an external link that should be opened
+/// in the system browser/handler rather than loaded as a wiki page.
+///
+/// Recognises URLs with an explicit authority (e.g. `http://`, `https://`,
+/// `ftp://`, `file://`) as well as authority-less schemes like `mailto:` and
+/// `tel:`. Plain page names (including ones that happen to contain a colon,
+/// such as `Notes: Meeting`) are treated as internal.
+pub fn is_external_link(destination: &str) -> bool {
+    let dest = destination.trim_start();
+
+    // URLs with an authority component: <scheme>://...
+    if let Some(scheme_end) = dest.find("://") {
+        let scheme = &dest[..scheme_end];
+        if !scheme.is_empty()
+            && scheme.starts_with(|c: char| c.is_ascii_alphabetic())
+            && scheme
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+        {
+            return true;
+        }
+    }
+
+    // Authority-less schemes that should still be handed off to the system.
+    let lower = dest.to_ascii_lowercase();
+    lower.starts_with("mailto:") || lower.starts_with("tel:")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -93,5 +121,27 @@ mod tests {
         let content = "A [markdown](page1) and [[wiki]] link.";
         let links = extract_links(content);
         assert_eq!(links.len(), 2);
+    }
+
+    #[test]
+    fn test_is_external_link() {
+        // External: schemes with an authority component
+        assert!(is_external_link("http://example.com"));
+        assert!(is_external_link("https://example.com/path?q=1"));
+        assert!(is_external_link("ftp://files.example.com"));
+        assert!(is_external_link("file:///etc/hosts"));
+        assert!(is_external_link("HTTPS://EXAMPLE.COM"));
+        assert!(is_external_link("  https://example.com"));
+
+        // External: authority-less schemes
+        assert!(is_external_link("mailto:user@example.com"));
+        assert!(is_external_link("tel:+1234567890"));
+
+        // Internal: plain page names, including ones containing a colon
+        assert!(!is_external_link("frontpage"));
+        assert!(!is_external_link("some/page.md"));
+        assert!(!is_external_link("[[WikiPage]]"));
+        assert!(!is_external_link("Notes: Meeting"));
+        assert!(!is_external_link("C:\\path\\file"));
     }
 }

@@ -181,6 +181,9 @@ piki-gui -d /path/to/wiki
 | `Cmd+]`               | Forward           |
 | `Cmd+Option+F`        | Jump to frontpage |
 | `Cmd+Option+I`        | Open page index   |
+| **Editing**           |                   |
+| `Cmd+Z`               | Undo              |
+| `Cmd+Shift+Z`         | Redo              |
 | **Inline Styling**    |                   |
 | `Cmd+B`               | Bold              |
 | `Cmd+I`               | Italic            |
