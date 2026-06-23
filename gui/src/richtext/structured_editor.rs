@@ -2521,7 +2521,7 @@ impl StructuredEditor {
 
         {
             let blocks = self.document.blocks_mut();
-            for (idx, new_type) in target_blocks.iter().copied().zip(new_types.into_iter()) {
+            for (idx, new_type) in target_blocks.iter().copied().zip(new_types) {
                 blocks[idx].block_type = new_type;
             }
         }
