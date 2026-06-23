@@ -23,6 +23,7 @@ arboard = "3.4"
 tdoc = "0.8.1"
 objc = "0.2"
 rtf-parser = "0.4"
+open = "5"
 
 [dev-dependencies]
 insta = "1.34"
