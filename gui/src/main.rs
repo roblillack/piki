@@ -831,7 +831,7 @@ fn wire_editor_callbacks(
             if link_handler::is_external_link(&link_dest) {
                 let statusbar = statusbar_links.clone();
                 app::awake_callback(move || {
-                    if let Err(e) = open::that_detached(&link_dest) {
+                    if let Err(e) = webbrowser::open(&link_dest) {
                         statusbar
                             .borrow_mut()
                             .set_status(&format!("Failed to open link: {}", e));
