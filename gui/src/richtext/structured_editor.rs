@@ -5,6 +5,7 @@
 use super::markdown_converter::markdown_to_document;
 use super::structured_document::*;
 use std::cmp::min;
+use std::time::{Duration, Instant};
 use tdoc::{Document, markdown};
 
 /// Result of an editing operation
@@ -19,12 +20,52 @@ pub enum EditError {
     ConversionFailed(String),
 }
 
+/// Maximum number of undo steps retained on the undo stack.
+const MAX_UNDO_STEPS: usize = 200;
+
+/// Idle gap after which the next typing/deletion starts a fresh undo step even
+/// without a caret move. This keeps a long passage typed with natural pauses
+/// from collapsing into a single undo step.
+const UNDO_COALESCE_IDLE: Duration = Duration::from_secs(2);
+
+/// Classifies an edit so consecutive edits of the same kind can be coalesced
+/// into a single undo step (e.g. a run of typed characters).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UndoKind {
+    /// Text insertion; consecutive insertions merge into one undo step.
+    Typing,
+    /// Character/word deletion; consecutive deletions merge into one undo step.
+    Deleting,
+    /// A discrete edit (styling, block changes, paste, …) that always forms its
+    /// own undo step.
+    Other,
+}
+
+/// An immutable snapshot of the editable state, used for undo/redo.
+#[derive(Debug, Clone)]
+struct EditorSnapshot {
+    document: StructuredDocument,
+    cursor: DocumentPosition,
+    selection: Option<(DocumentPosition, DocumentPosition)>,
+}
+
 /// The structured editor with cursor state
 pub struct StructuredEditor {
     document: StructuredDocument,
     cursor: DocumentPosition,
     selection: Option<(DocumentPosition, DocumentPosition)>, // (start, end)
     paragraph_cb: Option<Box<dyn FnMut(BlockType) + 'static>>,
+    /// Past states that can be restored via [`StructuredEditor::undo`].
+    undo_stack: Vec<EditorSnapshot>,
+    /// States undone and available again via [`StructuredEditor::redo`].
+    redo_stack: Vec<EditorSnapshot>,
+    /// The committed state as of the last checkpoint. Edits since then are
+    /// detected by comparing this against the live document.
+    undo_baseline: EditorSnapshot,
+    /// Kind of the most recent committed edit, for coalescing.
+    last_edit_kind: Option<UndoKind>,
+    /// When the last edit was committed, for idle-timeout coalescing.
+    last_edit_time: Option<Instant>,
 }
 
 impl StructuredEditor {
@@ -54,21 +95,26 @@ impl StructuredEditor {
     }
     /// Create a new editor with an empty document
     pub fn new() -> Self {
-        StructuredEditor {
-            document: StructuredDocument::new(),
-            cursor: DocumentPosition::start(),
-            selection: None,
-            paragraph_cb: None,
-        }
+        Self::with_document(StructuredDocument::new())
     }
 
     /// Create an editor with an existing document
     pub fn with_document(document: StructuredDocument) -> Self {
+        let baseline = EditorSnapshot {
+            document: document.clone(),
+            cursor: DocumentPosition::start(),
+            selection: None,
+        };
         StructuredEditor {
             document,
             cursor: DocumentPosition::start(),
             selection: None,
             paragraph_cb: None,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            undo_baseline: baseline,
+            last_edit_kind: None,
+            last_edit_time: None,
         }
     }
 
@@ -104,6 +150,133 @@ impl StructuredEditor {
         }
     }
 
+    // ----- Undo / redo -----
+
+    fn current_snapshot(&self) -> EditorSnapshot {
+        EditorSnapshot {
+            document: self.document.clone(),
+            cursor: self.cursor,
+            selection: self.selection,
+        }
+    }
+
+    /// Record an undo checkpoint covering all edits made since the last commit.
+    ///
+    /// The UI calls this right after a mutating action, passing the current
+    /// time. The live document is compared against the last committed baseline,
+    /// so calling it when nothing changed (e.g. a cursor move or a no-op edit)
+    /// is harmless. Consecutive `Typing`/`Deleting` edits coalesce into a single
+    /// undo step, but only while they happen in quick succession — once more
+    /// than [`UNDO_COALESCE_IDLE`] passes between edits, the next one begins a
+    /// fresh step.
+    pub fn commit_undo_step(&mut self, kind: UndoKind, now: Instant) {
+        let within_idle_window = self
+            .last_edit_time
+            .is_some_and(|t| now.saturating_duration_since(t) < UNDO_COALESCE_IDLE);
+        self.last_edit_time = Some(now);
+        self.record_step(kind, within_idle_window);
+    }
+
+    /// Push the pre-edit baseline onto the undo stack (unless this edit
+    /// coalesces with the previous one) and re-baseline to the current state.
+    fn record_step(&mut self, kind: UndoKind, within_idle_window: bool) {
+        if self.undo_baseline.document == self.document {
+            // No document change (e.g. a cursor move). Keep the baseline caret
+            // current so that a later undo restores the caret to where editing
+            // resumed rather than to where the previous edit ended.
+            self.undo_baseline.cursor = self.cursor;
+            self.undo_baseline.selection = self.selection;
+            return;
+        }
+
+        let coalesce = kind != UndoKind::Other
+            && self.last_edit_kind == Some(kind)
+            && within_idle_window
+            && !self.undo_stack.is_empty();
+
+        if !coalesce {
+            self.undo_stack.push(self.undo_baseline.clone());
+            if self.undo_stack.len() > MAX_UNDO_STEPS {
+                self.undo_stack.remove(0);
+            }
+        }
+
+        self.redo_stack.clear();
+        self.undo_baseline = self.current_snapshot();
+        self.last_edit_kind = Some(kind);
+    }
+
+    /// Whether there is anything to undo.
+    pub fn can_undo(&self) -> bool {
+        !self.undo_stack.is_empty() || self.undo_baseline.document != self.document
+    }
+
+    /// Whether there is anything to redo.
+    pub fn can_redo(&self) -> bool {
+        !self.redo_stack.is_empty()
+    }
+
+    /// Undo the most recent edit. Returns `true` if the state changed.
+    pub fn undo(&mut self) -> bool {
+        // Fold any uncommitted edit into a discrete step so it is not lost.
+        self.flush_pending_edit();
+
+        let Some(previous) = self.undo_stack.pop() else {
+            return false;
+        };
+        self.redo_stack.push(self.undo_baseline.clone());
+        self.undo_baseline = previous.clone();
+        self.last_edit_kind = None;
+        self.restore_snapshot(previous);
+        true
+    }
+
+    /// Redo the most recently undone edit. Returns `true` if the state changed.
+    pub fn redo(&mut self) -> bool {
+        // A pending edit invalidates the redo history (same as commit_undo_step).
+        self.flush_pending_edit();
+
+        let Some(next) = self.redo_stack.pop() else {
+            return false;
+        };
+        self.undo_stack.push(self.undo_baseline.clone());
+        self.undo_baseline = next.clone();
+        self.last_edit_kind = None;
+        self.restore_snapshot(next);
+        true
+    }
+
+    /// Discard all undo/redo history and re-baseline to the current state.
+    /// Call this after loading a different document into the editor.
+    pub fn reset_undo_history(&mut self) {
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+        self.last_edit_kind = None;
+        self.last_edit_time = None;
+        self.undo_baseline = self.current_snapshot();
+    }
+
+    /// Break edit coalescing so the next typing/deletion begins a fresh undo
+    /// step. Called whenever the caret or selection moves on its own.
+    fn break_undo_coalescing(&mut self) {
+        self.last_edit_kind = None;
+    }
+
+    /// Commit any edits made since the last checkpoint as a discrete step.
+    /// Used before undo/redo so an uncommitted edit is not lost. `Other` never
+    /// coalesces, so no timestamp is needed.
+    fn flush_pending_edit(&mut self) {
+        self.record_step(UndoKind::Other, false);
+    }
+
+    fn restore_snapshot(&mut self, snapshot: EditorSnapshot) {
+        self.document = snapshot.document;
+        self.cursor = snapshot.cursor;
+        self.selection = snapshot.selection;
+        self.normalize_cursor();
+        self.trigger_paragraph_change();
+    }
+
     fn normalize_cursor(&mut self) {
         self.cursor = self.document.clamp_position(self.cursor);
     }
@@ -115,6 +288,7 @@ impl StructuredEditor {
 
     /// Set cursor position (will be clamped to valid range)
     pub fn set_cursor(&mut self, pos: DocumentPosition) {
+        self.break_undo_coalescing();
         self.cursor = self.document.clamp_position(pos);
         self.selection = None; // Clear selection when moving cursor
         self.trigger_paragraph_change();
@@ -127,6 +301,7 @@ impl StructuredEditor {
 
     /// Set selection range
     pub fn set_selection(&mut self, start: DocumentPosition, end: DocumentPosition) {
+        self.break_undo_coalescing();
         let start = self.document.clamp_position(start);
         let end = self.document.clamp_position_forward(end);
         self.selection = Some((start, end));
@@ -134,11 +309,13 @@ impl StructuredEditor {
 
     /// Clear selection
     pub fn clear_selection(&mut self) {
+        self.break_undo_coalescing();
         self.selection = None;
     }
 
     /// Select all content in the document
     pub fn select_all(&mut self) {
+        self.break_undo_coalescing();
         if self.document.block_count() == 0 {
             self.selection = None;
             return;
@@ -158,6 +335,7 @@ impl StructuredEditor {
     /// Start or extend selection from current cursor position to a new position
     /// This is used for shift+movement and mouse drag selection
     pub fn extend_selection_to(&mut self, end: DocumentPosition) {
+        self.break_undo_coalescing();
         let end = self.document.clamp_position(end);
 
         if let Some((start, _)) = self.selection {
@@ -1089,6 +1267,7 @@ impl StructuredEditor {
 
     /// Move cursor left by one character
     pub fn move_cursor_left(&mut self) {
+        self.break_undo_coalescing();
         if self.document.block_count() == 0 {
             self.cursor = DocumentPosition::start();
             self.selection = None;
@@ -1115,6 +1294,7 @@ impl StructuredEditor {
 
     /// Move cursor right by one character
     pub fn move_cursor_right(&mut self) {
+        self.break_undo_coalescing();
         let block_count = self.document.block_count();
         if block_count == 0 {
             self.cursor = DocumentPosition::start();
@@ -1144,6 +1324,7 @@ impl StructuredEditor {
 
     /// Move cursor up (to previous block)
     pub fn move_cursor_up(&mut self) {
+        self.break_undo_coalescing();
         if self.cursor.block_index > 0 {
             self.cursor.block_index -= 1;
             let blocks = self.document.blocks();
@@ -1156,6 +1337,7 @@ impl StructuredEditor {
 
     /// Move cursor down (to next block)
     pub fn move_cursor_down(&mut self) {
+        self.break_undo_coalescing();
         let block_count = self.document.block_count();
         if block_count == 0 {
             self.cursor = DocumentPosition::start();
@@ -1174,6 +1356,7 @@ impl StructuredEditor {
 
     /// Move cursor to start of current block
     pub fn move_cursor_to_line_start(&mut self) {
+        self.break_undo_coalescing();
         self.cursor.offset = 0;
         self.normalize_cursor();
         self.selection = None;
@@ -1181,6 +1364,7 @@ impl StructuredEditor {
 
     /// Move cursor to end of current block
     pub fn move_cursor_to_line_end(&mut self) {
+        self.break_undo_coalescing();
         let blocks = self.document.blocks();
         if self.cursor.block_index < blocks.len() {
             self.cursor.offset = blocks[self.cursor.block_index].text_len();
@@ -1191,6 +1375,7 @@ impl StructuredEditor {
 
     /// Move cursor right by one word
     pub fn move_word_right(&mut self) {
+        self.break_undo_coalescing();
         let new_pos = self.word_right_position(self.cursor);
         self.cursor = new_pos;
         self.selection = None;
@@ -1198,6 +1383,7 @@ impl StructuredEditor {
 
     /// Move cursor left by one word
     pub fn move_word_left(&mut self) {
+        self.break_undo_coalescing();
         let new_pos = self.word_left_position(self.cursor);
         self.cursor = new_pos;
         self.selection = None;
@@ -2853,6 +3039,7 @@ impl Default for StructuredEditor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn test_insert_text() {
@@ -3626,5 +3813,172 @@ mod tests {
         let sel = editor.selection().unwrap();
         assert_eq!(sel.0, DocumentPosition::new(0, 7));
         assert_eq!(sel.1, DocumentPosition::new(0, 12));
+    }
+
+    #[test]
+    fn undo_redo_round_trips_typing() {
+        let t = Instant::now();
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("Hello").unwrap();
+        editor.commit_undo_step(UndoKind::Typing, t);
+        assert_eq!(editor.document().to_plain_text(), "Hello");
+
+        assert!(editor.undo());
+        assert_eq!(editor.document().to_plain_text(), "");
+        assert!(!editor.can_undo());
+
+        assert!(editor.redo());
+        assert_eq!(editor.document().to_plain_text(), "Hello");
+        assert!(!editor.can_redo());
+    }
+
+    #[test]
+    fn undo_coalesces_rapid_consecutive_typing() {
+        let t = Instant::now();
+        let mut editor = StructuredEditor::new();
+        // Characters typed in quick succession (small gaps) merge into one step.
+        for (i, ch) in ["H", "i", "!"].iter().enumerate() {
+            editor.insert_text(ch).unwrap();
+            editor.commit_undo_step(UndoKind::Typing, t + Duration::from_millis(i as u64 * 100));
+        }
+        assert_eq!(editor.document().to_plain_text(), "Hi!");
+
+        // A single undo reverts the whole run of rapidly typed characters.
+        assert!(editor.undo());
+        assert_eq!(editor.document().to_plain_text(), "");
+        assert!(!editor.can_undo());
+    }
+
+    #[test]
+    fn idle_pause_breaks_typing_coalescing() {
+        let t = Instant::now();
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("para").unwrap();
+        editor.commit_undo_step(UndoKind::Typing, t);
+
+        // After a long silence, the next typing begins a fresh undo step even
+        // though the caret never moved.
+        editor.insert_text(" fix").unwrap();
+        editor.commit_undo_step(
+            UndoKind::Typing,
+            t + UNDO_COALESCE_IDLE + Duration::from_millis(1),
+        );
+        assert_eq!(editor.document().to_plain_text(), "para fix");
+
+        // Undoing the small adjustment leaves the original passage intact.
+        assert!(editor.undo());
+        assert_eq!(editor.document().to_plain_text(), "para");
+        assert!(editor.undo());
+        assert_eq!(editor.document().to_plain_text(), "");
+    }
+
+    #[test]
+    fn cursor_move_breaks_typing_coalescing() {
+        let t = Instant::now();
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("ab").unwrap();
+        editor.commit_undo_step(UndoKind::Typing, t);
+
+        // Moving the caret starts a fresh undo step for subsequent typing,
+        // even with no idle gap.
+        editor.set_cursor(DocumentPosition::new(0, 0));
+        editor.commit_undo_step(UndoKind::Typing, t);
+        editor.insert_text("X").unwrap();
+        editor.commit_undo_step(UndoKind::Typing, t);
+        assert_eq!(editor.document().to_plain_text(), "Xab");
+
+        assert!(editor.undo());
+        assert_eq!(editor.document().to_plain_text(), "ab");
+        assert!(editor.undo());
+        assert_eq!(editor.document().to_plain_text(), "");
+    }
+
+    #[test]
+    fn a_new_edit_invalidates_redo() {
+        let t = Instant::now();
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("a").unwrap();
+        editor.commit_undo_step(UndoKind::Typing, t);
+        editor.set_cursor(editor.cursor());
+        editor.insert_text("b").unwrap();
+        editor.commit_undo_step(UndoKind::Typing, t);
+
+        assert!(editor.undo()); // back to "a"
+        assert!(editor.can_redo());
+
+        editor.insert_text("c").unwrap();
+        editor.commit_undo_step(UndoKind::Typing, t);
+        assert!(!editor.can_redo());
+        assert_eq!(editor.document().to_plain_text(), "ac");
+    }
+
+    #[test]
+    fn discrete_edits_are_separate_undo_steps() {
+        let t = Instant::now();
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("word").unwrap();
+        editor.commit_undo_step(UndoKind::Typing, t);
+        editor.select_all();
+        editor.toggle_bold().unwrap();
+        editor.commit_undo_step(UndoKind::Other, t);
+
+        // Undo the styling but keep the text.
+        assert!(editor.undo());
+        assert_eq!(editor.document().to_plain_text(), "word");
+        // Undo the typing.
+        assert!(editor.undo());
+        assert_eq!(editor.document().to_plain_text(), "");
+    }
+
+    #[test]
+    fn undo_restores_caret_to_where_editing_resumed() {
+        let t = Instant::now();
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("abc").unwrap();
+        editor.commit_undo_step(UndoKind::Typing, t);
+
+        // Move to the start (the UI commits after handling the move too).
+        editor.set_cursor(DocumentPosition::new(0, 0));
+        editor.commit_undo_step(UndoKind::Other, t);
+
+        editor.insert_text("Z").unwrap();
+        editor.commit_undo_step(UndoKind::Typing, t);
+        assert_eq!(editor.document().to_plain_text(), "Zabc");
+
+        assert!(editor.undo());
+        assert_eq!(editor.document().to_plain_text(), "abc");
+        assert_eq!(editor.cursor(), DocumentPosition::new(0, 0));
+    }
+
+    #[test]
+    fn reset_undo_history_keeps_content_but_clears_stacks() {
+        let t = Instant::now();
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("data").unwrap();
+        editor.commit_undo_step(UndoKind::Typing, t);
+        assert!(editor.can_undo());
+
+        editor.reset_undo_history();
+        assert!(!editor.can_undo());
+        assert!(!editor.can_redo());
+        assert_eq!(editor.document().to_plain_text(), "data");
+        // Nothing to undo even after the reset baseline.
+        assert!(!editor.undo());
+    }
+
+    #[test]
+    fn undo_with_uncommitted_edit_is_not_lost() {
+        let t = Instant::now();
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("first").unwrap();
+        editor.commit_undo_step(UndoKind::Typing, t);
+
+        // Simulate an edit that was never explicitly committed before undo.
+        editor.insert_text(" second").unwrap();
+        assert!(editor.undo());
+        // The uncommitted edit is folded into a step and reverted.
+        assert_eq!(editor.document().to_plain_text(), "first");
+        assert!(editor.redo());
+        assert_eq!(editor.document().to_plain_text(), "first second");
     }
 }
