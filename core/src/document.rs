@@ -14,6 +14,29 @@ pub struct DocumentStore {
     base_path: PathBuf,
 }
 
+/// Returns true if the name already ends with a (case-insensitive) `.md`
+/// extension.
+///
+/// Unlike `Path::extension`, this treats any other dots in the page name
+/// (e.g. "sprint-q2.6") as part of the name rather than a file extension.
+pub fn has_md_extension(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    bytes.len() >= 3 && bytes[bytes.len() - 3..].eq_ignore_ascii_case(b".md")
+}
+
+/// Append a `.md` extension to a page name unless it already has one.
+///
+/// This intentionally avoids `Path::set_extension`, which would mistake a dot
+/// inside the page name for a file extension (turning "sprint-q2.6" into the
+/// extension-less "sprint-q2.6" or, worse, "sprint-q2.md").
+pub fn ensure_md_extension(name: &str) -> String {
+    if has_md_extension(name) {
+        name.to_string()
+    } else {
+        format!("{name}.md")
+    }
+}
+
 impl DocumentStore {
     pub fn new(base_path: PathBuf) -> Self {
         DocumentStore { base_path }
@@ -22,12 +45,11 @@ impl DocumentStore {
     /// Load a document by name (with or without .md extension)
     /// If the file doesn't exist, creates an empty document that will be saved on first write
     pub fn load(&self, name: &str) -> Result<Document, String> {
-        let mut path = self.base_path.join(name);
-
-        // Try with .md extension if not already present
-        if path.extension().is_none() {
-            path.set_extension("md");
-        }
+        // Append `.md` unless the name already carries it. Note we deliberately
+        // do not rely on `Path::extension`, which would treat the trailing part
+        // of a dotted page name (e.g. "sprint-q2.6") as the extension and skip
+        // adding `.md`.
+        let path = self.base_path.join(ensure_md_extension(name));
 
         // Read file content and metadata if it exists, otherwise create empty document
         let (content, modified_time) = if path.exists() {
@@ -133,6 +155,54 @@ mod tests {
 
         // Cleanup
         fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_load_dotted_name_gets_md_extension() {
+        let temp_dir = env::temp_dir().join("piki-test-dotted");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let store = DocumentStore::new(temp_dir.clone());
+
+        // A page name with a dot (e.g. "sprint-q2.6") must still get `.md`
+        // appended rather than treating ".6" as the extension.
+        fs::write(temp_dir.join("sprint-q2.6.md"), "hello").unwrap();
+        let doc = store.load("sprint-q2.6").unwrap();
+
+        assert_eq!(doc.path, temp_dir.join("sprint-q2.6.md"));
+        assert_eq!(doc.content, "hello");
+        assert_eq!(doc.name, "sprint-q2.6");
+
+        // Cleanup
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_load_name_with_md_extension_not_doubled() {
+        let temp_dir = env::temp_dir().join("piki-test-md-suffix");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let store = DocumentStore::new(temp_dir.clone());
+        let doc = store.load("notes.md").unwrap();
+
+        assert_eq!(doc.path, temp_dir.join("notes.md"));
+
+        // Cleanup
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_md_extension_helpers() {
+        assert!(has_md_extension("notes.md"));
+        assert!(has_md_extension("notes.MD"));
+        assert!(!has_md_extension("sprint-q2.6"));
+        assert!(!has_md_extension("md"));
+
+        assert_eq!(ensure_md_extension("sprint-q2.6"), "sprint-q2.6.md");
+        assert_eq!(ensure_md_extension("notes.md"), "notes.md");
+        assert_eq!(ensure_md_extension("notes.MD"), "notes.MD");
     }
 
     #[test]
