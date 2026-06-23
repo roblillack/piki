@@ -469,6 +469,7 @@ impl DocumentPosition {
 }
 
 /// The structured document
+#[derive(Debug, Clone, PartialEq)]
 pub struct StructuredDocument {
     blocks: Vec<Block>,
 }

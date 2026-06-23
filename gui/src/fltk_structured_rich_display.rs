@@ -5,6 +5,7 @@ use crate::clipboard;
 use crate::fltk_draw_context::FltkDrawContext;
 use crate::responsive_scrollbar::ResponsiveScrollbar;
 use crate::richtext::structured_document::{BlockType, InlineContent};
+use crate::richtext::structured_editor::UndoKind;
 use crate::richtext::structured_rich_display::StructuredRichDisplay;
 use fltk::{app::MouseWheel, enums::*, prelude::*};
 use std::cell::RefCell;
@@ -194,6 +195,10 @@ impl FltkStructuredRichDisplay {
                                 }
                             };
                             if toggled {
+                                display
+                                    .borrow_mut()
+                                    .editor_mut()
+                                    .commit_undo_step(UndoKind::Other, Instant::now());
                                 if let Some(cb) = &mut *change_cb.borrow_mut() {
                                     (cb)();
                                 }
@@ -826,6 +831,10 @@ impl FltkStructuredRichDisplay {
                         if edit_mode {
                             let mut handled = false;
                             let mut did_horizontal = false;
+                            // Undo classification for whatever edit this key makes.
+                            // Refined to Typing/Deleting in the relevant branches;
+                            // a single checkpoint is committed once below.
+                            let mut undo_kind = UndoKind::Other;
 
                             // Ctrl/Cmd+K: Open link editor dialog
                             #[cfg(target_os = "macos")]
@@ -1321,6 +1330,14 @@ impl FltkStructuredRichDisplay {
                                     disp.editor_mut().select_all();
                                     handled = true;
                                 }
+                                // Cmd/Ctrl-Z (undo)
+                                else if cmd_modifier && key == Key::from_char('z') {
+                                    let changed = display.borrow_mut().editor_mut().undo();
+                                    if changed && let Some(cb) = &mut *change_cb.borrow_mut() {
+                                        (cb)();
+                                    }
+                                    handled = true;
+                                }
                                 // Cmd/Ctrl-B (toggle bold)
                                 else if cmd_modifier && key == Key::from_char('b') {
                                     let mut disp = display.borrow_mut();
@@ -1386,6 +1403,14 @@ impl FltkStructuredRichDisplay {
                                     let mut disp = display.borrow_mut();
                                     disp.editor_mut().insert_hard_break().ok();
                                     if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                        (cb)();
+                                    }
+                                    handled = true;
+                                }
+                                // Cmd/Ctrl-Shift-Z (redo)
+                                else if cmd_shift_modifier && key == Key::from_char('z') {
+                                    let changed = display.borrow_mut().editor_mut().redo();
+                                    if changed && let Some(cb) = &mut *change_cb.borrow_mut() {
                                         (cb)();
                                     }
                                     handled = true;
@@ -1551,6 +1576,7 @@ impl FltkStructuredRichDisplay {
                                                     editor.delete_backward().ok();
                                                 }
                                             }
+                                            undo_kind = UndoKind::Deleting;
                                             // non-vertical action
                                             did_horizontal = true;
                                             if let Some(cb) = &mut *change_cb.borrow_mut() {
@@ -1567,6 +1593,7 @@ impl FltkStructuredRichDisplay {
                                                     editor.delete_forward().ok();
                                                 }
                                             }
+                                            undo_kind = UndoKind::Deleting;
                                             // non-vertical action
                                             did_horizontal = true;
                                             if let Some(cb) = &mut *change_cb.borrow_mut() {
@@ -1746,6 +1773,7 @@ impl FltkStructuredRichDisplay {
                                                 }
 
                                                 if text_changed {
+                                                    undo_kind = UndoKind::Typing;
                                                     if let Some(cb) = &mut *change_cb.borrow_mut() {
                                                         (cb)();
                                                     }
@@ -1763,6 +1791,10 @@ impl FltkStructuredRichDisplay {
                                 // After handling an edit/cursor move, ensure cursor is visible
                                 let new_scroll = {
                                     let mut disp = display.borrow_mut();
+                                    // Record an undo checkpoint for whatever edit this
+                                    // key made. No-op for pure cursor movement, and for
+                                    // undo/redo themselves (document already restored).
+                                    disp.editor_mut().commit_undo_step(undo_kind, Instant::now());
                                     if did_horizontal {
                                         let cursor = disp.editor().cursor();
                                         disp.record_preferred_pos(cursor);
@@ -1847,6 +1879,8 @@ impl FltkStructuredRichDisplay {
                             ) {
                                 let mut disp = display.borrow_mut();
                                 if disp.editor_mut().insert_document(&doc).is_ok() {
+                                    disp.editor_mut()
+                                        .commit_undo_step(UndoKind::Other, Instant::now());
                                     if let Some(cb) = &mut *change_cb.borrow_mut() {
                                         (cb)();
                                     }
@@ -1864,6 +1898,8 @@ impl FltkStructuredRichDisplay {
                                 if let Some(text) = fallback_ref {
                                     let mut disp = display.borrow_mut();
                                     let _ = disp.editor_mut().paste(text);
+                                    disp.editor_mut()
+                                        .commit_undo_step(UndoKind::Other, Instant::now());
                                     if let Some(cb) = &mut *change_cb.borrow_mut() {
                                         (cb)();
                                     }
@@ -1962,6 +1998,13 @@ impl FltkStructuredRichDisplay {
     }
 
     pub fn notify_change(&self) {
+        // Record an undo checkpoint for the edit that just completed. This is a
+        // no-op when nothing actually changed. Typing and deletion handled in
+        // the key event handler use more specific undo kinds for coalescing.
+        self.display
+            .borrow_mut()
+            .editor_mut()
+            .commit_undo_step(UndoKind::Other, Instant::now());
         if let Ok(mut cb_ref) = self.change_cb.try_borrow_mut()
             && let Some(cb) = &mut *cb_ref
         {
