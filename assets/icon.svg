@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Piki app icon: white squircle with the open-centre cross mark -->
+  <rect x="80" y="80" width="864" height="864" rx="192" ry="192" fill="#ffffff"/>
+  <g fill="#202328">
+    <rect x="440" y="296" width="144" height="144"/>
+    <rect x="296" y="440" width="144" height="144"/>
+    <rect x="584" y="440" width="144" height="144"/>
+    <rect x="440" y="584" width="144" height="144"/>
+  </g>
+</svg>

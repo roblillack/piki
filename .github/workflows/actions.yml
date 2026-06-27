@@ -177,3 +177,20 @@ jobs:
           name: ${{ matrix.platform.artifact_name }}
           path: artifacts/${{ matrix.platform.artifact_name }}
           if-no-files-found: error
+
+      - name: Bundle macOS .app
+        if: matrix.platform.name == 'macOS'
+        run: |
+          bash scripts/bundle-macos.sh \
+            target/${{ matrix.platform.target }}/release/piki-gui \
+            target/macos
+          ditto -c -k --keepParent target/macos/Piki.app \
+            artifacts/Piki-macos-${{ matrix.platform.arch }}.app.zip
+
+      - name: Upload macOS .app
+        if: matrix.platform.name == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Piki-macos-${{ matrix.platform.arch }}-app
+          path: artifacts/Piki-macos-${{ matrix.platform.arch }}.app.zip
+          if-no-files-found: error

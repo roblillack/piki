@@ -1,3 +1,4 @@
+mod app_icon;
 mod autosave;
 pub mod draw_context;
 pub mod fltk_draw_context;
@@ -292,6 +293,8 @@ fn main() {
 
     // Initialize FLTK
     let app = app::App::default();
+    // Set the Dock icon on macOS (works even for the unbundled binary).
+    app_icon::set_macos_dock_icon();
     let window_state_path = window_state::state_file_path().map(Rc::new);
     let mut wind = window::Window::default()
         .with_size(400, 650) // Golden ratio 1:1.618 approx
@@ -309,6 +312,8 @@ fn main() {
             saved_state.height,
         );
     }
+
+    app_icon::set_window_icon(&mut wind);
 
     // #[cfg(target_os = "macos")]
     // wind.set_color(Color::White);
@@ -746,6 +751,10 @@ fn main() {
     }
 
     // No window activation forwarding needed; cursor shows when widget has focus
+
+    // Rename the macOS application menu now that the system menu bar exists, so
+    // an unbundled binary shows "Piki" instead of "piki-gui".
+    app_icon::set_macos_app_name("Piki");
 
     app.run().unwrap();
 }

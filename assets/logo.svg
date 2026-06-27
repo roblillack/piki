@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="200" viewBox="0 0 560 200">
+  <!-- Piki wordmark: the open-centre cross mark followed by the name -->
+  <g fill="#202328">
+    <!-- mark -->
+    <rect x="56" y="46" width="36" height="36"/>
+    <rect x="20" y="82" width="36" height="36"/>
+    <rect x="92" y="82" width="36" height="36"/>
+    <rect x="56" y="118" width="36" height="36"/>
+    <!-- wordmark -->
+    <text x="172" y="142" font-family="'Helvetica Neue', 'Arial', 'Segoe UI', sans-serif"
+          font-size="132" font-weight="700" letter-spacing="-4">Piki</text>
+  </g>
+</svg>
