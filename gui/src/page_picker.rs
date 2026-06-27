@@ -102,6 +102,9 @@ pub fn show_page_picker(
     // long as the picker is open, so it behaves like a real modal: app shortcuts
     // such as Cmd-P no longer reach the window underneath. The menu is restored
     // verbatim when the picker closes.
+    // On non-macOS `suspend_app_menu()` returns `()`; wrapping a unit value is
+    // intentional here so the type is uniform across platforms.
+    #[allow(clippy::unit_arg)]
     let saved_menu: Rc<RefCell<SavedAppMenu>> = Rc::new(RefCell::new(suspend_app_menu()));
 
     // Single entry point for closing the picker: restore the menu, clear the
