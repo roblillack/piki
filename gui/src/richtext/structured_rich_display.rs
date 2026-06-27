@@ -121,6 +121,11 @@ pub struct StructuredRichDisplay {
     // Cursor blink state
     blink_on: bool,
     blink_period_ms: u64,
+    // Most recent elapsed-ms value seen by `tick`; used as the time base when
+    // re-anchoring the blink cycle on cursor movement.
+    last_tick_ms: u64,
+    // Elapsed-ms value at which the current blink cycle started (its "on" phase).
+    blink_anchor_ms: u64,
 
     // Link hover state
     hovered_link: Option<(usize, usize)>, // (block_index, inline_index)
@@ -151,6 +156,8 @@ impl StructuredRichDisplay {
             cursor_visible: true,
             blink_on: true,
             blink_period_ms: 1000, // 1s full period (500ms on/off)
+            last_tick_ms: 0,
+            blink_anchor_ms: 0,
             hovered_link: None,
             cursor_preferred_line_offset: None,
             search_term: String::new(),
@@ -1620,7 +1627,10 @@ impl StructuredRichDisplay {
 
             if screen_y >= self.y && screen_y < self.y + self.h {
                 ctx.set_color(self.theme.cursor_color);
-                ctx.draw_line(screen_x, screen_y, screen_x, screen_y + ch);
+                // Draw the caret as a 2px-wide bar rather than a 1px line so
+                // it's easier to spot (a hairline caret is easy to lose,
+                // especially on high-DPI displays).
+                ctx.draw_rect_filled(screen_x, screen_y, 2, ch);
             }
         }
 
@@ -1824,14 +1834,26 @@ impl StructuredRichDisplay {
 
     /// Update blink state based on elapsed ms. Returns true if visual state changed.
     pub fn tick(&mut self, ms_since_start: u64) -> bool {
-        // Compute a simple square-wave blink: 500ms on, 500ms off
+        self.last_tick_ms = ms_since_start;
+        // Compute a simple square-wave blink: 500ms on, 500ms off, measured
+        // from the current blink anchor (reset whenever the cursor moves).
         let half_period = (self.blink_period_ms / 2).max(1);
-        let new_on = (ms_since_start / half_period).is_multiple_of(2);
+        let elapsed = ms_since_start.saturating_sub(self.blink_anchor_ms);
+        let new_on = (elapsed / half_period).is_multiple_of(2);
         if new_on != self.blink_on {
             self.blink_on = new_on;
             return true;
         }
         false
+    }
+
+    /// Restart the blink cycle so the caret is shown immediately and stays on
+    /// for a full half-period. Call this whenever the cursor moves so it's
+    /// always visible at its new position, regardless of the current blink
+    /// phase (which might otherwise have the caret hidden right now).
+    pub fn reset_blink(&mut self) {
+        self.blink_anchor_ms = self.last_tick_ms;
+        self.blink_on = true;
     }
 
     /// Find link at given widget coordinates (relative to widget, not screen)
