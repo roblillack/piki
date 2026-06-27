@@ -133,6 +133,37 @@ impl InlineContent {
     }
 }
 
+/// A single cell within a [`TableRow`]. Mirrors `tdoc`'s `TableCell`: it holds
+/// inline content and a flag distinguishing header cells from data cells.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TableCell {
+    pub is_header: bool,
+    pub content: Vec<InlineContent>,
+}
+
+impl TableCell {
+    pub fn new(is_header: bool, content: Vec<InlineContent>) -> Self {
+        TableCell { is_header, content }
+    }
+
+    /// Flatten the cell's content to plain text.
+    pub fn to_plain_text(&self) -> String {
+        self.content.iter().map(|c| c.to_plain_text()).collect()
+    }
+}
+
+/// A single row within a [`BlockType::Table`]. Mirrors `tdoc`'s `TableRow`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TableRow {
+    pub cells: Vec<TableCell>,
+}
+
+impl TableRow {
+    pub fn new(cells: Vec<TableCell>) -> Self {
+        TableRow { cells }
+    }
+}
+
 /// Block-level content types
 #[derive(Debug, Clone, PartialEq)]
 pub enum BlockType {
@@ -148,6 +179,11 @@ pub enum BlockType {
         ordered: bool,
         number: Option<u64>,
         checkbox: Option<bool>,
+    },
+    /// A table. The rows live here rather than in [`Block::content`]; a table
+    /// block keeps its `content` empty. Tables are read-only for now.
+    Table {
+        rows: Vec<TableRow>,
     },
 }
 
@@ -174,6 +210,10 @@ impl Block {
         Self::new(BlockType::Heading {
             level: level.clamp(1, 6),
         })
+    }
+
+    pub fn table(rows: Vec<TableRow>) -> Self {
+        Self::new(BlockType::Table { rows })
     }
 
     pub fn with_text(mut self, text: impl Into<String>, style: TextStyle) -> Self {
@@ -650,6 +690,17 @@ impl StructuredDocument {
             return;
         }
 
+        // A table is atomic and has no editable text. If a multi-block deletion
+        // starts at a table, the table is fully consumed, so demote it to a
+        // paragraph before any trailing content is merged into it — otherwise
+        // that text would be trapped in a table block the renderer ignores.
+        if matches!(
+            self.blocks[a.block_index].block_type,
+            BlockType::Table { .. }
+        ) {
+            self.blocks[a.block_index].block_type = BlockType::Paragraph;
+        }
+
         // Delete tail of start block
         {
             let block = &mut self.blocks[a.block_index];
@@ -790,6 +841,10 @@ impl fmt::Display for StructuredDocument {
                         String::new()
                     }
                 )?,
+                BlockType::Table { rows } => {
+                    let cols = rows.iter().map(|r| r.cells.len()).max().unwrap_or(0);
+                    write!(f, "Table({}x{})", rows.len(), cols)?
+                }
             }
             writeln!(f, ": {:?}", block.to_plain_text())?;
         }

@@ -499,6 +499,12 @@ impl StructuredEditor {
             return Err(EditError::InvalidBlockIndex);
         }
 
+        // Tables are read-only: typing on a table (with no selection to replace)
+        // is a no-op rather than corrupting the block's unused content.
+        if self.selection.is_none() && self.is_table_block(block_index) {
+            return Ok(());
+        }
+
         // Delete selection first if there is one
         if self.selection.is_some() {
             self.delete_selection()?;
@@ -926,6 +932,34 @@ impl StructuredEditor {
     }
 
     /// Delete character before cursor (backspace)
+    /// Whether the block at `index` is a (read-only) table.
+    fn is_table_block(&self, index: usize) -> bool {
+        matches!(
+            self.document.blocks().get(index).map(|b| &b.block_type),
+            Some(BlockType::Table { .. })
+        )
+    }
+
+    /// Remove an atomic block (e.g. a table, which has no editable text) and
+    /// place the cursor at `cursor`. Keeps the document non-empty by inserting a
+    /// blank paragraph when the last block is removed.
+    fn remove_atomic_block(&mut self, index: usize, cursor: DocumentPosition) -> EditResult {
+        if index >= self.document.block_count() {
+            return Err(EditError::InvalidBlockIndex);
+        }
+        self.document.remove_block(index);
+        if self.document.block_count() == 0 {
+            self.document.add_block(Block::paragraph());
+            self.cursor = DocumentPosition::start();
+        } else {
+            self.cursor = cursor;
+        }
+        self.selection = None;
+        self.normalize_cursor();
+        self.trigger_paragraph_change();
+        Ok(())
+    }
+
     pub fn delete_backward(&mut self) -> EditResult {
         if self.document.is_empty() {
             return Err(EditError::EmptyDocument);
@@ -940,9 +974,33 @@ impl StructuredEditor {
         let offset = self.cursor.offset;
 
         if offset == 0 {
+            // A table has no editable text, so backspace removes the whole
+            // table atomically: either the one the cursor sits on, or the table
+            // immediately before the cursor.
+            if self.is_table_block(block_index) {
+                let target = if block_index > 0 {
+                    DocumentPosition::new(
+                        block_index - 1,
+                        self.document.blocks()[block_index - 1].text_len(),
+                    )
+                } else {
+                    DocumentPosition::start()
+                };
+                return self.remove_atomic_block(block_index, target);
+            }
+
             // At start of block - merge with previous block
             if block_index == 0 {
                 return Ok(()); // At start of document, nothing to delete
+            }
+
+            if self.is_table_block(block_index - 1) {
+                // The cursor is just after a table; remove the table and keep
+                // the current block (now shifted up by one).
+                return self.remove_atomic_block(
+                    block_index - 1,
+                    DocumentPosition::new(block_index - 1, 0),
+                );
             }
 
             // Capture types before mutation
@@ -1117,8 +1175,22 @@ impl StructuredEditor {
         };
 
         if offset >= block_len {
+            // Forward-delete also removes a table atomically: the one at the
+            // cursor (a table is both empty and at-end), or the table just after.
+            if self.is_table_block(block_index) {
+                return self
+                    .remove_atomic_block(block_index, DocumentPosition::new(block_index, 0));
+            }
+
             if block_index >= block_count - 1 {
                 return Ok(()); // At end of document, nothing to delete
+            }
+
+            if self.is_table_block(block_index + 1) {
+                return self.remove_atomic_block(
+                    block_index + 1,
+                    DocumentPosition::new(block_index, offset),
+                );
             }
 
             let (cur_type, next_type) = {
@@ -1200,6 +1272,11 @@ impl StructuredEditor {
             return self.delete_selection();
         }
 
+        // On a table, word-delete removes the whole (atomic) table.
+        if self.is_table_block(self.cursor.block_index) {
+            return self.delete_backward();
+        }
+
         let from = self.cursor;
         let to = self.word_left_position(from);
 
@@ -1224,6 +1301,11 @@ impl StructuredEditor {
         // If there's a selection, delete it
         if self.selection.is_some() {
             return self.delete_selection();
+        }
+
+        // On a table, word-delete removes the whole (atomic) table.
+        if self.is_table_block(self.cursor.block_index) {
+            return self.delete_forward();
         }
 
         let from = self.cursor;
@@ -1605,6 +1687,8 @@ impl StructuredEditor {
             BlockType::ListItem { .. } => BlockType::Heading { level: 1 },
             BlockType::CodeBlock { .. } => BlockType::Heading { level: 1 },
             BlockType::BlockQuote => BlockType::Heading { level: 1 },
+            // Tables are read-only; leave them unchanged.
+            BlockType::Table { .. } => return Ok(()),
         };
 
         Ok(())
@@ -2106,6 +2190,8 @@ impl StructuredEditor {
                 number: None,
                 checkbox: None,
             },
+            // Tables are read-only; leave them unchanged.
+            BlockType::Table { .. } => return Ok(()),
         };
 
         self.trigger_paragraph_change();
@@ -2160,6 +2246,8 @@ impl StructuredEditor {
         };
 
         match current_type {
+            // Tables are read-only; list/checklist toggles don't apply.
+            BlockType::Table { .. } => Ok(()),
             BlockType::ListItem { ordered: true, .. } => {
                 // Convert contiguous ordered run to checklist items
                 let (start, end) = {
@@ -2398,6 +2486,8 @@ impl StructuredEditor {
         };
 
         match current_type {
+            // Tables are read-only; list/checklist toggles don't apply.
+            BlockType::Table { .. } => Ok(()),
             BlockType::ListItem { ordered: true, .. } => {
                 // We are inside an ordered run. Capture run bounds first.
                 let (_run_start, run_end, _first_num) = {
@@ -2702,6 +2792,8 @@ impl StructuredEditor {
                         }
                     }
                 }
+                // Tables can't be produced via this API; preserve as-is.
+                BlockType::Table { rows } => BlockType::Table { rows: rows.clone() },
             })
             .collect();
 
@@ -4083,6 +4175,160 @@ mod tests {
             .iter()
             .map(|b| b.to_plain_text())
             .collect()
+    }
+
+    /// A simple 1x2 table block: a single body row with two cells.
+    fn sample_table() -> Block {
+        Block::table(vec![TableRow::new(vec![
+            TableCell::new(false, vec![InlineContent::Text(TextRun::plain("a"))]),
+            TableCell::new(false, vec![InlineContent::Text(TextRun::plain("b"))]),
+        ])])
+    }
+
+    fn block_types(editor: &StructuredEditor) -> Vec<BlockType> {
+        editor
+            .document()
+            .blocks()
+            .iter()
+            .map(|b| b.block_type.clone())
+            .collect()
+    }
+
+    fn editor_with_blocks(blocks: Vec<Block>) -> StructuredEditor {
+        let mut doc = StructuredDocument::new();
+        for b in blocks {
+            doc.add_block(b);
+        }
+        StructuredEditor::with_document(doc)
+    }
+
+    #[test]
+    fn backspace_on_table_removes_it() {
+        let mut editor = editor_with_blocks(vec![
+            Block::paragraph().with_plain_text("before"),
+            sample_table(),
+            Block::paragraph().with_plain_text("after"),
+        ]);
+        // Cursor on the table.
+        editor.set_cursor(DocumentPosition::new(1, 0));
+        editor.delete_backward().unwrap();
+
+        assert_eq!(paragraph_texts(&editor), vec!["before", "after"]);
+        assert!(!block_types(&editor).iter().any(is_table));
+        // Cursor lands at the end of the preceding paragraph.
+        assert_eq!(editor.cursor(), DocumentPosition::new(0, "before".len()));
+    }
+
+    #[test]
+    fn backspace_just_after_table_removes_table() {
+        let mut editor = editor_with_blocks(vec![
+            Block::paragraph().with_plain_text("before"),
+            sample_table(),
+            Block::paragraph().with_plain_text("after"),
+        ]);
+        // Cursor at the start of the paragraph that follows the table.
+        editor.set_cursor(DocumentPosition::new(2, 0));
+        editor.delete_backward().unwrap();
+
+        assert_eq!(paragraph_texts(&editor), vec!["before", "after"]);
+        assert!(!block_types(&editor).iter().any(is_table));
+        // The "after" paragraph (now index 1) keeps the cursor at its start.
+        assert_eq!(editor.cursor(), DocumentPosition::new(1, 0));
+    }
+
+    #[test]
+    fn delete_forward_on_table_removes_it() {
+        let mut editor = editor_with_blocks(vec![
+            sample_table(),
+            Block::paragraph().with_plain_text("after"),
+        ]);
+        editor.set_cursor(DocumentPosition::new(0, 0));
+        editor.delete_forward().unwrap();
+
+        assert_eq!(paragraph_texts(&editor), vec!["after"]);
+        assert!(!block_types(&editor).iter().any(is_table));
+    }
+
+    #[test]
+    fn delete_forward_before_table_removes_it() {
+        let mut editor = editor_with_blocks(vec![
+            Block::paragraph().with_plain_text("before"),
+            sample_table(),
+        ]);
+        // Cursor at the end of the paragraph that precedes the table.
+        editor.set_cursor(DocumentPosition::new(0, "before".len()));
+        editor.delete_forward().unwrap();
+
+        assert_eq!(paragraph_texts(&editor), vec!["before"]);
+        assert!(!block_types(&editor).iter().any(is_table));
+        assert_eq!(editor.cursor(), DocumentPosition::new(0, "before".len()));
+    }
+
+    #[test]
+    fn backspace_removes_table_as_only_block_keeps_a_paragraph() {
+        let mut editor = editor_with_blocks(vec![sample_table()]);
+        editor.set_cursor(DocumentPosition::new(0, 0));
+        editor.delete_backward().unwrap();
+
+        // The document never becomes block-less; a blank paragraph remains.
+        assert_eq!(editor.document().block_count(), 1);
+        assert!(matches!(
+            editor.document().blocks()[0].block_type,
+            BlockType::Paragraph
+        ));
+    }
+
+    #[test]
+    fn typing_on_table_is_a_no_op() {
+        let mut editor = editor_with_blocks(vec![sample_table()]);
+        editor.set_cursor(DocumentPosition::new(0, 0));
+        editor.insert_text("x").unwrap();
+
+        // The table is untouched: still a table, with no stray content.
+        assert!(matches!(
+            editor.document().blocks()[0].block_type,
+            BlockType::Table { .. }
+        ));
+        assert!(editor.document().blocks()[0].content.is_empty());
+    }
+
+    #[test]
+    fn selection_replacing_a_table_removes_it() {
+        let mut editor = editor_with_blocks(vec![
+            Block::paragraph().with_plain_text("before"),
+            sample_table(),
+            Block::paragraph().with_plain_text("after"),
+        ]);
+        // Select from the end of "before" through the start of "after",
+        // covering the whole table, then type to replace.
+        editor.set_selection(
+            DocumentPosition::new(0, "before".len()),
+            DocumentPosition::new(2, 0),
+        );
+        editor.insert_text("X").unwrap();
+
+        // No table survives, and no text is trapped in a table block.
+        assert!(!block_types(&editor).iter().any(is_table));
+        assert_eq!(editor.document().to_plain_text(), "beforeXafter");
+    }
+
+    #[test]
+    fn deleting_selection_starting_at_table_does_not_trap_text() {
+        // Selection starts at the table (block 0) and ends inside the next
+        // paragraph: the table must be demoted, not have text merged into it.
+        let mut editor = editor_with_blocks(vec![
+            sample_table(),
+            Block::paragraph().with_plain_text("tail"),
+        ]);
+        editor.set_selection(DocumentPosition::new(0, 0), DocumentPosition::new(1, 2));
+        editor.delete_selection().unwrap();
+
+        assert!(!block_types(&editor).iter().any(is_table));
+        assert_eq!(editor.document().to_plain_text(), "il");
+    }
+
+    fn is_table(bt: &BlockType) -> bool {
+        matches!(bt, BlockType::Table { .. })
     }
 
     #[test]

@@ -1,9 +1,12 @@
 use super::structured_document::{
-    Block, BlockType, InlineContent, Link, StructuredDocument, TextRun, TextStyle,
+    Block, BlockType, InlineContent, Link, StructuredDocument, TableCell, TableRow, TextRun,
+    TextStyle,
 };
 use tdoc::Document as TdocDocument;
 use tdoc::inline::{InlineStyle, Span};
-use tdoc::paragraph::{ChecklistItem, Paragraph};
+use tdoc::paragraph::{
+    ChecklistItem, Paragraph, TableCell as TdocTableCell, TableRow as TdocTableRow,
+};
 
 /// Convert a [`StructuredDocument`] into a [`tdoc::Document`].
 pub fn structured_to_tdoc(doc: &StructuredDocument) -> TdocDocument {
@@ -100,6 +103,9 @@ fn append_paragraph(structured: &mut StructuredDocument, paragraph: &Paragraph) 
         Paragraph::Checklist { items } => {
             append_checklist_items(structured, items);
         }
+        Paragraph::Table { rows } => {
+            append_table(structured, rows);
+        }
         Paragraph::Quote { children } => {
             if children.is_empty() {
                 let mut block = Block::new(BlockType::BlockQuote);
@@ -150,7 +156,8 @@ fn paragraph_to_block(paragraph: &Paragraph) -> Block {
         Paragraph::Quote { .. }
         | Paragraph::OrderedList { .. }
         | Paragraph::UnorderedList { .. }
-        | Paragraph::Checklist { .. } => unreachable!("handled earlier"),
+        | Paragraph::Checklist { .. }
+        | Paragraph::Table { .. } => unreachable!("handled earlier"),
     }
 }
 
@@ -192,6 +199,21 @@ fn block_to_paragraph(block: &Block) -> Paragraph {
                 Paragraph::new_unordered_list().with_entries(vec![vec![item]])
             }
         }
+        BlockType::Table { rows } => Paragraph::Table {
+            rows: rows
+                .iter()
+                .map(|row| TdocTableRow {
+                    cells: row
+                        .cells
+                        .iter()
+                        .map(|cell| TdocTableCell {
+                            is_header: cell.is_header,
+                            content: inline_to_spans(&cell.content),
+                        })
+                        .collect(),
+                })
+                .collect(),
+        },
     }
 }
 
@@ -203,6 +225,23 @@ fn quote_from_inline(content: &[InlineContent]) -> Paragraph {
         let child = Paragraph::new_text().with_content(spans);
         Paragraph::new_quote().with_children(vec![child])
     }
+}
+
+/// Convert a tdoc table into a structured [`BlockType::Table`] block,
+/// preserving each cell's inline content and header flag.
+fn append_table(structured: &mut StructuredDocument, rows: &[TdocTableRow]) {
+    let rows: Vec<TableRow> = rows
+        .iter()
+        .map(|row| {
+            TableRow::new(
+                row.cells
+                    .iter()
+                    .map(|cell| TableCell::new(cell.is_header, spans_to_inline(&cell.content)))
+                    .collect(),
+            )
+        })
+        .collect();
+    structured.add_block(Block::table(rows));
 }
 
 fn append_checklist_items(structured: &mut StructuredDocument, items: &[ChecklistItem]) {

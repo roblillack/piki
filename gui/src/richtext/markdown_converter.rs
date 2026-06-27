@@ -4,8 +4,7 @@
 use super::structured_document::StructuredDocument;
 use super::tdoc_bridge::{structured_to_tdoc, tdoc_to_structured};
 use std::io::Cursor;
-use tdoc::markdown;
-use tdoc::writer::Writer;
+use tdoc::{html, markdown};
 
 /// Convert markdown text to a [`StructuredDocument`].
 pub fn markdown_to_document(markdown: &str) -> StructuredDocument {
@@ -34,13 +33,12 @@ pub fn document_to_markdown(doc: &StructuredDocument) -> String {
 /// representation for the system clipboard's `text/html` flavor.
 pub fn document_to_html(doc: &StructuredDocument) -> String {
     let tdoc_doc = structured_to_tdoc(doc);
-    match Writer::new().write_to_string(&tdoc_doc) {
-        Ok(html) => html,
-        Err(err) => {
-            eprintln!("Failed to serialize document to HTML: {}", err);
-            String::new()
-        }
+    let mut buffer: Vec<u8> = Vec::new();
+    if let Err(err) = html::write(&mut buffer, &tdoc_doc) {
+        eprintln!("Failed to serialize document to HTML: {}", err);
+        return String::new();
     }
+    String::from_utf8(buffer).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -148,6 +146,51 @@ mod tests {
         assert!(html.contains("<li>"), "html was: {html}");
         assert!(html.contains("First"), "html was: {html}");
         assert!(html.contains("Second"), "html was: {html}");
+    }
+
+    #[test]
+    fn test_markdown_table_parses_to_table_block() {
+        // A markdown table parses into a single Table block whose rows/cells
+        // mirror the source, with the first row's cells flagged as headers.
+        let md = "| A | B |\n| --- | --- |\n| 1 | 2 |";
+        let doc = markdown_to_document(md);
+
+        assert_eq!(doc.block_count(), 1, "expected a single table block");
+        let BlockType::Table { rows } = &doc.blocks()[0].block_type else {
+            panic!(
+                "expected a Table block, got {:?}",
+                doc.blocks()[0].block_type
+            );
+        };
+
+        assert_eq!(rows.len(), 2, "header row + one body row");
+        assert_eq!(rows[0].cells.len(), 2);
+        assert!(
+            rows[0].cells.iter().all(|c| c.is_header),
+            "first row cells should be headers"
+        );
+        assert_eq!(rows[0].cells[0].to_plain_text().trim(), "A");
+        assert_eq!(rows[0].cells[1].to_plain_text().trim(), "B");
+
+        assert!(
+            rows[1].cells.iter().all(|c| !c.is_header),
+            "body row cells should not be headers"
+        );
+        assert_eq!(rows[1].cells[0].to_plain_text().trim(), "1");
+        assert_eq!(rows[1].cells[1].to_plain_text().trim(), "2");
+    }
+
+    #[test]
+    fn test_table_round_trips_through_markdown() {
+        // A table survives a structured -> markdown -> structured round trip.
+        let md = "| Name | Qty |\n| --- | --- |\n| Apples | 3 |\n| Pears | 12 |";
+        let doc = markdown_to_document(md);
+        let rendered = document_to_markdown(&doc);
+        let reparsed = markdown_to_document(&rendered);
+        assert_eq!(
+            doc, reparsed,
+            "table should be stable across a markdown round trip; rendered:\n{rendered}"
+        );
     }
 
     #[test]

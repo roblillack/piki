@@ -42,6 +42,228 @@ pub struct LayoutLine {
 
 impl LayoutLine {}
 
+/// Geometry for drawing a table's grid lines and header fills. Computed during
+/// layout and consumed by `draw`. Coordinates are in layout space (relative to
+/// the widget's content origin, before scroll translation).
+#[derive(Debug, Clone)]
+struct TableLayout {
+    /// Document block index of the table.
+    block_index: usize,
+    /// X of each vertical grid line, left to right (length = columns + 1).
+    col_x: Vec<i32>,
+    /// Y of each horizontal grid line, top to bottom (length = rows + 1).
+    row_y: Vec<i32>,
+}
+
+/// Finalize the current visual line: record its char range and wrap flag, then
+/// move it into `lines`. Shared by the wrapping engine and `push_token_wrapped`.
+fn push_line(
+    lines: &mut Vec<Vec<VisualRun>>,
+    ranges: &mut Vec<(usize, usize)>,
+    wraps: &mut Vec<bool>,
+    current_line: &mut Vec<VisualRun>,
+    default_offset: usize,
+    wrapped: bool,
+) {
+    let (start, end) = if let Some(first) = current_line.first() {
+        let last_end = current_line
+            .last()
+            .map(|r| r.char_range.1)
+            .unwrap_or(first.char_range.1);
+        (first.char_range.0, last_end)
+    } else {
+        (default_offset, default_offset)
+    };
+    ranges.push((start, end));
+    wraps.push(wrapped);
+    lines.push(std::mem::take(current_line));
+}
+
+/// Build a [`VisualRun`] for content text with the given resolved style.
+fn run_from_style(
+    text: String,
+    x: i32,
+    width: i32,
+    char_range: (usize, usize),
+    inline_index: usize,
+    block_idx: usize,
+    style: ResolvedRunStyle,
+) -> VisualRun {
+    VisualRun {
+        text,
+        x,
+        width,
+        font_type: style.font_type,
+        font_style: style.font_style,
+        font_size: style.font_size,
+        font_color: style.font_color,
+        background_color: style.background_color,
+        underline: style.underline,
+        strikethrough: style.strikethrough,
+        block_index: block_idx,
+        char_range,
+        inline_index: Some(inline_index),
+        checklist: None,
+    }
+}
+
+/// Place a single token (a word or a whole link) onto the current line, wrapping
+/// to the next line when it doesn't fit.
+///
+/// When `break_long_words` is set and the token is wider than a full line, it is
+/// split greedily at character boundaries so it can never bleed past the
+/// available width — needed for narrow table cells. With the flag off, behavior
+/// is identical to the original word wrapper (wrap once, then place whole).
+#[allow(clippy::too_many_arguments)]
+fn push_token_wrapped(
+    ctx: &mut dyn DrawContext,
+    lines: &mut Vec<Vec<VisualRun>>,
+    line_ranges: &mut Vec<(usize, usize)>,
+    line_wraps: &mut Vec<bool>,
+    current_line: &mut Vec<VisualRun>,
+    current_x: &mut i32,
+    current_y: &mut i32,
+    start_x: i32,
+    width: i32,
+    line_height: i32,
+    break_long_words: bool,
+    text: &str,
+    char_base: usize,
+    inline_index: usize,
+    block_idx: usize,
+    style: ResolvedRunStyle,
+) {
+    let (font, fstyle, size) = (style.font_type, style.font_style, style.font_size);
+    let token_width = ctx.text_width(text, font, fstyle, size) as i32;
+
+    let must_break = break_long_words && width > 0 && token_width > width;
+    if !must_break {
+        // Wrap to the next line if it doesn't fit and we're not already at the
+        // line start, then place the whole token (original behavior).
+        if *current_x + token_width > start_x + width && *current_x > start_x {
+            push_line(
+                lines,
+                line_ranges,
+                line_wraps,
+                current_line,
+                char_base,
+                true,
+            );
+            *current_x = start_x;
+            *current_y += line_height;
+        }
+        current_line.push(run_from_style(
+            text.to_string(),
+            *current_x,
+            token_width,
+            (char_base, char_base + text.len()),
+            inline_index,
+            block_idx,
+            style,
+        ));
+        *current_x += token_width;
+        return;
+    }
+
+    // The token is wider than a full line: break it greedily, character by
+    // character, so it can never overflow into the neighbouring column.
+    let indices: Vec<usize> = text.char_indices().map(|(i, _)| i).collect();
+    let char_count = indices.len();
+    let byte_end_of = |k: usize| {
+        if k + 1 < char_count {
+            indices[k + 1]
+        } else {
+            text.len()
+        }
+    };
+
+    let mut seg_start = 0usize;
+    let mut k = 0usize;
+    while k < char_count {
+        // Grow the chunk while it still fits from the current x.
+        let mut fit_end = seg_start;
+        let mut fit_k = k;
+        while fit_k < char_count {
+            let cand_end = byte_end_of(fit_k);
+            let w = ctx.text_width(&text[seg_start..cand_end], font, fstyle, size) as i32;
+            if *current_x + w > start_x + width {
+                break;
+            }
+            fit_end = cand_end;
+            fit_k += 1;
+        }
+
+        if fit_end > seg_start {
+            let chunk = &text[seg_start..fit_end];
+            let w = ctx.text_width(chunk, font, fstyle, size) as i32;
+            current_line.push(run_from_style(
+                chunk.to_string(),
+                *current_x,
+                w,
+                (char_base + seg_start, char_base + fit_end),
+                inline_index,
+                block_idx,
+                style,
+            ));
+            *current_x += w;
+            seg_start = fit_end;
+            k = fit_k;
+        } else if *current_x == start_x {
+            // Not even one character fits on a fresh line (column narrower than a
+            // glyph). Force one through to guarantee forward progress.
+            let cand_end = byte_end_of(k);
+            let chunk = &text[seg_start..cand_end];
+            let w = ctx.text_width(chunk, font, fstyle, size) as i32;
+            current_line.push(run_from_style(
+                chunk.to_string(),
+                *current_x,
+                w,
+                (char_base + seg_start, char_base + cand_end),
+                inline_index,
+                block_idx,
+                style,
+            ));
+            *current_x += w;
+            seg_start = cand_end;
+            k += 1;
+        }
+
+        // More to place: wrap to the next line.
+        if seg_start < text.len() {
+            push_line(
+                lines,
+                line_ranges,
+                line_wraps,
+                current_line,
+                char_base + seg_start,
+                true,
+            );
+            *current_x = start_x;
+            *current_y += line_height;
+        }
+    }
+}
+
+/// Return a copy of inline content with every text run forced to bold. Used for
+/// table header cells, which the renderer draws in bold like the tdoc CLI.
+fn bolden_inline(content: &[InlineContent]) -> Vec<InlineContent> {
+    content
+        .iter()
+        .map(|item| match item {
+            InlineContent::Text(run) => {
+                let mut style = run.style;
+                style.bold = true;
+                InlineContent::Text(TextRun::new(run.text.clone(), style))
+            }
+            InlineContent::Link { link, content } => InlineContent::Link {
+                link: link.clone(),
+                content: bolden_inline(content),
+            },
+            InlineContent::HardBreak => InlineContent::HardBreak,
+        })
+        .collect()
+}
+
 struct InlineContentLayout {
     lines: Vec<Vec<VisualRun>>,
     line_ranges: Vec<(usize, usize)>,
@@ -111,6 +333,9 @@ pub struct StructuredRichDisplay {
 
     // Layout cache
     layout_lines: Vec<LayoutLine>,
+    // Grid geometry for table blocks, parallel to layout_lines (cell text lives
+    // in layout_lines; borders/header fills are drawn from this).
+    table_layouts: Vec<TableLayout>,
     layout_valid: bool,
 
     // Scrolling
@@ -151,6 +376,7 @@ impl StructuredRichDisplay {
             h,
             editor: StructuredEditor::new(),
             layout_lines: Vec::new(),
+            table_layouts: Vec::new(),
             layout_valid: false,
             scroll_offset: 0,
             cursor_visible: true,
@@ -274,6 +500,7 @@ impl StructuredRichDisplay {
         }
 
         self.layout_lines.clear();
+        self.table_layouts.clear();
 
         let content_width = self.w - 2 * self.theme.padding_horizontal;
         let mut current_y = self.theme.padding_vertical;
@@ -438,15 +665,32 @@ impl StructuredRichDisplay {
         let line_visual_len = line.visual_char_end.saturating_sub(line.char_start);
         let effective_offset = preferred_offset.min(line_visual_len);
 
-        println!(
-            "Preferred offset: {}, line len: {}, line visual len: {}, effective offset: {}",
-            preferred_offset,
-            line.char_end - line.char_start,
-            line_visual_len,
-            effective_offset
-        );
-
         DocumentPosition::new(line.block_index, line.char_start + effective_offset)
+    }
+
+    /// Whether the block at `block_index` is a (read-only) table.
+    fn block_is_table(&self, block_index: usize) -> bool {
+        matches!(
+            self.editor
+                .document()
+                .blocks()
+                .get(block_index)
+                .map(|b| &b.block_type),
+            Some(BlockType::Table { .. })
+        )
+    }
+
+    /// Resolve the cursor position for a vertical move that landed on
+    /// `target_idx`. A table is a single stop, so landing on any of its lines
+    /// places the cursor at the table's start; other blocks honor the preferred
+    /// (sticky) column.
+    fn vertical_target_pos(&self, target_idx: usize) -> DocumentPosition {
+        let line = &self.layout_lines[target_idx];
+        if self.block_is_table(line.block_index) {
+            DocumentPosition::new(line.block_index, 0)
+        } else {
+            self.get_preferred_pos_for_line(line)
+        }
     }
 
     /// Move cursor one visual line up, using wrapped lines when applicable.
@@ -463,7 +707,6 @@ impl StructuredRichDisplay {
             return;
         }
 
-        let _cursor = self.editor.cursor();
         let cur_idx = match self.current_line_index_for_cursor() {
             Some(i) => i,
             None => {
@@ -479,9 +722,24 @@ impl StructuredRichDisplay {
             // Already at the first line
             return;
         }
-        let target_line = &self.layout_lines[cur_idx - 1];
 
-        let new_pos = self.get_preferred_pos_for_line(target_line);
+        // Treat a table as a single stop: skip up over all of its lines to the
+        // line directly above it.
+        let cur_block = self.layout_lines[cur_idx].block_index;
+        let target_idx = if self.block_is_table(cur_block) {
+            let mut first = cur_idx;
+            while first > 0 && self.layout_lines[first - 1].block_index == cur_block {
+                first -= 1;
+            }
+            if first == 0 {
+                return; // table is the first block; nothing above
+            }
+            first - 1
+        } else {
+            cur_idx - 1
+        };
+
+        let new_pos = self.vertical_target_pos(target_idx);
         if extend {
             self.editor.extend_selection_to(new_pos);
         } else {
@@ -502,7 +760,6 @@ impl StructuredRichDisplay {
             return;
         }
 
-        let _cursor = self.editor.cursor();
         let cur_idx = match self.current_line_index_for_cursor() {
             Some(i) => i,
             None => {
@@ -514,12 +771,27 @@ impl StructuredRichDisplay {
                 return;
             }
         };
-        if cur_idx + 1 >= self.layout_lines.len() {
-            // Already at the last line
+
+        let len = self.layout_lines.len();
+        // Treat a table as a single stop: skip down over all of its lines to the
+        // first line below it.
+        let cur_block = self.layout_lines[cur_idx].block_index;
+        let target_idx = if self.block_is_table(cur_block) {
+            let mut t = cur_idx + 1;
+            while t < len && self.layout_lines[t].block_index == cur_block {
+                t += 1;
+            }
+            t
+        } else {
+            cur_idx + 1
+        };
+
+        if target_idx >= len {
+            // Already at (or past) the last line
             return;
         }
-        let target_line = &self.layout_lines[cur_idx + 1];
-        let new_pos = self.get_preferred_pos_for_line(target_line);
+
+        let new_pos = self.vertical_target_pos(target_idx);
         if extend {
             self.editor.extend_selection_to(new_pos);
         } else {
@@ -885,6 +1157,7 @@ impl StructuredRichDisplay {
                     content_start_x,
                     width - (content_start_x - start_x),
                     default_line_height,
+                    false,
                     ctx,
                 );
                 let (mut content_runs, content_ranges, content_wraps, _y_after) = (
@@ -966,7 +1239,149 @@ impl StructuredRichDisplay {
 
                 current_y + 2
             }
+            BlockType::Table { rows } => self.layout_table(block_idx, rows, y, start_x, width, ctx),
         }
+    }
+
+    /// Lay out a read-only table: compute column widths, wrap each cell, and
+    /// emit one `LayoutLine` per physical text line plus a `TableLayout` holding
+    /// the grid geometry for `draw`. Modeled on the tdoc CLI's bordered grid.
+    fn layout_table(
+        &mut self,
+        block_idx: usize,
+        rows: &[TableRow],
+        y: i32,
+        start_x: i32,
+        width: i32,
+        ctx: &mut dyn DrawContext,
+    ) -> i32 {
+        const BORDER: i32 = 1;
+        const PAD_H: i32 = 6; // horizontal padding inside each cell
+        const PAD_V: i32 = 3; // vertical padding inside each row
+        let line_height = self.theme.line_height;
+
+        let column_count = rows.iter().map(|r| r.cells.len()).max().unwrap_or(0);
+        if rows.is_empty() || column_count == 0 {
+            return y;
+        }
+
+        // Natural (single-line) content width per column, measured with the
+        // cell's font (header cells are bold and thus a touch wider).
+        let plain = self.theme.plain_text;
+        let mut natural = vec![0i32; column_count];
+        for row in rows {
+            for (col, cell) in row.cells.iter().enumerate() {
+                let style = if cell.is_header {
+                    FontStyle::Bold
+                } else {
+                    plain.font_style
+                };
+                let text = cell.to_plain_text().replace('\n', " ");
+                let w = ctx.text_width(&text, plain.font_type, style, plain.font_size) as i32;
+                natural[col] = natural[col].max(w);
+            }
+        }
+
+        // Fit the columns into the available width. Each column needs PAD_H on
+        // both sides; vertical borders add BORDER around/between columns.
+        let cols = column_count as i32;
+        let structural = (cols + 1) * BORDER + cols * 2 * PAD_H;
+        let min_col = (plain.font_size as i32).max(8); // keep ~1 char visible
+        let budget = (width - structural).max(cols * min_col);
+        let total_natural: i32 = natural.iter().sum();
+
+        let mut col_width = vec![0i32; column_count];
+        if total_natural <= budget || total_natural == 0 {
+            col_width.copy_from_slice(&natural);
+        } else {
+            // Shrink proportionally to fit, never below min_col.
+            for (c, &nat) in natural.iter().enumerate() {
+                let scaled = (nat as i64 * budget as i64 / total_natural as i64) as i32;
+                col_width[c] = scaled.max(min_col);
+            }
+        }
+
+        // Vertical grid-line positions: a border sits at each col_x; the cell
+        // interior between consecutive lines is PAD_H + content + PAD_H.
+        let mut col_x = vec![0i32; column_count + 1];
+        col_x[0] = start_x;
+        for c in 0..column_count {
+            col_x[c + 1] = col_x[c] + BORDER + PAD_H + col_width[c] + PAD_H;
+        }
+
+        let mut row_y = Vec::with_capacity(rows.len() + 1);
+        let mut current_y = y;
+
+        for row in rows {
+            row_y.push(current_y);
+
+            // Wrap each cell to its column width, capturing its visual lines.
+            let mut cell_lines: Vec<Vec<Vec<VisualRun>>> = Vec::with_capacity(column_count);
+            for col in 0..column_count {
+                let lines = match row.cells.get(col) {
+                    Some(cell) if !cell.content.is_empty() => {
+                        let content = if cell.is_header {
+                            bolden_inline(&cell.content)
+                        } else {
+                            cell.content.clone()
+                        };
+                        let cell_x = col_x[col] + BORDER + PAD_H;
+                        self.layout_inline_content(
+                            &content,
+                            &BlockType::Paragraph,
+                            block_idx,
+                            0,
+                            cell_x,
+                            col_width[col],
+                            line_height,
+                            // Force-break tokens too wide for the column so cell
+                            // content can't bleed into the next column.
+                            true,
+                            ctx,
+                        )
+                        .lines
+                    }
+                    _ => Vec::new(),
+                };
+                cell_lines.push(lines);
+            }
+
+            let row_line_count = cell_lines.iter().map(Vec::len).max().unwrap_or(0).max(1);
+
+            // One LayoutLine per physical text line, gathering the matching
+            // wrapped line from every cell so the shared draw loop renders them.
+            let content_top = current_y + BORDER + PAD_V;
+            for li in 0..row_line_count {
+                let mut runs: Vec<VisualRun> = Vec::new();
+                for cell in &cell_lines {
+                    if let Some(line) = cell.get(li) {
+                        runs.extend(line.iter().cloned());
+                    }
+                }
+                self.layout_lines.push(LayoutLine {
+                    y: content_top + li as i32 * line_height,
+                    height: line_height,
+                    base_x: start_x,
+                    block_index: block_idx,
+                    char_start: 0,
+                    char_end: 0,
+                    visual_char_end: 0,
+                    runs,
+                });
+            }
+
+            current_y = content_top + row_line_count as i32 * line_height + PAD_V;
+        }
+
+        row_y.push(current_y); // bottom border
+
+        self.table_layouts.push(TableLayout {
+            block_index: block_idx,
+            col_x,
+            row_y,
+        });
+
+        current_y + BORDER + 10
     }
 
     /// Layout an inline block (paragraph, heading, etc.)
@@ -989,6 +1404,7 @@ impl StructuredRichDisplay {
             start_x,
             width,
             line_height,
+            false,
             ctx,
         );
         let (lines, line_ranges, line_wraps, _y_after) = (
@@ -1107,6 +1523,7 @@ impl StructuredRichDisplay {
         start_x: i32,
         width: i32,
         line_height: i32,
+        break_long_words: bool,
         ctx: &mut dyn DrawContext,
     ) -> InlineContentLayout {
         let mut lines: Vec<Vec<VisualRun>> = Vec::new();
@@ -1126,26 +1543,6 @@ impl StructuredRichDisplay {
             BlockType::BlockQuote => self.theme.quote_text,
             BlockType::CodeBlock { .. } => self.theme.code_text,
             _ => self.theme.plain_text,
-        };
-
-        let push_line = |lines: &mut Vec<Vec<VisualRun>>,
-                         ranges: &mut Vec<(usize, usize)>,
-                         wraps: &mut Vec<bool>,
-                         current_line: &mut Vec<VisualRun>,
-                         default_offset: usize,
-                         wrapped: bool| {
-            let (start, end) = if let Some(first) = current_line.first() {
-                let last_end = current_line
-                    .last()
-                    .map(|r| r.char_range.1)
-                    .unwrap_or(first.char_range.1);
-                (first.char_range.0, last_end)
-            } else {
-                (default_offset, default_offset)
-            };
-            ranges.push((start, end));
-            wraps.push(wrapped);
-            lines.push(std::mem::take(current_line));
         };
 
         let mut pending_empty_line = false;
@@ -1224,40 +1621,24 @@ impl StructuredRichDisplay {
                             }
 
                             let word_text = &text[word_start..word_end];
-                            let word_width = ctx.text_width(word_text, font, fstyle, size) as i32;
-
-                            if current_x + word_width > start_x + width && current_x > start_x {
-                                // Wrap to next line
-                                push_line(
-                                    &mut lines,
-                                    &mut line_ranges,
-                                    &mut line_wraps,
-                                    &mut current_line,
-                                    char_offset,
-                                    true,
-                                );
-                                current_x = start_x;
-                                current_y += line_height;
-                            }
-
-                            current_line.push(VisualRun {
-                                text: word_text.to_string(),
-                                x: current_x,
-                                width: word_width,
-                                font_type: style.font_type,
-                                font_style: style.font_style,
-                                font_size: style.font_size,
-                                font_color: style.font_color,
-                                background_color: style.background_color,
-                                underline: style.underline,
-                                strikethrough: style.strikethrough,
-                                block_index: block_idx,
-                                char_range: (char_offset + word_start, char_offset + word_end),
-                                inline_index: Some(inline_idx),
-                                checklist: None,
-                            });
-
-                            current_x += word_width;
+                            push_token_wrapped(
+                                ctx,
+                                &mut lines,
+                                &mut line_ranges,
+                                &mut line_wraps,
+                                &mut current_line,
+                                &mut current_x,
+                                &mut current_y,
+                                start_x,
+                                width,
+                                line_height,
+                                break_long_words,
+                                word_text,
+                                char_offset + word_start,
+                                inline_idx,
+                                block_idx,
+                                style,
+                            );
                             in_word = false;
                         } else if !in_word && !is_whitespace {
                             // Start of new word
@@ -1280,41 +1661,24 @@ impl StructuredRichDisplay {
                         .map(|c| c.to_plain_text())
                         .collect::<String>();
 
-                    let text_width =
-                        ctx.text_width(&text, style.font_type, style.font_style, style.font_size)
-                            as i32;
-
-                    if current_x + text_width > start_x + width && current_x > start_x {
-                        push_line(
-                            &mut lines,
-                            &mut line_ranges,
-                            &mut line_wraps,
-                            &mut current_line,
-                            char_offset,
-                            true,
-                        );
-                        current_x = start_x;
-                        current_y += line_height;
-                    }
-
-                    current_line.push(VisualRun {
-                        text: text.clone(),
-                        x: current_x,
-                        width: text_width,
-                        font_type: style.font_type,
-                        font_style: style.font_style,
-                        font_size: style.font_size,
-                        font_color: style.font_color,
-                        background_color: style.background_color,
-                        underline: style.underline,
-                        strikethrough: style.strikethrough,
-                        block_index: block_idx,
-                        char_range: (char_offset, char_offset + text.len()),
-                        inline_index: Some(inline_idx),
-                        checklist: None,
-                    });
-
-                    current_x += text_width;
+                    push_token_wrapped(
+                        ctx,
+                        &mut lines,
+                        &mut line_ranges,
+                        &mut line_wraps,
+                        &mut current_line,
+                        &mut current_x,
+                        &mut current_y,
+                        start_x,
+                        width,
+                        line_height,
+                        break_long_words,
+                        &text,
+                        char_offset,
+                        inline_idx,
+                        block_idx,
+                        style,
+                    );
                     char_offset += text.len();
                 }
                 InlineContent::HardBreak => {
@@ -1417,6 +1781,61 @@ impl StructuredRichDisplay {
         Some((start_in_run, end_in_run))
     }
 
+    /// Draw the grid lines and header-cell backgrounds for every table block.
+    /// Cell text itself is drawn by the normal `LayoutLine` run loop; this only
+    /// paints the structural decoration around it.
+    fn draw_tables(&self, ctx: &mut dyn DrawContext) {
+        let viewport_top = self.scroll_offset;
+        let viewport_bottom = self.scroll_offset + self.h;
+        let blocks = self.editor.document().blocks();
+
+        for table in &self.table_layouts {
+            let (top, bottom) = match (table.row_y.first(), table.row_y.last()) {
+                (Some(&t), Some(&b)) => (t, b),
+                _ => continue,
+            };
+            // Skip tables entirely outside the viewport.
+            if bottom < viewport_top || top > viewport_bottom {
+                continue;
+            }
+            let left = *table.col_x.first().unwrap();
+            let right = *table.col_x.last().unwrap();
+
+            let sx = self.x;
+            let sy = self.y - self.scroll_offset;
+
+            // Header-cell backgrounds, drawn first so text and grid sit on top.
+            if let Some(BlockType::Table { rows }) =
+                blocks.get(table.block_index).map(|b| &b.block_type)
+            {
+                ctx.set_color(self.theme.table_header_background);
+                for (r, row) in rows.iter().enumerate() {
+                    if r + 1 >= table.row_y.len() {
+                        break;
+                    }
+                    let cell_top = sy + table.row_y[r];
+                    let cell_h = table.row_y[r + 1] - table.row_y[r];
+                    for (c, cell) in row.cells.iter().enumerate() {
+                        if cell.is_header && c + 1 < table.col_x.len() {
+                            let cx = sx + table.col_x[c];
+                            let cw = table.col_x[c + 1] - table.col_x[c];
+                            ctx.draw_rect_filled(cx, cell_top, cw, cell_h);
+                        }
+                    }
+                }
+            }
+
+            // Grid lines.
+            ctx.set_color(self.theme.table_border_color);
+            for &x in &table.col_x {
+                ctx.draw_line(sx + x, sy + top, sx + x, sy + bottom);
+            }
+            for &yv in &table.row_y {
+                ctx.draw_line(sx + left, sy + yv, sx + right, sy + yv);
+            }
+        }
+    }
+
     /// Draw the widget
     pub fn draw(&mut self, ctx: &mut dyn DrawContext) {
         self.layout(ctx);
@@ -1431,6 +1850,9 @@ impl StructuredRichDisplay {
         // Draw visible lines
         let viewport_top = self.scroll_offset;
         let viewport_bottom = self.scroll_offset + self.h;
+
+        // Table grid lines and header fills sit behind the cell text.
+        self.draw_tables(ctx);
 
         for line in &self.layout_lines {
             if line.y + line.height < viewport_top || line.y > viewport_bottom {
@@ -2122,7 +2544,8 @@ mod tests {
     use super::*;
     use crate::draw_context::{FontStyle, FontType};
     use crate::richtext::structured_document::{
-        Block, BlockType, DocumentPosition, InlineContent, StructuredDocument, TextRun,
+        Block, BlockType, DocumentPosition, InlineContent, StructuredDocument, TableCell, TableRow,
+        TextRun,
     };
 
     #[derive(Default)]
@@ -2199,6 +2622,63 @@ mod tests {
             editor.set_cursor(DocumentPosition::new(0, 0));
         }
         display
+    }
+
+    fn make_display_with_blocks(blocks: Vec<Block>) -> StructuredRichDisplay {
+        let mut display = StructuredRichDisplay::new(0, 0, 400, 300);
+        {
+            let editor = display.editor_mut();
+            let mut doc = StructuredDocument::new();
+            for b in blocks {
+                doc.add_block(b);
+            }
+            *editor.document_mut() = doc;
+            editor.set_cursor(DocumentPosition::new(0, 0));
+        }
+        display
+    }
+
+    fn table_block(rows: usize) -> Block {
+        let rows = (0..rows)
+            .map(|r| {
+                TableRow::new(vec![TableCell::new(
+                    false,
+                    vec![InlineContent::Text(TextRun::plain(format!("r{r}")))],
+                )])
+            })
+            .collect();
+        Block::table(rows)
+    }
+
+    #[test]
+    fn vertical_nav_treats_table_as_single_stop() {
+        // A multi-row table produces several layout lines; Up/Down must treat
+        // the whole table as one stop instead of stepping through each line.
+        let mut ctx = TestDrawContext::new_with_focus();
+        let mut display = make_display_with_blocks(vec![
+            Block::paragraph().with_plain_text("one"),
+            table_block(3),
+            Block::paragraph().with_plain_text("two"),
+        ]);
+        // Force layout so the table contributes multiple layout lines.
+        display.draw(&mut ctx);
+        assert_eq!(display.editor().cursor().block_index, 0);
+
+        // Down: land on the table once.
+        display.move_cursor_visual_down(false, &mut ctx);
+        assert_eq!(display.editor().cursor().block_index, 1);
+
+        // Down again: skip the entire table to the paragraph below it.
+        display.move_cursor_visual_down(false, &mut ctx);
+        assert_eq!(display.editor().cursor().block_index, 2);
+
+        // Up: back onto the table once.
+        display.move_cursor_visual_up(false, &mut ctx);
+        assert_eq!(display.editor().cursor().block_index, 1);
+
+        // Up again: skip the entire table to the first paragraph.
+        display.move_cursor_visual_up(false, &mut ctx);
+        assert_eq!(display.editor().cursor().block_index, 0);
     }
 
     #[test]
