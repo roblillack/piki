@@ -6,6 +6,16 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+# Build/bundling assets that aren't compiled into the crate. icon.svg and
+# icon-512.png are intentionally NOT excluded — they are embedded via
+# include_str!/include_bytes! and must ship in the published crate.
+exclude = [
+    "assets/piki.icns",
+    "assets/logo.svg",
+    "assets/macos",
+    "scripts",
+]
+
 [dependencies]
 piki-core = { version = "0.3.0", path = "../core" }
 fltk = { version = "1.5.20", features = ["use-wayland"] }

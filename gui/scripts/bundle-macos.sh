@@ -3,7 +3,7 @@
 # Assemble Piki.app from a built piki-gui binary.
 #
 # Usage:
-#   scripts/bundle-macos.sh [path-to-piki-gui-binary] [output-dir]
+#   gui/scripts/bundle-macos.sh [path-to-piki-gui-binary] [output-dir]
 #
 # Defaults:
 #   binary     target/release/piki-gui
@@ -14,7 +14,8 @@
 #
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+# Run from the workspace root (this script lives in gui/scripts/).
+cd "$(dirname "$0")/../.."
 
 BIN="${1:-target/release/piki-gui}"
 OUT_DIR="${2:-target/macos}"
@@ -26,8 +27,8 @@ if [[ ! -f "$BIN" ]]; then
   exit 1
 fi
 
-if [[ ! -f assets/piki.icns ]]; then
-  echo "error: assets/piki.icns not found; run scripts/gen-icons.sh first" >&2
+if [[ ! -f gui/assets/piki.icns ]]; then
+  echo "error: gui/assets/piki.icns not found; run gui/scripts/gen-icons.sh first" >&2
   exit 1
 fi
 
@@ -39,7 +40,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp "$BIN" "$APP/Contents/MacOS/piki-gui"
 chmod +x "$APP/Contents/MacOS/piki-gui"
-cp assets/piki.icns "$APP/Contents/Resources/piki.icns"
-sed "s/__VERSION__/$VERSION/g" assets/macos/Info.plist > "$APP/Contents/Info.plist"
+cp gui/assets/piki.icns "$APP/Contents/Resources/piki.icns"
+sed "s/__VERSION__/$VERSION/g" gui/assets/macos/Info.plist > "$APP/Contents/Info.plist"
 
 echo "Created $APP (version $VERSION)"

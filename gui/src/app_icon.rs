@@ -8,7 +8,7 @@
 use fltk::window::Window;
 
 #[cfg(not(target_os = "macos"))]
-const ICON_SVG: &str = include_str!("../../assets/icon.svg");
+const ICON_SVG: &str = include_str!("../assets/icon.svg");
 
 /// Set the window icon (used for the title bar and taskbar on Linux/Windows).
 #[cfg(not(target_os = "macos"))]
@@ -89,7 +89,7 @@ pub fn set_macos_dock_icon() {
     use objc2_app_kit::{NSApplication, NSImage};
     use objc2_foundation::NSData;
 
-    const ICON_PNG: &[u8] = include_bytes!("../../assets/icon-512.png");
+    const ICON_PNG: &[u8] = include_bytes!("../assets/icon-512.png");
 
     let Some(mtm) = MainThreadMarker::new() else {
         return;
@@ -141,7 +141,7 @@ fn show_about_panel() {
         NSMutableDictionary, NSString, NSURL,
     };
 
-    const ICON_PNG: &[u8] = include_bytes!("../../assets/icon-512.png");
+    const ICON_PNG: &[u8] = include_bytes!("../assets/icon-512.png");
     const APP_NAME: &str = "Piki";
     const VERSION: &str = env!("CARGO_PKG_VERSION");
     const DESCRIPTION: &str = "A personal wiki system for your Markdown files";

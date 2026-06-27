@@ -181,7 +181,7 @@ jobs:
       - name: Bundle macOS .app
         if: matrix.platform.name == 'macOS'
         run: |
-          bash scripts/bundle-macos.sh \
+          bash gui/scripts/bundle-macos.sh \
             target/${{ matrix.platform.target }}/release/piki-gui \
             target/macos
           ditto -c -k --keepParent target/macos/Piki.app \
