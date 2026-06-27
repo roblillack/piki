@@ -82,6 +82,40 @@ impl AppState {
         }
     }
 }
+/// Flush any pending changes of the currently open page to disk immediately.
+///
+/// This is the "save when walking away" safeguard: it runs before navigating to
+/// another page (links, history, page picker, new page) and when the window is
+/// closing, so edits are never lost to the debounced autosave timer. Saving is a
+/// no-op when the content is unchanged or the page is a read-only plugin page
+/// (handled inside `AutoSaveState::trigger_save`).
+fn save_current_page(
+    app_state: &Rc<RefCell<AppState>>,
+    autosave_state: &Rc<RefCell<AutoSaveState>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    statusbar: &Rc<RefCell<StatusBar>>,
+) {
+    if let (Ok(ed_ptr), Ok(mut as_state), Ok(app_st)) = (
+        active_editor.try_borrow(),
+        autosave_state.try_borrow_mut(),
+        app_state.try_borrow(),
+    ) {
+        let ed_ref = (*ed_ptr).borrow();
+        match as_state.trigger_save(&*ed_ref, &app_st.store) {
+            Ok(()) => {
+                if let Ok(mut sb) = statusbar.try_borrow_mut() {
+                    sb.set_status(&as_state.get_status_text());
+                }
+            }
+            Err(e) => {
+                if let Ok(mut sb) = statusbar.try_borrow_mut() {
+                    sb.set_status(&format!("Error: {}", e));
+                }
+            }
+        }
+    }
+}
+
 fn load_page_helper(
     page_name: &str,
     app_state: &Rc<RefCell<AppState>>,
@@ -90,6 +124,10 @@ fn load_page_helper(
     statusbar: &Rc<RefCell<StatusBar>>,
     restore_scroll: Option<i32>,
 ) {
+    // Save the page we're leaving before its content is replaced below, so
+    // switching pages (or creating a new one) never drops unsaved edits.
+    save_current_page(app_state, autosave_state, active_editor, statusbar);
+
     // If we're not restoring from history, update the scroll position of the current history entry
     if restore_scroll.is_none() {
         let scroll_pos = active_editor.borrow().borrow().scroll_pos();
@@ -538,6 +576,8 @@ fn main() {
         let search_bar_for_resize = search_bar.clone();
         let active_editor_for_resize = active_editor.clone();
         let statusbar_for_resize = statusbar.clone();
+        let app_state_for_close = app_state.clone();
+        let autosave_for_close = autosave_state.clone();
 
         wind.handle(move |win, event| match event {
             enums::Event::Move | enums::Event::Resize => {
@@ -628,6 +668,13 @@ fn main() {
                 false
             }
             enums::Event::Close => {
+                // Flush the open note before the window goes away.
+                save_current_page(
+                    &app_state_for_close,
+                    &autosave_for_close,
+                    &active_editor_for_resize,
+                    &statusbar_for_resize,
+                );
                 if let Some(handle) = {
                     let mut slot = pending.borrow_mut();
                     slot.take()
