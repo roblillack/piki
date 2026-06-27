@@ -1605,6 +1605,8 @@ impl StructuredEditor {
             BlockType::ListItem { .. } => BlockType::Heading { level: 1 },
             BlockType::CodeBlock { .. } => BlockType::Heading { level: 1 },
             BlockType::BlockQuote => BlockType::Heading { level: 1 },
+            // Tables are read-only; leave them unchanged.
+            BlockType::Table { .. } => return Ok(()),
         };
 
         Ok(())
@@ -2106,6 +2108,8 @@ impl StructuredEditor {
                 number: None,
                 checkbox: None,
             },
+            // Tables are read-only; leave them unchanged.
+            BlockType::Table { .. } => return Ok(()),
         };
 
         self.trigger_paragraph_change();
@@ -2160,6 +2164,8 @@ impl StructuredEditor {
         };
 
         match current_type {
+            // Tables are read-only; list/checklist toggles don't apply.
+            BlockType::Table { .. } => Ok(()),
             BlockType::ListItem { ordered: true, .. } => {
                 // Convert contiguous ordered run to checklist items
                 let (start, end) = {
@@ -2398,6 +2404,8 @@ impl StructuredEditor {
         };
 
         match current_type {
+            // Tables are read-only; list/checklist toggles don't apply.
+            BlockType::Table { .. } => Ok(()),
             BlockType::ListItem { ordered: true, .. } => {
                 // We are inside an ordered run. Capture run bounds first.
                 let (_run_start, run_end, _first_num) = {
@@ -2702,6 +2710,8 @@ impl StructuredEditor {
                         }
                     }
                 }
+                // Tables can't be produced via this API; preserve as-is.
+                BlockType::Table { rows } => BlockType::Table { rows: rows.clone() },
             })
             .collect();
 

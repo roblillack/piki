@@ -149,28 +149,47 @@ mod tests {
     }
 
     #[test]
-    fn test_markdown_table_degrades_to_paragraphs() {
-        // The structured editor has no table block, so tdoc tables are degraded
-        // to one paragraph per row with cells joined by " | " (no data lost).
+    fn test_markdown_table_parses_to_table_block() {
+        // A markdown table parses into a single Table block whose rows/cells
+        // mirror the source, with the first row's cells flagged as headers.
         let md = "| A | B |\n| --- | --- |\n| 1 | 2 |";
         let doc = markdown_to_document(md);
 
-        // Only assert on the degradation if tdoc actually parsed a table;
-        // otherwise the input round-trips as plain paragraphs, which is fine too.
-        let texts: Vec<String> = doc
-            .blocks()
-            .iter()
-            .map(|b| b.to_plain_text())
-            .filter(|t| !t.trim().is_empty())
-            .collect();
+        assert_eq!(doc.block_count(), 1, "expected a single table block");
+        let BlockType::Table { rows } = &doc.blocks()[0].block_type else {
+            panic!(
+                "expected a Table block, got {:?}",
+                doc.blocks()[0].block_type
+            );
+        };
+
+        assert_eq!(rows.len(), 2, "header row + one body row");
+        assert_eq!(rows[0].cells.len(), 2);
+        assert!(
+            rows[0].cells.iter().all(|c| c.is_header),
+            "first row cells should be headers"
+        );
+        assert_eq!(rows[0].cells[0].to_plain_text().trim(), "A");
+        assert_eq!(rows[0].cells[1].to_plain_text().trim(), "B");
 
         assert!(
-            texts.iter().any(|t| t.contains("A | B")),
-            "header row should be pipe-joined, got: {texts:?}"
+            rows[1].cells.iter().all(|c| !c.is_header),
+            "body row cells should not be headers"
         );
-        assert!(
-            texts.iter().any(|t| t.contains("1 | 2")),
-            "body row should be pipe-joined, got: {texts:?}"
+        assert_eq!(rows[1].cells[0].to_plain_text().trim(), "1");
+        assert_eq!(rows[1].cells[1].to_plain_text().trim(), "2");
+    }
+
+    #[test]
+    fn test_table_round_trips_through_markdown() {
+        // A table survives a structured -> markdown -> structured round trip.
+        let md = "| Name | Qty |\n| --- | --- |\n| Apples | 3 |\n| Pears | 12 |";
+        let doc = markdown_to_document(md);
+        let rendered = document_to_markdown(&doc);
+        let reparsed = markdown_to_document(&rendered);
+        assert_eq!(
+            doc, reparsed,
+            "table should be stable across a markdown round trip; rendered:\n{rendered}"
         );
     }
 

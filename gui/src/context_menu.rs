@@ -189,6 +189,8 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         } else {
             "Paragraph Style/List Item\t"
         }),
+        // Tables have no paragraph-style menu entry.
+        BlockType::Table { .. } => None,
     } && let Some(mut item) = menu.find_item(lbl)
     {
         item.set();

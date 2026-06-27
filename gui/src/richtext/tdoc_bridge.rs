@@ -1,9 +1,12 @@
 use super::structured_document::{
-    Block, BlockType, InlineContent, Link, StructuredDocument, TextRun, TextStyle,
+    Block, BlockType, InlineContent, Link, StructuredDocument, TableCell, TableRow, TextRun,
+    TextStyle,
 };
 use tdoc::Document as TdocDocument;
 use tdoc::inline::{InlineStyle, Span};
-use tdoc::paragraph::{ChecklistItem, Paragraph, TableRow};
+use tdoc::paragraph::{
+    ChecklistItem, Paragraph, TableCell as TdocTableCell, TableRow as TdocTableRow,
+};
 
 /// Convert a [`StructuredDocument`] into a [`tdoc::Document`].
 pub fn structured_to_tdoc(doc: &StructuredDocument) -> TdocDocument {
@@ -196,6 +199,21 @@ fn block_to_paragraph(block: &Block) -> Paragraph {
                 Paragraph::new_unordered_list().with_entries(vec![vec![item]])
             }
         }
+        BlockType::Table { rows } => Paragraph::Table {
+            rows: rows
+                .iter()
+                .map(|row| TdocTableRow {
+                    cells: row
+                        .cells
+                        .iter()
+                        .map(|cell| TdocTableCell {
+                            is_header: cell.is_header,
+                            content: inline_to_spans(&cell.content),
+                        })
+                        .collect(),
+                })
+                .collect(),
+        },
     }
 }
 
@@ -209,22 +227,21 @@ fn quote_from_inline(content: &[InlineContent]) -> Paragraph {
     }
 }
 
-/// The structured editor has no native table block, so a table is degraded to
-/// one paragraph per row with the cells joined by " | ". This keeps the cell
-/// text (and its inline styling) visible and editable rather than dropping it.
-fn append_table(structured: &mut StructuredDocument, rows: &[TableRow]) {
-    for row in rows {
-        let mut block = Block::paragraph();
-        for (idx, cell) in row.cells.iter().enumerate() {
-            if idx > 0 {
-                block
-                    .content
-                    .push(InlineContent::Text(TextRun::plain(" | ")));
-            }
-            block.content.extend(spans_to_inline(&cell.content));
-        }
-        structured.add_block(block);
-    }
+/// Convert a tdoc table into a structured [`BlockType::Table`] block,
+/// preserving each cell's inline content and header flag.
+fn append_table(structured: &mut StructuredDocument, rows: &[TdocTableRow]) {
+    let rows: Vec<TableRow> = rows
+        .iter()
+        .map(|row| {
+            TableRow::new(
+                row.cells
+                    .iter()
+                    .map(|cell| TableCell::new(cell.is_header, spans_to_inline(&cell.content)))
+                    .collect(),
+            )
+        })
+        .collect();
+    structured.add_block(Block::table(rows));
 }
 
 fn append_checklist_items(structured: &mut StructuredDocument, items: &[ChecklistItem]) {

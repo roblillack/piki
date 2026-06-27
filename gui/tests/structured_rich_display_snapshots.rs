@@ -87,6 +87,34 @@ fn cursor_positioning_middle_of_line() {
 }
 
 #[test]
+fn table_render() {
+    let md = "# Shopping\n\n\
+        | Item | Qty | Notes |\n\
+        | --- | --- | --- |\n\
+        | Apples | 3 | Granny Smith |\n\
+        | Whole-grain bread | 1 | from the corner bakery |\n\
+        | Coffee beans | 2 | dark roast |";
+    let svg = render_markdown_to_svg(md, 520, 260);
+    insta::assert_binary_snapshot!(".svg", svg);
+}
+
+#[test]
+fn table_force_wrap_long_tokens() {
+    // Narrow columns with long unbreakable tokens (inline code / link syntax)
+    // must force-wrap at character boundaries so a cell can't bleed into the
+    // next column. Reproduces the embed-syntax comparison table.
+    let md = "\
+        | Tool | Default embed syntax | Where files go | How the path resolves |\n\
+        | --- | --- | --- | --- |\n\
+        | Obsidian | `![[image.png]]` (wikilink-embed) | Configurable: vault root or a named folder | \"Shortest path\" by default |\n\
+        | Logseq | `![alt](../assets/image.png)` standard Markdown | `assets/` folder at graph root | Relative path |";
+    // Width is constrained so the four columns must shrink below their natural
+    // size — the case where long tokens previously bled into the next column.
+    let svg = render_markdown_to_svg(md, 520, 360);
+    insta::assert_binary_snapshot!(".svg", svg);
+}
+
+#[test]
 fn selection_across_blocks() {
     let md = "# Title\n\nParagraph one with content.\n\nParagraph two continues here.";
     let mut display = StructuredRichDisplay::new(0, 0, 640, 260);

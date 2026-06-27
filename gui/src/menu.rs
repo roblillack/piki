@@ -1135,6 +1135,8 @@ fn paragraph_label_for_block(block: &BlockType) -> Option<&'static str> {
                 Some(FORMAT_LIST_ITEM)
             }
         }
+        // Tables have no paragraph-style menu entry.
+        BlockType::Table { .. } => None,
     }
 }
 

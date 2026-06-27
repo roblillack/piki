@@ -17,6 +17,9 @@ pub struct Theme {
     pub quote_bar_color: u32,
     pub quote_bar_width: u32,
 
+    pub table_border_color: u32,
+    pub table_header_background: u32,
+
     pub link_color: u32,
     pub link_hover_background: u32,
     pub link_hover_color: u32,
@@ -46,6 +49,8 @@ impl Default for Theme {
             cursor_color: 0x000000FF,                   // Black cursor
             quote_bar_color: 0xCCCCCCFF,                // Light gray quote bar
             quote_bar_width: 4,                         // Width of the quote bar
+            table_border_color: 0xBBBBBBFF,             // Gray table grid lines
+            table_header_background: 0xEEEEE5FF,        // Subtle header row fill
             link_color: 0x0000EEFF,                     // Standard blue link color
             link_hover_background: 0xDDDDDDFF,          // Light gray hover background
             link_hover_color: 0x0000AAFF,               // Darker blue link color
