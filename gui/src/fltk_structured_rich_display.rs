@@ -1744,6 +1744,23 @@ impl FltkStructuredRichDisplay {
                                             did_horizontal = true;
                                             handled = true;
                                         }
+                                        Key::Tab => {
+                                            // Tab/Shift-Tab indent/outdent within a list.
+                                            if matches!(
+                                                disp.editor().current_block_type(),
+                                                BlockType::ListItem { .. }
+                                            ) {
+                                                if shift_held {
+                                                    disp.editor_mut().outdent_list_item().ok();
+                                                } else {
+                                                    disp.editor_mut().indent_list_item().ok();
+                                                }
+                                                if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                                    (cb)();
+                                                }
+                                                handled = true;
+                                            }
+                                        }
                                         Key::Enter => {
                                             let alt_pressed = state.contains(Shortcut::Alt);
                                             let ctrl_pressed = state.contains(Shortcut::Ctrl);

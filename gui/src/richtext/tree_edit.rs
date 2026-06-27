@@ -253,6 +253,326 @@ pub fn remove_node_at(doc: &mut Document, path: &TreePath) {
     }
 }
 
+fn list_ordered(p: &Paragraph) -> Option<bool> {
+    match p {
+        Paragraph::OrderedList { .. } => Some(true),
+        Paragraph::UnorderedList { .. } => Some(false),
+        _ => None,
+    }
+}
+
+fn new_list(ordered: bool, entries: Vec<Vec<Paragraph>>) -> Paragraph {
+    if ordered {
+        Paragraph::new_ordered_list().with_entries(entries)
+    } else {
+        Paragraph::new_unordered_list().with_entries(entries)
+    }
+}
+
+/// The path of the `idx`-th sibling in the container that holds the node at `node_path`.
+fn container_child_path(node_path: &TreePath, idx: usize) -> TreePath {
+    match node_path.0.last() {
+        Some(PathSegment::QuoteChild(_)) => {
+            parent_path(node_path).child(PathSegment::QuoteChild(idx))
+        }
+        _ => TreePath::root(idx),
+    }
+}
+
+/// Replace the single node at `node_path` with `replacement` in its container (top-level
+/// paragraphs or a quote's children). Returns the base index of the replacement.
+fn container_splice(
+    doc: &mut Document,
+    node_path: &TreePath,
+    replacement: Vec<Paragraph>,
+) -> Option<usize> {
+    let last = node_path.0.last()?.clone();
+    match last {
+        PathSegment::Paragraph(i) => {
+            if i >= doc.paragraphs.len() {
+                return None;
+            }
+            doc.paragraphs.splice(i..=i, replacement);
+            Some(i)
+        }
+        PathSegment::QuoteChild(c) => match node_at_mut(doc, &parent_path(node_path))? {
+            NodeMut::Para(Paragraph::Quote { children }) => {
+                if c >= children.len() {
+                    return None;
+                }
+                children.splice(c..=c, replacement);
+                Some(c)
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Indent the list/checklist item at `path` beneath its previous sibling (nesting it in a
+/// same-kind sublist). Returns the item's new path, or `None` for the first item / a
+/// non-list-item leaf.
+pub fn indent_list_item(doc: &mut Document, path: &TreePath) -> Option<TreePath> {
+    let last = path.0.last()?.clone();
+    let pp = parent_path(path);
+    match last {
+        PathSegment::ListEntry { entry, para } => {
+            if entry == 0 {
+                return None;
+            }
+            let ordered = match node_at_mut(doc, &pp)? {
+                NodeMut::Para(p) => list_ordered(p)?,
+                _ => return None,
+            };
+            let moved = match node_at_mut(doc, &pp)? {
+                NodeMut::Para(
+                    Paragraph::OrderedList { entries } | Paragraph::UnorderedList { entries },
+                ) => {
+                    if entry >= entries.len() {
+                        return None;
+                    }
+                    entries.remove(entry)
+                }
+                _ => return None,
+            };
+            let prev = entry - 1;
+            let (sub_para, sub_entry) = match node_at_mut(doc, &pp)? {
+                NodeMut::Para(
+                    Paragraph::OrderedList { entries } | Paragraph::UnorderedList { entries },
+                ) => {
+                    let prev_entry = entries.get_mut(prev)?;
+                    let reuse =
+                        matches!(prev_entry.last(), Some(p) if list_ordered(p) == Some(ordered));
+                    if reuse {
+                        let pi = prev_entry.len() - 1;
+                        match prev_entry.get_mut(pi)? {
+                            Paragraph::OrderedList { entries: se }
+                            | Paragraph::UnorderedList { entries: se } => {
+                                se.push(moved);
+                                (pi, se.len() - 1)
+                            }
+                            _ => return None,
+                        }
+                    } else {
+                        prev_entry.push(new_list(ordered, vec![moved]));
+                        (prev_entry.len() - 1, 0)
+                    }
+                }
+                _ => return None,
+            };
+            Some(
+                pp.child(PathSegment::ListEntry {
+                    entry: prev,
+                    para: sub_para,
+                })
+                .child(PathSegment::ListEntry {
+                    entry: sub_entry,
+                    para,
+                }),
+            )
+        }
+        PathSegment::ChecklistItem(c) => {
+            if c == 0 {
+                return None;
+            }
+            let moved = match node_at_mut(doc, &pp)? {
+                NodeMut::Para(Paragraph::Checklist { items }) => {
+                    if c >= items.len() {
+                        return None;
+                    }
+                    items.remove(c)
+                }
+                NodeMut::Check(item) => {
+                    if c >= item.children.len() {
+                        return None;
+                    }
+                    item.children.remove(c)
+                }
+                _ => return None,
+            };
+            let child_idx = match node_at_mut(doc, &pp)? {
+                NodeMut::Para(Paragraph::Checklist { items }) => {
+                    let prev = items.get_mut(c - 1)?;
+                    prev.children.push(moved);
+                    prev.children.len() - 1
+                }
+                NodeMut::Check(item) => {
+                    let prev = item.children.get_mut(c - 1)?;
+                    prev.children.push(moved);
+                    prev.children.len() - 1
+                }
+                _ => return None,
+            };
+            Some(
+                pp.child(PathSegment::ChecklistItem(c - 1))
+                    .child(PathSegment::ChecklistItem(child_idx)),
+            )
+        }
+        _ => None,
+    }
+}
+
+/// Outdent the list/checklist item at `path` one level: into the parent list/checklist if
+/// nested, otherwise out of the list into its container (as a paragraph). Returns the new
+/// path, or `None` for a non-list-item leaf.
+pub fn outdent_list_item(doc: &mut Document, path: &TreePath) -> Option<TreePath> {
+    let last = path.0.last()?.clone();
+    let pp = parent_path(path);
+    match last {
+        PathSegment::ListEntry { entry, para } => match pp.0.last() {
+            Some(PathSegment::ListEntry {
+                entry: outer_e,
+                para: outer_para,
+            }) => {
+                let (outer_e, outer_para) = (*outer_e, *outer_para);
+                let ppp = parent_path(&pp);
+                let moved = match node_at_mut(doc, &pp)? {
+                    NodeMut::Para(
+                        Paragraph::OrderedList { entries } | Paragraph::UnorderedList { entries },
+                    ) => {
+                        if entry >= entries.len() {
+                            return None;
+                        }
+                        entries.remove(entry)
+                    }
+                    _ => return None,
+                };
+                let inner_empty = match node_at_mut(doc, &pp)? {
+                    NodeMut::Para(
+                        Paragraph::OrderedList { entries } | Paragraph::UnorderedList { entries },
+                    ) => entries.is_empty(),
+                    _ => false,
+                };
+                match node_at_mut(doc, &ppp)? {
+                    NodeMut::Para(
+                        Paragraph::OrderedList { entries } | Paragraph::UnorderedList { entries },
+                    ) => {
+                        if inner_empty
+                            && let Some(outer_entry) = entries.get_mut(outer_e)
+                            && outer_para < outer_entry.len()
+                        {
+                            outer_entry.remove(outer_para);
+                        }
+                        if outer_e < entries.len() {
+                            entries.insert(outer_e + 1, moved);
+                        }
+                    }
+                    _ => return None,
+                }
+                Some(ppp.child(PathSegment::ListEntry {
+                    entry: outer_e + 1,
+                    para,
+                }))
+            }
+            _ => exit_list_to_container(doc, &pp, entry, para),
+        },
+        PathSegment::ChecklistItem(c) => match pp.0.last() {
+            Some(PathSegment::ChecklistItem(parent_c)) => {
+                let parent_c = *parent_c;
+                let ppp = parent_path(&pp);
+                let moved = match node_at_mut(doc, &pp)? {
+                    NodeMut::Check(item) => {
+                        if c >= item.children.len() {
+                            return None;
+                        }
+                        item.children.remove(c)
+                    }
+                    _ => return None,
+                };
+                match node_at_mut(doc, &ppp)? {
+                    NodeMut::Para(Paragraph::Checklist { items }) => {
+                        items.insert(parent_c + 1, moved);
+                    }
+                    NodeMut::Check(item) => {
+                        item.children.insert(parent_c + 1, moved);
+                    }
+                    _ => return None,
+                }
+                Some(ppp.child(PathSegment::ChecklistItem(parent_c + 1)))
+            }
+            _ => exit_checklist_to_container(doc, &pp, c),
+        },
+        _ => None,
+    }
+}
+
+/// Split a top-level (or quote-child) list at `list_path`, lifting entry `entry` out as
+/// plain paragraph(s) in the list's container. Returns the path of the lifted leaf.
+fn exit_list_to_container(
+    doc: &mut Document,
+    list_path: &TreePath,
+    entry: usize,
+    para: usize,
+) -> Option<TreePath> {
+    let ordered = match node_at_mut(doc, list_path)? {
+        NodeMut::Para(p) => list_ordered(p)?,
+        _ => return None,
+    };
+    let entries = match node_at_mut(doc, list_path)? {
+        NodeMut::Para(
+            Paragraph::OrderedList { entries } | Paragraph::UnorderedList { entries },
+        ) => {
+            if entry >= entries.len() {
+                return None;
+            }
+            std::mem::take(entries)
+        }
+        _ => return None,
+    };
+    let mut before = entries;
+    let after = before.split_off(entry + 1);
+    let moved = before.pop()?; // the entry's paragraphs
+
+    let mut replacement: Vec<Paragraph> = Vec::new();
+    if !before.is_empty() {
+        replacement.push(new_list(ordered, before));
+    }
+    let moved_start = replacement.len();
+    replacement.extend(moved);
+    if !after.is_empty() {
+        replacement.push(new_list(ordered, after));
+    }
+
+    let base = container_splice(doc, list_path, replacement)?;
+    Some(container_child_path(list_path, base + moved_start + para))
+}
+
+/// Lift a top-level checklist item out of the checklist as a plain paragraph.
+fn exit_checklist_to_container(
+    doc: &mut Document,
+    list_path: &TreePath,
+    c: usize,
+) -> Option<TreePath> {
+    let items = match node_at_mut(doc, list_path)? {
+        NodeMut::Para(Paragraph::Checklist { items }) => {
+            if c >= items.len() {
+                return None;
+            }
+            std::mem::take(items)
+        }
+        _ => return None,
+    };
+    let mut before = items;
+    let after = before.split_off(c + 1);
+    let moved = before.pop()?;
+
+    let mut replacement: Vec<Paragraph> = Vec::new();
+    if !before.is_empty() {
+        replacement.push(Paragraph::new_checklist().with_checklist_items(before));
+    }
+    let moved_start = replacement.len();
+    replacement.push(Paragraph::new_text().with_content(moved.content));
+    if !moved.children.is_empty() {
+        replacement.push(Paragraph::new_checklist().with_checklist_items(moved.children));
+    }
+    if !after.is_empty() {
+        replacement.push(Paragraph::new_checklist().with_checklist_items(after));
+    }
+
+    let base = container_splice(doc, list_path, replacement)?;
+    Some(container_child_path(list_path, base + moved_start))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

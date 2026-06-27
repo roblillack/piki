@@ -491,7 +491,11 @@ impl StructuredEditor {
         if self.is_table_leaf(&path) {
             return Ok(());
         }
-        // TODO(phase3): Enter on an empty list/checklist item outdents / exits the list.
+        // Enter on an empty list/checklist item outdents one level (and exits the list at
+        // the top level) rather than creating another empty item.
+        if self.cursor_is_list_item() && self.leaf_text_len(&path) == 0 {
+            return self.outdent_list_item();
+        }
         let offset = self.cursor.offset;
         if let Some(new_path) = tree_edit::split_leaf(&mut self.tdoc, &path, offset) {
             self.cursor = DocumentPosition::at(new_path, 0);
@@ -517,7 +521,10 @@ impl StructuredEditor {
             return Ok(());
         }
         if offset == 0 {
-            // TODO(phase3): outdent a nested list item before merging.
+            // Backspace at the start of a nested list item outdents it instead of merging.
+            if self.cursor_is_list_item() && self.cursor_list_depth() > 0 {
+                return self.outdent_list_item();
+            }
             if let Some((pos_path, pos_off)) = tree_edit::merge_with_previous(&mut self.tdoc, &path)
             {
                 self.cursor = DocumentPosition::at(pos_path, pos_off);
@@ -1496,12 +1503,46 @@ impl StructuredEditor {
         Ok(true)
     }
 
+    /// Nest the current list item beneath its previous sibling (Tab).
     pub fn indent_list_item(&mut self) -> EditResult {
-        Ok(()) // TODO(phase3)
+        let path = self.cursor.path.clone();
+        let offset = self.cursor.offset;
+        if let Some(new_path) = tree_edit::indent_list_item(&mut self.tdoc, &path) {
+            self.cursor = DocumentPosition::at(new_path, offset);
+            self.normalize_cursor();
+            self.trigger_paragraph_change();
+        }
+        Ok(())
     }
 
+    /// Move the current list item out one nesting level, or out of the list entirely
+    /// (Shift-Tab).
     pub fn outdent_list_item(&mut self) -> EditResult {
-        Ok(()) // TODO(phase3)
+        let path = self.cursor.path.clone();
+        let offset = self.cursor.offset;
+        if let Some(new_path) = tree_edit::outdent_list_item(&mut self.tdoc, &path) {
+            self.cursor = DocumentPosition::at(new_path, offset);
+            self.normalize_cursor();
+            self.trigger_paragraph_change();
+        }
+        Ok(())
+    }
+
+    /// Whether the cursor's leaf is a list/checklist item (for routing Tab/Backspace).
+    fn cursor_is_list_item(&self) -> bool {
+        matches!(
+            self.cursor.path.last(),
+            Some(PathSegment::ListEntry { .. } | PathSegment::ChecklistItem(_))
+        )
+    }
+
+    /// The list/checklist nesting depth of the cursor's leaf (0 = top-level item).
+    fn cursor_list_depth(&self) -> usize {
+        self.leaves()
+            .iter()
+            .find(|l| l.path == self.cursor.path)
+            .map(|l| l.depth)
+            .unwrap_or(0)
     }
 
     /// Insert a document fragment (e.g. from the clipboard) at the cursor. Splits the
@@ -1989,5 +2030,72 @@ mod tests {
         );
         editor.delete_selection().unwrap();
         assert_eq!(md(&editor), "helrld");
+    }
+
+    fn leaf_depths(editor: &StructuredEditor) -> Vec<usize> {
+        tree_walk::enumerate_leaves(editor.tdoc())
+            .iter()
+            .map(|l| l.depth)
+            .collect()
+    }
+
+    fn list_item_path(entry: usize) -> TreePath {
+        TreePath::root(0).child(PathSegment::ListEntry { entry, para: 0 })
+    }
+
+    #[test]
+    fn indent_nests_under_previous_sibling() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("- a\n- b");
+        editor.set_cursor(DocumentPosition::at(list_item_path(1), 0));
+        editor.indent_list_item().unwrap();
+        assert_eq!(leaf_depths(&editor), vec![0, 1]);
+        // The tree still round-trips through markdown.
+        let reparsed = markdown_to_document(&md(&editor));
+        assert_eq!(*editor.tdoc(), reparsed);
+    }
+
+    #[test]
+    fn indent_then_outdent_restores_flat_list() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("- a\n- b");
+        editor.set_cursor(DocumentPosition::at(list_item_path(1), 0));
+        editor.indent_list_item().unwrap();
+        assert_eq!(leaf_depths(&editor), vec![0, 1]);
+        editor.outdent_list_item().unwrap();
+        assert_eq!(leaf_depths(&editor), vec![0, 0]);
+        assert_eq!(md(&editor), "- a\n- b");
+    }
+
+    #[test]
+    fn outdent_top_level_item_exits_list() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("- only");
+        editor.set_cursor(DocumentPosition::at(list_item_path(0), 2));
+        editor.outdent_list_item().unwrap();
+        assert_eq!(md(&editor), "only");
+        assert!(matches!(editor.current_block_type(), BlockType::Paragraph));
+    }
+
+    #[test]
+    fn backspace_at_nested_item_start_outdents() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("- a\n- b");
+        editor.set_cursor(DocumentPosition::at(list_item_path(1), 0));
+        editor.indent_list_item().unwrap(); // b nested under a
+        assert_eq!(leaf_depths(&editor), vec![0, 1]);
+        // Cursor is on the nested item; Backspace at offset 0 outdents instead of merging.
+        editor.delete_backward().unwrap();
+        assert_eq!(leaf_depths(&editor), vec![0, 0]);
+    }
+
+    #[test]
+    fn enter_on_empty_top_item_exits_list() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("- a");
+        editor.set_cursor(DocumentPosition::at(list_item_path(0), 1));
+        editor.delete_backward().unwrap(); // delete "a" → empty item
+        editor.insert_newline().unwrap(); // empty item + Enter → exit to paragraph
+        assert!(matches!(editor.current_block_type(), BlockType::Paragraph));
     }
 }

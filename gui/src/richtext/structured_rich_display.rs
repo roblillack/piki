@@ -1059,12 +1059,13 @@ impl StructuredRichDisplay {
                 ordered,
                 number,
                 checkbox,
-                ..
+                depth,
             } => {
                 let plain_font = self.theme.plain_text;
 
-                // Base indent padding before label (keeps list labels off the edge)
-                let label_left_pad = plain_font.font_size as i32;
+                // Base indent before the label, plus one extra step per nesting level.
+                // (depth 0 keeps the original flat-list metrics.)
+                let label_left_pad = plain_font.font_size as i32 * (*depth as i32 + 1);
 
                 let mut checklist_visual: Option<ChecklistVisual> = None;
 
@@ -2726,6 +2727,39 @@ mod tests {
             })
             .collect();
         Block::table(rows)
+    }
+
+    #[test]
+    fn nested_list_item_is_more_indented() {
+        // A list item nested under another should lay out further to the right.
+        let inner = Paragraph::new_unordered_list().with_entries(vec![vec![
+            Paragraph::new_text().with_content(vec![tdoc::inline::Span::new_text("bbb")]),
+        ]]);
+        let outer = Paragraph::new_unordered_list().with_entries(vec![vec![
+            Paragraph::new_text().with_content(vec![tdoc::inline::Span::new_text("aaa")]),
+            inner,
+        ]]);
+        let doc = Document::new().with_paragraphs(vec![outer]);
+        let mut display = StructuredRichDisplay::new(0, 0, 400, 300);
+        display.editor_mut().set_tdoc(doc);
+        let mut ctx = TestDrawContext::new_with_focus();
+        display.layout(&mut ctx);
+
+        let x_of = |needle: &str| -> i32 {
+            display
+                .layout_lines
+                .iter()
+                .flat_map(|l| &l.runs)
+                .find(|r| r.text.contains(needle))
+                .map(|r| r.x)
+                .unwrap_or_else(|| panic!("no run containing {needle:?}"))
+        };
+        assert!(
+            x_of("bbb") > x_of("aaa"),
+            "nested item ({}) should be more indented than its parent ({})",
+            x_of("bbb"),
+            x_of("aaa")
+        );
     }
 
     #[test]
