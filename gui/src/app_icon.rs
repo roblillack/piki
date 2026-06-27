@@ -142,3 +142,126 @@ pub fn set_macos_dock_icon() {
 /// No-op on non-macOS platforms; the window icon set above is sufficient there.
 #[cfg(not(target_os = "macos"))]
 pub fn set_macos_dock_icon() {}
+
+/// Install a custom handler for the "About Piki" application-menu item on macOS.
+///
+/// FLTK's default about box shows the raw executable name and a stock "GUI with
+/// FLTK …" line with a generic icon. This replaces it with the standard macOS
+/// about panel, populated with the real application name, version, icon, a short
+/// description and a clickable link to the homepage. Safe to call before or
+/// after the system menu bar is created.
+#[cfg(target_os = "macos")]
+pub fn set_macos_about() {
+    fltk::menu::mac_set_about(show_about_panel);
+}
+
+/// No-op on non-macOS platforms (the system menu / about panel is macOS-only).
+#[cfg(not(target_os = "macos"))]
+pub fn set_macos_about() {}
+
+/// Open the standard macOS about panel with Piki's metadata.
+#[cfg(target_os = "macos")]
+fn show_about_panel() {
+    use objc::rc::autoreleasepool;
+    use objc::runtime::Object;
+    use objc::{class, msg_send, sel, sel_impl};
+    use std::ffi::CString;
+    use std::os::raw::c_void;
+
+    const ICON_PNG: &[u8] = include_bytes!("../../assets/icon-512.png");
+    const APP_NAME: &str = "Piki";
+    const VERSION: &str = env!("CARGO_PKG_VERSION");
+    const DESCRIPTION: &str = "A personal wiki system for your Markdown files";
+    const COPYRIGHT: &str = "© 2025–2026 Robert Lillack";
+    const HOMEPAGE: &str = "https://github.com/roblillack/piki";
+
+    autoreleasepool(|| unsafe {
+        // The about-panel option keys and NSAttributedString attribute keys are
+        // stable string constants; using their literal values avoids having to
+        // link the AppKit symbols.
+        let nsstr = |s: &str| -> *mut Object {
+            match CString::new(s) {
+                Ok(c) => msg_send![class!(NSString), stringWithUTF8String: c.as_ptr()],
+                Err(_) => std::ptr::null_mut(),
+            }
+        };
+
+        let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+        if app.is_null() {
+            return;
+        }
+
+        let options: *mut Object = msg_send![class!(NSMutableDictionary), dictionary];
+        let set_opt = |key: &str, val: *mut Object| {
+            if !val.is_null() {
+                let _: () = msg_send![options, setObject: val forKey: nsstr(key)];
+            }
+        };
+
+        set_opt("ApplicationName", nsstr(APP_NAME));
+        set_opt("ApplicationVersion", nsstr(VERSION));
+
+        // Application icon, decoded from the bundled PNG.
+        let data: *mut Object = msg_send![class!(NSData),
+            dataWithBytes: ICON_PNG.as_ptr() as *const c_void
+            length: ICON_PNG.len()];
+        if !data.is_null() {
+            let image: *mut Object = msg_send![class!(NSImage), alloc];
+            let image: *mut Object = msg_send![image, initWithData: data];
+            set_opt("ApplicationIcon", image);
+        }
+
+        // Credits area: description, copyright and a clickable homepage link,
+        // centered to match the rest of the panel.
+        let credits: *mut Object = msg_send![class!(NSMutableAttributedString), alloc];
+        let credits: *mut Object = msg_send![credits, init];
+
+        let para: *mut Object = msg_send![class!(NSMutableParagraphStyle), alloc];
+        let para: *mut Object = msg_send![para, init];
+        let _: () = msg_send![para, setAlignment: 1i64]; // NSTextAlignmentCenter
+
+        let font: *mut Object = msg_send![class!(NSFont), systemFontOfSize: 11.0f64];
+        let color: *mut Object = msg_send![class!(NSColor), secondaryLabelColor];
+
+        let append = |text: &str, attrs: *mut Object| {
+            let astr: *mut Object = msg_send![class!(NSAttributedString), alloc];
+            let astr: *mut Object = msg_send![astr, initWithString: nsstr(text) attributes: attrs];
+            let _: () = msg_send![credits, appendAttributedString: astr];
+        };
+
+        let base_attrs: *mut Object = msg_send![class!(NSMutableDictionary), dictionary];
+        let _: () = msg_send![base_attrs, setObject: font forKey: nsstr("NSFont")];
+        let _: () = msg_send![base_attrs, setObject: color forKey: nsstr("NSColor")];
+        let _: () = msg_send![base_attrs, setObject: para forKey: nsstr("NSParagraphStyle")];
+
+        append(DESCRIPTION, base_attrs);
+
+        // Only add a copyright line when a bundled Info.plist hasn't already
+        // provided one (the standard panel renders NSHumanReadableCopyright in
+        // its own slot), so the bundled app doesn't show it twice.
+        let bundle: *mut Object = msg_send![class!(NSBundle), mainBundle];
+        let bundle_copyright: *mut Object = if bundle.is_null() {
+            std::ptr::null_mut()
+        } else {
+            msg_send![bundle, objectForInfoDictionaryKey: nsstr("NSHumanReadableCopyright")]
+        };
+        if bundle_copyright.is_null() {
+            append("\n\n", base_attrs);
+            append(COPYRIGHT, base_attrs);
+        }
+
+        append("\n\n", base_attrs);
+        let link_attrs: *mut Object = msg_send![class!(NSMutableDictionary), dictionary];
+        let _: () = msg_send![link_attrs, setObject: font forKey: nsstr("NSFont")];
+        let _: () = msg_send![link_attrs, setObject: para forKey: nsstr("NSParagraphStyle")];
+        let url: *mut Object = msg_send![class!(NSURL), URLWithString: nsstr(HOMEPAGE)];
+        if !url.is_null() {
+            let _: () = msg_send![link_attrs, setObject: url forKey: nsstr("NSLink")];
+        }
+        append(HOMEPAGE, link_attrs);
+
+        set_opt("Credits", credits);
+
+        let _: () = msg_send![app, orderFrontStandardAboutPanelWithOptions: options];
+    });
+}

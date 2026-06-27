@@ -756,6 +756,10 @@ fn main() {
     // an unbundled binary shows "Piki" instead of "piki-gui".
     app_icon::set_macos_app_name("Piki");
 
+    // Replace FLTK's default about box with a proper macOS about panel (real
+    // name, version, icon, description and homepage link).
+    app_icon::set_macos_about();
+
     app.run().unwrap();
 }
 
