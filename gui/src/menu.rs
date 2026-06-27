@@ -3,6 +3,10 @@ use super::{
     navigate_forward, page_picker, search_bar::SearchBar, statusbar::StatusBar,
     window_state::WindowGeometry, wire_editor_callbacks,
 };
+// Only the non-macOS in-app Quit item saves explicitly; on macOS the system
+// Quit routes through the window Close event, which already saves.
+#[cfg(not(target_os = "macos"))]
+use super::save_current_page;
 use fltk::{
     app, button,
     enums::{self, Key, Shortcut},
@@ -332,9 +336,22 @@ fn populate_menu<M>(
     }
 
     #[cfg(not(target_os = "macos"))]
-    menu_bar.add("Page/Quit", quit_shortcut, menu::MenuFlag::Normal, |_| {
-        app::quit();
-    });
+    {
+        let app_state = app_state.clone();
+        let autosave_state = autosave_state.clone();
+        let active_editor = active_editor.clone();
+        let statusbar = statusbar.clone();
+        menu_bar.add(
+            "Page/Quit",
+            quit_shortcut,
+            menu::MenuFlag::Normal,
+            move |_| {
+                // Save the open note before leaving.
+                save_current_page(&app_state, &autosave_state, &active_editor, &statusbar);
+                app::quit();
+            },
+        );
+    }
 
     // Edit menu
     {
