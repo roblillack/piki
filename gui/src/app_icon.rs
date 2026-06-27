@@ -1,21 +1,30 @@
 //! Application icon wiring.
 //!
-//! Sets the window / taskbar icon on every platform, and additionally sets the
-//! Dock icon on macOS. macOS normally reads the Dock icon from the `.app`
-//! bundle, so doing it here means the icon also shows up when the unbundled
-//! `piki-gui` binary is run directly.
+//! Sets the window / taskbar icon on Linux and Windows, and the Dock icon on
+//! macOS. macOS normally reads the Dock icon from the `.app` bundle, so doing
+//! it here means the icon also shows up when the unbundled `piki-gui` binary is
+//! run directly.
 
-use fltk::{image::SvgImage, prelude::*, window::Window};
+use fltk::window::Window;
 
+#[cfg(not(target_os = "macos"))]
 const ICON_SVG: &str = include_str!("../../assets/icon.svg");
 
 /// Set the window icon (used for the title bar and taskbar on Linux/Windows).
+#[cfg(not(target_os = "macos"))]
 pub fn set_window_icon(wind: &mut Window) {
+    use fltk::{image::SvgImage, prelude::*};
     if let Ok(mut icon) = SvgImage::from_data(ICON_SVG) {
         icon.scale(128, 128, true, true);
         wind.set_icon(Some(icon));
     }
 }
+
+/// No-op on macOS: FLTK would otherwise draw the window icon as a title-bar
+/// proxy ("document drag") icon, which we don't want. The Dock icon is set
+/// separately via [`set_macos_dock_icon`].
+#[cfg(target_os = "macos")]
+pub fn set_window_icon(_wind: &mut Window) {}
 
 /// Rename the macOS menu-bar application menu.
 ///
