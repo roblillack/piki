@@ -21,7 +21,6 @@ unicode-segmentation = "1.10"
 chrono = "0.4.42"
 arboard = "3.4"
 tdoc = { version="0.11.0", default-features=false }
-objc = "0.2"
 rtf-parser = "0.4"
 webbrowser = { version = "1.2.1", features = ["disable-wsl"] }
 
@@ -49,14 +48,10 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
     "NSParagraphStyle",
     "NSAttributedString",
     "NSText",
+    "NSPasteboard",
+    "NSPasteboardItem",
 ] }
 
 [dev-dependencies]
 insta = "1.34"
 rusttype = "0.9"
-
-[lints.rust]
-# The unmaintained `objc` crate's macros reference `feature = "cargo-clippy"`,
-# which the check-cfg lint flags as unexpected. Declare it as known to silence
-# the noise while still catching genuinely unexpected cfgs.
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }

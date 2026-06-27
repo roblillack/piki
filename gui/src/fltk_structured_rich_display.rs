@@ -1,5 +1,4 @@
 // FLTK integration for StructuredRichDisplay widget
-#![allow(unexpected_cfgs)]
 
 use crate::clipboard;
 use crate::fltk_draw_context::FltkDrawContext;
@@ -10,17 +9,15 @@ use crate::richtext::structured_rich_display::StructuredRichDisplay;
 use fltk::{app::MouseWheel, enums::*, prelude::*};
 use std::cell::RefCell;
 use std::ffi::CStr;
-#[cfg(target_os = "macos")]
-use std::ffi::CString;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 #[cfg(target_os = "macos")]
-use objc::rc::autoreleasepool;
+use objc2::rc::autoreleasepool;
 #[cfg(target_os = "macos")]
-use objc::runtime::Object;
+use objc2_app_kit::{NSPasteboard, NSPasteboardItem};
 #[cfg(target_os = "macos")]
-use objc::{class, msg_send, sel, sel_impl};
+use objc2_foundation::NSString;
 
 type Callback<T> = Rc<RefCell<Option<Box<dyn Fn(T) + 'static>>>>;
 type MutCallback<T> = Rc<RefCell<Option<Box<dyn FnMut(T) + 'static>>>>;
@@ -2170,44 +2167,25 @@ fn describe_platform_format(source: &str, format_name: &str) -> String {
 #[cfg(target_os = "macos")]
 fn macos_pasteboard_formats_and_rtf() -> (Vec<String>, Option<Vec<u8>>) {
     use std::collections::HashSet;
-    autoreleasepool(|| unsafe {
+    autoreleasepool(|_| {
         let mut formats = Vec::new();
         let mut seen = HashSet::new();
         let mut rtf_payload = None;
-        let pasteboard: *mut Object = msg_send![class!(NSPasteboard), generalPasteboard];
-        if pasteboard.is_null() {
+
+        let pasteboard = NSPasteboard::generalPasteboard();
+        let Some(items) = pasteboard.pasteboardItems() else {
             return (formats, rtf_payload);
-        }
-        let items: *mut Object = msg_send![pasteboard, pasteboardItems];
-        if items.is_null() {
-            return (formats, rtf_payload);
-        }
-        let item_count: usize = msg_send![items, count];
-        for i in 0..item_count {
-            let item: *mut Object = msg_send![items, objectAtIndex: i];
-            if item.is_null() {
-                continue;
-            }
-            let types: *mut Object = msg_send![item, types];
-            if types.is_null() {
-                continue;
-            }
-            let type_count: usize = msg_send![types, count];
-            for j in 0..type_count {
-                let ty: *mut Object = msg_send![types, objectAtIndex: j];
-                if ty.is_null() {
-                    continue;
-                }
-                let utf8: *const std::os::raw::c_char = msg_send![ty, UTF8String];
-                if utf8.is_null() {
-                    continue;
-                }
-                let value = CStr::from_ptr(utf8).to_string_lossy().into_owned();
+        };
+        for i in 0..items.count() {
+            let item = items.objectAtIndex(i);
+            let types = item.types();
+            for j in 0..types.count() {
+                let value = types.objectAtIndex(j).to_string();
                 if seen.insert(value.clone()) {
                     formats.push(describe_platform_format("macos", &value));
                 }
                 if rtf_payload.is_none() && value.eq_ignore_ascii_case("public.rtf") {
-                    rtf_payload = read_pasteboard_data(item, "public.rtf");
+                    rtf_payload = read_pasteboard_data(&item, "public.rtf");
                 }
             }
         }
@@ -2216,28 +2194,8 @@ fn macos_pasteboard_formats_and_rtf() -> (Vec<String>, Option<Vec<u8>>) {
 }
 
 #[cfg(target_os = "macos")]
-#[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn read_pasteboard_data(item: *mut Object, type_name: &str) -> Option<Vec<u8>> {
-    let ns_type = nsstring_from_str(type_name);
-    if ns_type.is_null() {
-        return None;
-    }
-    let data: *mut Object = msg_send![item, dataForType: ns_type];
-    if data.is_null() {
-        return None;
-    }
-    let length: usize = msg_send![data, length];
-    let bytes: *const u8 = msg_send![data, bytes];
-    if bytes.is_null() || length == 0 {
-        return None;
-    }
-    let slice = std::slice::from_raw_parts(bytes, length);
-    Some(slice.to_vec())
-}
-
-#[cfg(target_os = "macos")]
-#[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn nsstring_from_str(value: &str) -> *mut Object {
-    let c_string = CString::new(value).unwrap();
-    msg_send![class!(NSString), stringWithUTF8String: c_string.as_ptr()]
+fn read_pasteboard_data(item: &NSPasteboardItem, type_name: &str) -> Option<Vec<u8>> {
+    let data = item.dataForType(&NSString::from_str(type_name))?;
+    let bytes = data.to_vec();
+    if bytes.is_empty() { None } else { Some(bytes) }
 }
