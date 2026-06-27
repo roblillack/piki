@@ -38,68 +38,40 @@ pub fn set_window_icon(_wind: &mut Window) {}
 /// there (the menu never contains `piki-gui`).
 #[cfg(target_os = "macos")]
 pub fn set_macos_app_name(name: &str) {
-    use objc::rc::autoreleasepool;
-    use objc::runtime::Object;
-    use objc::{class, msg_send, sel, sel_impl};
-    use std::ffi::{CStr, CString};
-    use std::os::raw::c_char;
+    use objc2::MainThreadMarker;
+    use objc2::rc::autoreleasepool;
+    use objc2_app_kit::NSApplication;
+    use objc2_foundation::NSString;
 
-    let Ok(c_name) = CString::new(name) else {
+    let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
-    autoreleasepool(|| unsafe {
-        let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
-        if app.is_null() {
+    autoreleasepool(|_| {
+        let app = NSApplication::sharedApplication(mtm);
+        let Some(main_menu) = app.mainMenu() else {
+            return;
+        };
+        if main_menu.numberOfItems() <= 0 {
             return;
         }
-        let main_menu: *mut Object = msg_send![app, mainMenu];
-        if main_menu.is_null() {
+        let Some(app_item) = main_menu.itemAtIndex(0) else {
             return;
-        }
-        let count: i64 = msg_send![main_menu, numberOfItems];
-        if count <= 0 {
+        };
+        let Some(app_menu) = app_item.submenu() else {
             return;
-        }
-        let app_item: *mut Object = msg_send![main_menu, itemAtIndex: 0i64];
-        if app_item.is_null() {
-            return;
-        }
-        let app_menu: *mut Object = msg_send![app_item, submenu];
-        if app_menu.is_null() {
-            return;
-        }
+        };
 
-        let ns_name: *mut Object =
-            msg_send![class!(NSString), stringWithUTF8String: c_name.as_ptr()];
-        if !ns_name.is_null() {
-            let _: () = msg_send![app_menu, setTitle: ns_name];
-        }
+        app_menu.setTitle(&NSString::from_str(name));
 
         // Rewrite "About piki-gui", "Hide piki-gui", "Quit piki-gui", etc.
-        let item_count: i64 = msg_send![app_menu, numberOfItems];
-        for i in 0..item_count {
-            let item: *mut Object = msg_send![app_menu, itemAtIndex: i];
-            if item.is_null() {
+        for i in 0..app_menu.numberOfItems() {
+            let Some(item) = app_menu.itemAtIndex(i) else {
                 continue;
-            }
-            let title: *mut Object = msg_send![item, title];
-            if title.is_null() {
-                continue;
-            }
-            let utf8: *const c_char = msg_send![title, UTF8String];
-            if utf8.is_null() {
-                continue;
-            }
-            let current = CStr::from_ptr(utf8).to_string_lossy();
+            };
+            let current = item.title().to_string();
             if current.contains("piki-gui") {
                 let replaced = current.replace("piki-gui", name);
-                if let Ok(c_new) = CString::new(replaced) {
-                    let new_title: *mut Object =
-                        msg_send![class!(NSString), stringWithUTF8String: c_new.as_ptr()];
-                    if !new_title.is_null() {
-                        let _: () = msg_send![item, setTitle: new_title];
-                    }
-                }
+                item.setTitle(&NSString::from_str(&replaced));
             }
         }
     });
@@ -112,30 +84,26 @@ pub fn set_macos_app_name(_name: &str) {}
 /// Set the macOS Dock icon at runtime via `NSApplication`.
 #[cfg(target_os = "macos")]
 pub fn set_macos_dock_icon() {
-    use objc::rc::autoreleasepool;
-    use objc::runtime::Object;
-    use objc::{class, msg_send, sel, sel_impl};
-    use std::os::raw::c_void;
+    use objc2::rc::autoreleasepool;
+    use objc2::{AnyThread, MainThreadMarker};
+    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_foundation::NSData;
 
     const ICON_PNG: &[u8] = include_bytes!("../../assets/icon-512.png");
 
-    autoreleasepool(|| unsafe {
-        let data: *mut Object = msg_send![class!(NSData),
-            dataWithBytes: ICON_PNG.as_ptr() as *const c_void
-            length: ICON_PNG.len()];
-        if data.is_null() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    autoreleasepool(|_| {
+        let data = NSData::with_bytes(ICON_PNG);
+        let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) else {
             return;
+        };
+        let app = NSApplication::sharedApplication(mtm);
+        // SAFETY: setting the Dock icon image is a standard AppKit operation.
+        unsafe {
+            app.setApplicationIconImage(Some(&image));
         }
-        let image: *mut Object = msg_send![class!(NSImage), alloc];
-        let image: *mut Object = msg_send![image, initWithData: data];
-        if image.is_null() {
-            return;
-        }
-        let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
-        if app.is_null() {
-            return;
-        }
-        let _: () = msg_send![app, setApplicationIconImage: image];
     });
 }
 
@@ -162,11 +130,16 @@ pub fn set_macos_about() {}
 /// Open the standard macOS about panel with Piki's metadata.
 #[cfg(target_os = "macos")]
 fn show_about_panel() {
-    use objc::rc::autoreleasepool;
-    use objc::runtime::Object;
-    use objc::{class, msg_send, sel, sel_impl};
-    use std::ffi::CString;
-    use std::os::raw::c_void;
+    use objc2::rc::autoreleasepool;
+    use objc2::runtime::AnyObject;
+    use objc2::{AnyThread, MainThreadMarker, Message, msg_send};
+    use objc2_app_kit::{
+        NSApplication, NSColor, NSFont, NSImage, NSMutableParagraphStyle, NSTextAlignment,
+    };
+    use objc2_foundation::{
+        NSAttributedString, NSBundle, NSData, NSDictionary, NSMutableAttributedString,
+        NSMutableDictionary, NSString, NSURL,
+    };
 
     const ICON_PNG: &[u8] = include_bytes!("../../assets/icon-512.png");
     const APP_NAME: &str = "Piki";
@@ -175,93 +148,93 @@ fn show_about_panel() {
     const COPYRIGHT: &str = "© 2025–2026 Robert Lillack";
     const HOMEPAGE: &str = "https://github.com/roblillack/piki";
 
-    autoreleasepool(|| unsafe {
-        // The about-panel option keys and NSAttributedString attribute keys are
-        // stable string constants; using their literal values avoids having to
-        // link the AppKit symbols.
-        let nsstr = |s: &str| -> *mut Object {
-            match CString::new(s) {
-                Ok(c) => msg_send![class!(NSString), stringWithUTF8String: c.as_ptr()],
-                Err(_) => std::ptr::null_mut(),
-            }
-        };
-
-        let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
-        if app.is_null() {
-            return;
+    // Store a value under a string key in a heterogeneous options/attributes
+    // dictionary. The about-panel option keys and NSAttributedString attribute
+    // keys are stable string constants; using their literal values avoids having
+    // to link the AppKit symbols.
+    fn put<T: Message>(dict: &NSMutableDictionary<NSString, AnyObject>, key: &str, value: &T) {
+        let key = NSString::from_str(key);
+        // SAFETY: the dictionary holds arbitrary objects keyed by NSString,
+        // matching `-setObject:forKey:`.
+        unsafe {
+            let _: () = msg_send![dict, setObject: value, forKey: &*key];
         }
+    }
 
-        let options: *mut Object = msg_send![class!(NSMutableDictionary), dictionary];
-        let set_opt = |key: &str, val: *mut Object| {
-            if !val.is_null() {
-                let _: () = msg_send![options, setObject: val forKey: nsstr(key)];
-            }
-        };
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    autoreleasepool(|_| {
+        let app = NSApplication::sharedApplication(mtm);
 
-        set_opt("ApplicationName", nsstr(APP_NAME));
-        set_opt("ApplicationVersion", nsstr(VERSION));
+        let options = NSMutableDictionary::<NSString, AnyObject>::new();
+        put(&options, "ApplicationName", &*NSString::from_str(APP_NAME));
+        put(
+            &options,
+            "ApplicationVersion",
+            &*NSString::from_str(VERSION),
+        );
 
         // Application icon, decoded from the bundled PNG.
-        let data: *mut Object = msg_send![class!(NSData),
-            dataWithBytes: ICON_PNG.as_ptr() as *const c_void
-            length: ICON_PNG.len()];
-        if !data.is_null() {
-            let image: *mut Object = msg_send![class!(NSImage), alloc];
-            let image: *mut Object = msg_send![image, initWithData: data];
-            set_opt("ApplicationIcon", image);
+        let data = NSData::with_bytes(ICON_PNG);
+        if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
+            put(&options, "ApplicationIcon", &*image);
         }
 
         // Credits area: description, copyright and a clickable homepage link,
         // centered to match the rest of the panel.
-        let credits: *mut Object = msg_send![class!(NSMutableAttributedString), alloc];
-        let credits: *mut Object = msg_send![credits, init];
+        let credits = NSMutableAttributedString::new();
 
-        let para: *mut Object = msg_send![class!(NSMutableParagraphStyle), alloc];
-        let para: *mut Object = msg_send![para, init];
-        let _: () = msg_send![para, setAlignment: 1i64]; // NSTextAlignmentCenter
+        let para = NSMutableParagraphStyle::new();
+        para.setAlignment(NSTextAlignment::Center);
+        let font = NSFont::systemFontOfSize(11.0);
+        let color = NSColor::secondaryLabelColor();
 
-        let font: *mut Object = msg_send![class!(NSFont), systemFontOfSize: 11.0f64];
-        let color: *mut Object = msg_send![class!(NSColor), secondaryLabelColor];
-
-        let append = |text: &str, attrs: *mut Object| {
-            let astr: *mut Object = msg_send![class!(NSAttributedString), alloc];
-            let astr: *mut Object = msg_send![astr, initWithString: nsstr(text) attributes: attrs];
-            let _: () = msg_send![credits, appendAttributedString: astr];
+        let append = |text: &str, attrs: &NSDictionary<NSString, AnyObject>| {
+            // SAFETY: `attrs` maps attribute-name strings to valid attribute
+            // values, as required by `-initWithString:attributes:`.
+            let astr = unsafe {
+                NSAttributedString::initWithString_attributes(
+                    NSAttributedString::alloc(),
+                    &NSString::from_str(text),
+                    Some(attrs),
+                )
+            };
+            credits.appendAttributedString(&astr);
         };
 
-        let base_attrs: *mut Object = msg_send![class!(NSMutableDictionary), dictionary];
-        let _: () = msg_send![base_attrs, setObject: font forKey: nsstr("NSFont")];
-        let _: () = msg_send![base_attrs, setObject: color forKey: nsstr("NSColor")];
-        let _: () = msg_send![base_attrs, setObject: para forKey: nsstr("NSParagraphStyle")];
+        let base_attrs = NSMutableDictionary::<NSString, AnyObject>::new();
+        put(&base_attrs, "NSFont", &*font);
+        put(&base_attrs, "NSColor", &*color);
+        put(&base_attrs, "NSParagraphStyle", &*para);
 
-        append(DESCRIPTION, base_attrs);
+        append(DESCRIPTION, &base_attrs);
 
         // Only add a copyright line when a bundled Info.plist hasn't already
         // provided one (the standard panel renders NSHumanReadableCopyright in
         // its own slot), so the bundled app doesn't show it twice.
-        let bundle: *mut Object = msg_send![class!(NSBundle), mainBundle];
-        let bundle_copyright: *mut Object = if bundle.is_null() {
-            std::ptr::null_mut()
-        } else {
-            msg_send![bundle, objectForInfoDictionaryKey: nsstr("NSHumanReadableCopyright")]
-        };
-        if bundle_copyright.is_null() {
-            append("\n\n", base_attrs);
-            append(COPYRIGHT, base_attrs);
+        let has_bundle_copyright = NSBundle::mainBundle()
+            .objectForInfoDictionaryKey(&NSString::from_str("NSHumanReadableCopyright"))
+            .is_some();
+        if !has_bundle_copyright {
+            append("\n\n", &base_attrs);
+            append(COPYRIGHT, &base_attrs);
         }
 
-        append("\n\n", base_attrs);
-        let link_attrs: *mut Object = msg_send![class!(NSMutableDictionary), dictionary];
-        let _: () = msg_send![link_attrs, setObject: font forKey: nsstr("NSFont")];
-        let _: () = msg_send![link_attrs, setObject: para forKey: nsstr("NSParagraphStyle")];
-        let url: *mut Object = msg_send![class!(NSURL), URLWithString: nsstr(HOMEPAGE)];
-        if !url.is_null() {
-            let _: () = msg_send![link_attrs, setObject: url forKey: nsstr("NSLink")];
+        append("\n\n", &base_attrs);
+        let link_attrs = NSMutableDictionary::<NSString, AnyObject>::new();
+        put(&link_attrs, "NSFont", &*font);
+        put(&link_attrs, "NSParagraphStyle", &*para);
+        if let Some(url) = NSURL::URLWithString(&NSString::from_str(HOMEPAGE)) {
+            put(&link_attrs, "NSLink", &*url);
         }
-        append(HOMEPAGE, link_attrs);
+        append(HOMEPAGE, &link_attrs);
 
-        set_opt("Credits", credits);
+        put(&options, "Credits", &*credits);
 
-        let _: () = msg_send![app, orderFrontStandardAboutPanelWithOptions: options];
+        // SAFETY: `options` only contains the documented about-panel keys.
+        unsafe {
+            app.orderFrontStandardAboutPanelWithOptions(&options);
+        }
     });
 }
