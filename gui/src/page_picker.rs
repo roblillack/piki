@@ -1,10 +1,61 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use fltk::{self, prelude::*, window};
 use piki_gui::page_ui::PageUI;
 
 use crate::autosave::AutoSaveState;
+
+thread_local! {
+    /// Guards against more than one picker being open at a time. Repeatedly
+    /// triggering the shortcut would otherwise stack pickers, because on macOS
+    /// the native system menu fires the Cmd-P key equivalent before FLTK's
+    /// modal window can intercept it.
+    static PICKER_OPEN: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The application menu saved while the picker is open, so it can be restored
+/// verbatim on close. On macOS this is the previous `NSMenu`; elsewhere nothing
+/// needs to be tracked.
+#[cfg(target_os = "macos")]
+type SavedAppMenu = Option<objc2::rc::Retained<objc2_app_kit::NSMenu>>;
+#[cfg(not(target_os = "macos"))]
+type SavedAppMenu = ();
+
+/// Hide the application's menu bar so its keyboard shortcuts cannot fire while
+/// the modal picker is open, returning the previous menu so it can be restored
+/// untouched. Marking the FLTK window modal is not enough on macOS: the native
+/// system menu dispatches key equivalents (e.g. Cmd-P) before FLTK's modal grab
+/// can swallow them, which is what lets pickers stack today.
+#[cfg(target_os = "macos")]
+fn suspend_app_menu() -> SavedAppMenu {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSApplication;
+
+    let mtm = MainThreadMarker::new()?;
+    let app = NSApplication::sharedApplication(mtm);
+    let previous = app.mainMenu();
+    app.setMainMenu(None);
+    previous
+}
+
+/// Restore the menu captured by [`suspend_app_menu`].
+#[cfg(target_os = "macos")]
+fn restore_app_menu(saved: &SavedAppMenu) {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSApplication;
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    NSApplication::sharedApplication(mtm).setMainMenu(saved.as_deref());
+}
+
+#[cfg(not(target_os = "macos"))]
+fn suspend_app_menu() -> SavedAppMenu {}
+
+#[cfg(not(target_os = "macos"))]
+fn restore_app_menu(_saved: &SavedAppMenu) {}
 
 /// Modal quick page picker with fuzzy filtering and keyboard navigation.
 pub fn show_page_picker(
@@ -20,6 +71,12 @@ pub fn show_page_picker(
         input::Input,
         window::Window,
     };
+
+    // Only one picker may be open at a time. Without this guard, pressing the
+    // shortcut again while the picker is up would open another one on top.
+    if PICKER_OPEN.with(|open| open.replace(true)) {
+        return;
+    }
 
     // Collect all pages once
     let all_pages: Vec<String> = app_state
@@ -40,6 +97,27 @@ pub fn show_page_picker(
     let mut input = Input::new(10, 10, width - 20, 28, None);
     let mut list = HoldBrowser::new(10, 50, width - 20, height - 60, None);
     list.set_scrollbar_size(12);
+
+    // Disable the application menu (and therefore its keyboard shortcuts) for as
+    // long as the picker is open, so it behaves like a real modal: app shortcuts
+    // such as Cmd-P no longer reach the window underneath. The menu is restored
+    // verbatim when the picker closes.
+    let saved_menu: Rc<RefCell<SavedAppMenu>> = Rc::new(RefCell::new(suspend_app_menu()));
+
+    // Single entry point for closing the picker: restore the menu, clear the
+    // open guard and hide the window. Idempotent, so it is safe to call from
+    // every close path (Escape, Enter, double-click, window close button).
+    let close_picker: Rc<RefCell<dyn FnMut()>> = {
+        let mut win = win.clone();
+        let saved_menu = saved_menu.clone();
+        Rc::new(RefCell::new(move || {
+            if !PICKER_OPEN.with(|open| open.replace(false)) {
+                return; // already closed
+            }
+            restore_app_menu(&saved_menu.borrow());
+            win.hide();
+        }))
+    };
 
     // Helper: populate list with provided items and maintain selection
     let mut populate_list = {
@@ -149,7 +227,7 @@ pub fn show_page_picker(
         let autosave_state = autosave_state.clone();
         let active_editor = active_editor.clone();
         let statusbar = statusbar.clone();
-        let mut win_for_accept = win.clone();
+        let close_picker = close_picker.clone();
         let list_for_accept = list.clone();
         Rc::new(RefCell::new(move || {
             let idx = list_for_accept.value(); // 1-based
@@ -159,7 +237,7 @@ pub fn show_page_picker(
                 None
             };
             if let Some(name) = name_opt {
-                win_for_accept.hide();
+                (close_picker.borrow_mut())();
                 super::load_page_helper(
                     &name,
                     &app_state,
@@ -176,7 +254,7 @@ pub fn show_page_picker(
     {
         let mut list = list.clone();
         let accept_cb = accept_cb.clone();
-        let mut win_for_input = win.clone();
+        let close_picker = close_picker.clone();
         input.handle(move |_, ev| match ev {
             Event::KeyDown => {
                 let key = fltk::app::event_key();
@@ -207,7 +285,7 @@ pub fn show_page_picker(
                     }
                     Key::Escape => {
                         // Cancel
-                        win_for_input.hide();
+                        (close_picker.borrow_mut())();
                         true
                     }
                     _ => false,
@@ -220,6 +298,7 @@ pub fn show_page_picker(
     // Double-click or Enter on list accepts
     {
         let accept_cb = accept_cb.clone();
+        let close_picker = close_picker.clone();
         list.handle(move |_, ev| match ev {
             Event::Push => {
                 if fltk::app::event_clicks() {
@@ -235,6 +314,7 @@ pub fn show_page_picker(
                     true
                 } else if fltk::app::event_key() == Key::Escape {
                     // Close on Esc
+                    (close_picker.borrow_mut())();
                     true
                 } else {
                     false
@@ -245,6 +325,14 @@ pub fn show_page_picker(
     }
 
     win.end();
+    {
+        // Closing via the window's close button must also restore the menu and
+        // clear the open guard.
+        let close_picker = close_picker.clone();
+        win.set_callback(move |_| {
+            (close_picker.borrow_mut())();
+        });
+    }
     win.show();
     let _ = input.take_focus();
 }
