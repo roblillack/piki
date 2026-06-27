@@ -3034,6 +3034,70 @@ impl StructuredEditor {
         String::new()
     }
 
+    /// Get the selected content as a [`StructuredDocument`], preserving block
+    /// types and inline styling. Returns `None` when there is no selection or
+    /// the selection is empty.
+    pub fn get_selection_document(&self) -> Option<StructuredDocument> {
+        let (start, end) = self.selection?;
+
+        // Ensure start <= end
+        let (start, end) = if start.block_index < end.block_index
+            || (start.block_index == end.block_index && start.offset <= end.offset)
+        {
+            (start, end)
+        } else {
+            (end, start)
+        };
+
+        let blocks = self.document.blocks();
+        if start.block_index >= blocks.len() {
+            return None;
+        }
+
+        let mut doc = StructuredDocument::new();
+
+        if start.block_index == end.block_index {
+            let block = &blocks[start.block_index];
+            doc.add_block(Self::extract_block_range(block, start.offset, end.offset));
+        } else {
+            let last = end.block_index.min(blocks.len() - 1);
+            for (idx, block) in blocks
+                .iter()
+                .enumerate()
+                .take(last + 1)
+                .skip(start.block_index)
+            {
+                let extracted = if idx == start.block_index {
+                    Self::extract_block_range(block, start.offset, block.text_len())
+                } else if idx == last {
+                    Self::extract_block_range(block, 0, end.offset)
+                } else {
+                    block.clone()
+                };
+                doc.add_block(extracted);
+            }
+        }
+
+        if doc.blocks().iter().all(Block::is_empty) {
+            None
+        } else {
+            Some(doc)
+        }
+    }
+
+    /// Extract the inline content within `[start, end)` (flattened byte
+    /// offsets) of `block`, preserving its block type and inline styling.
+    fn extract_block_range(block: &Block, start: usize, end: usize) -> Block {
+        let mut head = block.clone();
+        // head keeps [0, start); `tail` holds [start, len).
+        let tail = head.split_content_at(start);
+        let mut result = Block::new(block.block_type.clone());
+        result.content = tail;
+        // Drop everything from (end - start) onwards, leaving [start, end).
+        let _ = result.split_content_at(end.saturating_sub(start));
+        result
+    }
+
     /// Cut the selected text (copy and delete)
     pub fn cut(&mut self) -> Result<String, EditError> {
         let text = self.get_selection_text();
@@ -3175,6 +3239,67 @@ mod tests {
         editor.insert_text("Hello").unwrap();
         assert_eq!(editor.document().to_plain_text(), "Hello");
         assert_eq!(editor.cursor().offset, 5);
+    }
+
+    #[test]
+    fn selection_document_preserves_block_types_and_styles() {
+        let mut editor = StructuredEditor::new();
+        {
+            let doc = editor.document_mut();
+            *doc = StructuredDocument::new();
+
+            let mut heading = Block::heading(1);
+            heading
+                .content
+                .push(InlineContent::Text(TextRun::plain("Title")));
+            doc.add_block(heading);
+
+            let mut para = Block::paragraph();
+            para.content
+                .push(InlineContent::Text(TextRun::plain("Hello ")));
+            para.content.push(InlineContent::Text(TextRun::new(
+                "world",
+                TextStyle::bold(),
+            )));
+            doc.add_block(para);
+        }
+
+        // Select from after "Ti" in the heading through "Hello wo" in the
+        // paragraph (spanning two blocks and ending inside the bold run).
+        editor.set_selection(DocumentPosition::new(0, 2), DocumentPosition::new(1, 8));
+
+        let sel = editor
+            .get_selection_document()
+            .expect("selection should produce a document");
+        assert_eq!(sel.block_count(), 2);
+
+        // First block keeps the heading type and only the selected tail.
+        assert!(matches!(
+            sel.blocks()[0].block_type,
+            BlockType::Heading { level: 1 }
+        ));
+        assert_eq!(sel.blocks()[0].to_plain_text(), "tle");
+
+        // Second block keeps the paragraph type, the selected prefix, and the
+        // bold styling on the part of "world" that was inside the selection.
+        assert!(matches!(sel.blocks()[1].block_type, BlockType::Paragraph));
+        assert_eq!(sel.blocks()[1].to_plain_text(), "Hello wo");
+        let bold_text: String = sel.blocks()[1]
+            .content
+            .iter()
+            .filter_map(|c| match c {
+                InlineContent::Text(run) if run.style.bold => Some(run.text.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(bold_text, "wo");
+    }
+
+    #[test]
+    fn selection_document_none_without_selection() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("Hello").unwrap();
+        assert!(editor.get_selection_document().is_none());
     }
 
     #[test]

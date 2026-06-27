@@ -497,8 +497,14 @@ impl FltkStructuredRichDisplay {
                                     let change_cb = change_cb.clone();
                                     let mut w_r = w_for_actions.clone();
                                     move || {
-                                        if let Ok(text) = display.borrow_mut().editor_mut().cut() {
-                                            fltk::app::copy(&text);
+                                        let doc =
+                                            display.borrow().editor().get_selection_document();
+                                        if let Some(doc) = doc {
+                                            clipboard::copy_structured_to_system(&doc);
+                                            let _ = display
+                                                .borrow_mut()
+                                                .editor_mut()
+                                                .delete_selection();
                                         }
                                         if let Some(cb) = &mut *change_cb.borrow_mut() {
                                             (cb)();
@@ -509,9 +515,10 @@ impl FltkStructuredRichDisplay {
                                 copy: Box::new({
                                     let display = display.clone();
                                     move || {
-                                        let text = display.borrow().editor().copy();
-                                        if !text.is_empty() {
-                                            fltk::app::copy(&text);
+                                        if let Some(doc) =
+                                            display.borrow().editor().get_selection_document()
+                                        {
+                                            clipboard::copy_structured_to_system(&doc);
                                         }
                                     }
                                 }),
@@ -1170,10 +1177,16 @@ impl FltkStructuredRichDisplay {
                                             let display = display.clone();
                                             let mut w_r = w_for_actions.clone();
                                             move || {
-                                                if let Ok(text) =
-                                                    display.borrow_mut().editor_mut().cut()
-                                                {
-                                                    fltk::app::copy(&text);
+                                                let doc = display
+                                                    .borrow()
+                                                    .editor()
+                                                    .get_selection_document();
+                                                if let Some(doc) = doc {
+                                                    clipboard::copy_structured_to_system(&doc);
+                                                    let _ = display
+                                                        .borrow_mut()
+                                                        .editor_mut()
+                                                        .delete_selection();
                                                 }
                                                 w_r.redraw();
                                             }
@@ -1181,9 +1194,12 @@ impl FltkStructuredRichDisplay {
                                         copy: Box::new({
                                             let display = display.clone();
                                             move || {
-                                                let text = display.borrow().editor().copy();
-                                                if !text.is_empty() {
-                                                    fltk::app::copy(&text);
+                                                if let Some(doc) = display
+                                                    .borrow()
+                                                    .editor()
+                                                    .get_selection_document()
+                                                {
+                                                    clipboard::copy_structured_to_system(&doc);
                                                 }
                                             }
                                         }),
@@ -1393,16 +1409,20 @@ impl FltkStructuredRichDisplay {
                                 }
                                 // Cmd/Ctrl-C (copy)
                                 else if cmd_modifier && key == Key::from_char('c') {
-                                    let text = display.borrow().editor().copy();
-                                    if !text.is_empty() {
-                                        fltk::app::copy(&text);
+                                    if let Some(doc) =
+                                        display.borrow().editor().get_selection_document()
+                                    {
+                                        clipboard::copy_structured_to_system(&doc);
                                     }
                                     handled = true;
                                 }
                                 // Cmd/Ctrl-X (cut)
                                 else if cmd_modifier && key == Key::from_char('x') {
-                                    if let Ok(text) = display.borrow_mut().editor_mut().cut() {
-                                        fltk::app::copy(&text);
+                                    let doc = display.borrow().editor().get_selection_document();
+                                    if let Some(doc) = doc {
+                                        clipboard::copy_structured_to_system(&doc);
+                                        let _ =
+                                            display.borrow_mut().editor_mut().delete_selection();
                                     }
                                     if let Some(cb) = &mut *change_cb.borrow_mut() {
                                         (cb)();

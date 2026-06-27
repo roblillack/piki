@@ -830,12 +830,11 @@ fn perform_cut(
     active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
     is_structured: &Rc<RefCell<bool>>,
 ) {
-    if let Some(Some(text)) = with_structured_editor(active_editor, is_structured, true, |editor| {
+    if with_structured_editor(active_editor, is_structured, true, |editor| {
         editor.cut_selection()
-    }) {
-        if !text.is_empty() {
-            app::copy(&text);
-        }
+    })
+    .is_some()
+    {
         app::redraw();
         return;
     }
@@ -844,7 +843,7 @@ fn perform_cut(
         editor.cut_selection()
     }) {
         if !text.is_empty() {
-            app::copy(&text);
+            piki_gui::clipboard::copy_markdown_to_system(&text);
         }
         app::redraw();
     }
@@ -854,14 +853,11 @@ fn perform_copy(
     active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
     is_structured: &Rc<RefCell<bool>>,
 ) {
-    if let Some(Some(text)) =
-        with_structured_editor(active_editor, is_structured, false, |editor| {
-            editor.copy_selection()
-        })
+    if with_structured_editor(active_editor, is_structured, false, |editor| {
+        editor.copy_selection()
+    })
+    .is_some()
     {
-        if !text.is_empty() {
-            app::copy(&text);
-        }
         return;
     }
 
@@ -869,7 +865,7 @@ fn perform_copy(
         editor.copy_selection()
     }) && !text.is_empty()
     {
-        app::copy(&text);
+        piki_gui::clipboard::copy_markdown_to_system(&text);
     }
 }
 
