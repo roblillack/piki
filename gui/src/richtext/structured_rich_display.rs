@@ -665,15 +665,32 @@ impl StructuredRichDisplay {
         let line_visual_len = line.visual_char_end.saturating_sub(line.char_start);
         let effective_offset = preferred_offset.min(line_visual_len);
 
-        println!(
-            "Preferred offset: {}, line len: {}, line visual len: {}, effective offset: {}",
-            preferred_offset,
-            line.char_end - line.char_start,
-            line_visual_len,
-            effective_offset
-        );
-
         DocumentPosition::new(line.block_index, line.char_start + effective_offset)
+    }
+
+    /// Whether the block at `block_index` is a (read-only) table.
+    fn block_is_table(&self, block_index: usize) -> bool {
+        matches!(
+            self.editor
+                .document()
+                .blocks()
+                .get(block_index)
+                .map(|b| &b.block_type),
+            Some(BlockType::Table { .. })
+        )
+    }
+
+    /// Resolve the cursor position for a vertical move that landed on
+    /// `target_idx`. A table is a single stop, so landing on any of its lines
+    /// places the cursor at the table's start; other blocks honor the preferred
+    /// (sticky) column.
+    fn vertical_target_pos(&self, target_idx: usize) -> DocumentPosition {
+        let line = &self.layout_lines[target_idx];
+        if self.block_is_table(line.block_index) {
+            DocumentPosition::new(line.block_index, 0)
+        } else {
+            self.get_preferred_pos_for_line(line)
+        }
     }
 
     /// Move cursor one visual line up, using wrapped lines when applicable.
@@ -690,7 +707,6 @@ impl StructuredRichDisplay {
             return;
         }
 
-        let _cursor = self.editor.cursor();
         let cur_idx = match self.current_line_index_for_cursor() {
             Some(i) => i,
             None => {
@@ -706,9 +722,24 @@ impl StructuredRichDisplay {
             // Already at the first line
             return;
         }
-        let target_line = &self.layout_lines[cur_idx - 1];
 
-        let new_pos = self.get_preferred_pos_for_line(target_line);
+        // Treat a table as a single stop: skip up over all of its lines to the
+        // line directly above it.
+        let cur_block = self.layout_lines[cur_idx].block_index;
+        let target_idx = if self.block_is_table(cur_block) {
+            let mut first = cur_idx;
+            while first > 0 && self.layout_lines[first - 1].block_index == cur_block {
+                first -= 1;
+            }
+            if first == 0 {
+                return; // table is the first block; nothing above
+            }
+            first - 1
+        } else {
+            cur_idx - 1
+        };
+
+        let new_pos = self.vertical_target_pos(target_idx);
         if extend {
             self.editor.extend_selection_to(new_pos);
         } else {
@@ -729,7 +760,6 @@ impl StructuredRichDisplay {
             return;
         }
 
-        let _cursor = self.editor.cursor();
         let cur_idx = match self.current_line_index_for_cursor() {
             Some(i) => i,
             None => {
@@ -741,12 +771,27 @@ impl StructuredRichDisplay {
                 return;
             }
         };
-        if cur_idx + 1 >= self.layout_lines.len() {
-            // Already at the last line
+
+        let len = self.layout_lines.len();
+        // Treat a table as a single stop: skip down over all of its lines to the
+        // first line below it.
+        let cur_block = self.layout_lines[cur_idx].block_index;
+        let target_idx = if self.block_is_table(cur_block) {
+            let mut t = cur_idx + 1;
+            while t < len && self.layout_lines[t].block_index == cur_block {
+                t += 1;
+            }
+            t
+        } else {
+            cur_idx + 1
+        };
+
+        if target_idx >= len {
+            // Already at (or past) the last line
             return;
         }
-        let target_line = &self.layout_lines[cur_idx + 1];
-        let new_pos = self.get_preferred_pos_for_line(target_line);
+
+        let new_pos = self.vertical_target_pos(target_idx);
         if extend {
             self.editor.extend_selection_to(new_pos);
         } else {
@@ -2499,7 +2544,8 @@ mod tests {
     use super::*;
     use crate::draw_context::{FontStyle, FontType};
     use crate::richtext::structured_document::{
-        Block, BlockType, DocumentPosition, InlineContent, StructuredDocument, TextRun,
+        Block, BlockType, DocumentPosition, InlineContent, StructuredDocument, TableCell, TableRow,
+        TextRun,
     };
 
     #[derive(Default)]
@@ -2576,6 +2622,63 @@ mod tests {
             editor.set_cursor(DocumentPosition::new(0, 0));
         }
         display
+    }
+
+    fn make_display_with_blocks(blocks: Vec<Block>) -> StructuredRichDisplay {
+        let mut display = StructuredRichDisplay::new(0, 0, 400, 300);
+        {
+            let editor = display.editor_mut();
+            let mut doc = StructuredDocument::new();
+            for b in blocks {
+                doc.add_block(b);
+            }
+            *editor.document_mut() = doc;
+            editor.set_cursor(DocumentPosition::new(0, 0));
+        }
+        display
+    }
+
+    fn table_block(rows: usize) -> Block {
+        let rows = (0..rows)
+            .map(|r| {
+                TableRow::new(vec![TableCell::new(
+                    false,
+                    vec![InlineContent::Text(TextRun::plain(format!("r{r}")))],
+                )])
+            })
+            .collect();
+        Block::table(rows)
+    }
+
+    #[test]
+    fn vertical_nav_treats_table_as_single_stop() {
+        // A multi-row table produces several layout lines; Up/Down must treat
+        // the whole table as one stop instead of stepping through each line.
+        let mut ctx = TestDrawContext::new_with_focus();
+        let mut display = make_display_with_blocks(vec![
+            Block::paragraph().with_plain_text("one"),
+            table_block(3),
+            Block::paragraph().with_plain_text("two"),
+        ]);
+        // Force layout so the table contributes multiple layout lines.
+        display.draw(&mut ctx);
+        assert_eq!(display.editor().cursor().block_index, 0);
+
+        // Down: land on the table once.
+        display.move_cursor_visual_down(false, &mut ctx);
+        assert_eq!(display.editor().cursor().block_index, 1);
+
+        // Down again: skip the entire table to the paragraph below it.
+        display.move_cursor_visual_down(false, &mut ctx);
+        assert_eq!(display.editor().cursor().block_index, 2);
+
+        // Up: back onto the table once.
+        display.move_cursor_visual_up(false, &mut ctx);
+        assert_eq!(display.editor().cursor().block_index, 1);
+
+        // Up again: skip the entire table to the first paragraph.
+        display.move_cursor_visual_up(false, &mut ctx);
+        assert_eq!(display.editor().cursor().block_index, 0);
     }
 
     #[test]

@@ -690,6 +690,17 @@ impl StructuredDocument {
             return;
         }
 
+        // A table is atomic and has no editable text. If a multi-block deletion
+        // starts at a table, the table is fully consumed, so demote it to a
+        // paragraph before any trailing content is merged into it — otherwise
+        // that text would be trapped in a table block the renderer ignores.
+        if matches!(
+            self.blocks[a.block_index].block_type,
+            BlockType::Table { .. }
+        ) {
+            self.blocks[a.block_index].block_type = BlockType::Paragraph;
+        }
+
         // Delete tail of start block
         {
             let block = &mut self.blocks[a.block_index];
