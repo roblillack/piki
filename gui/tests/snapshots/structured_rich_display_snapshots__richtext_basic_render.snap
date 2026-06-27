@@ -1,5 +1,5 @@
 ---
-source: tests/structured_rich_display_snapshots.rs
+source: gui/tests/structured_rich_display_snapshots.rs
 expression: svg
 extension: svg
 snapshot_kind: binary

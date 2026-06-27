@@ -731,6 +731,8 @@ impl FltkStructuredRichDisplay {
                                     display.borrow_mut().editor_mut().select_line_at(pos);
                                 }
                             }
+                            // Show the caret immediately at the click location.
+                            display.borrow_mut().reset_blink();
                             w.redraw();
                         }
 
@@ -1858,6 +1860,9 @@ impl FltkStructuredRichDisplay {
                                     // undo/redo themselves (document already restored).
                                     disp.editor_mut()
                                         .commit_undo_step(undo_kind, Instant::now());
+                                    // Restart the blink so the caret is shown at its new
+                                    // position immediately, regardless of blink phase.
+                                    disp.reset_blink();
                                     if did_horizontal {
                                         let cursor = disp.editor().cursor();
                                         disp.record_preferred_pos(cursor);
