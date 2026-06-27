@@ -18,8 +18,7 @@ impl ContentProvider
     fn get_content(&self) -> String {
         use crate::richtext::markdown_converter::document_to_markdown;
         let disp = self.borrow();
-        let doc = disp.editor().document();
-        document_to_markdown(doc)
+        document_to_markdown(disp.editor().tdoc())
     }
 }
 
@@ -31,11 +30,7 @@ pub trait ContentLoader {
 // Loader for Rc<RefCell<StructuredRichDisplay>> by converting markdown to StructuredDocument
 impl ContentLoader for crate::richtext::structured_rich_display::StructuredRichDisplay {
     fn set_content_from_markdown(&mut self, markdown: &str) {
-        use crate::richtext::markdown_converter::markdown_to_document;
-        let editor = self.editor_mut();
-        *editor.document_mut() = markdown_to_document(markdown);
-        // Clear selection to prevent stale selection from being applied to new content
-        editor.clear_selection();
+        self.editor_mut().load_markdown(markdown);
         // Reset scroll to top after loading new content
         self.set_scroll(0);
     }

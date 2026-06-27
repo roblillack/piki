@@ -4,6 +4,8 @@
 
 use super::structured_document::*;
 use super::structured_editor::*;
+use super::tree_path::{DocumentPosition, TreePath};
+use super::tree_walk::{self, LeafInfo};
 use crate::draw_context::DrawContext;
 use crate::draw_context::FontStyle;
 use crate::draw_context::FontType;
@@ -336,6 +338,12 @@ pub struct StructuredRichDisplay {
     // Grid geometry for table blocks, parallel to layout_lines (cell text lives
     // in layout_lines; borders/header fills are drawn from this).
     table_layouts: Vec<TableLayout>,
+    // The leaves of the current layout frame, in document order. `block_index` on
+    // layout lines/runs is an index into this (a transient projection of the
+    // authoritative tdoc tree, rebuilt every layout — not a parallel document model).
+    layout_leaves: Vec<LeafInfo>,
+    // The renderable block for each leaf, parallel to `layout_leaves`.
+    layout_blocks: Vec<Block>,
     layout_valid: bool,
 
     // Scrolling
@@ -352,8 +360,8 @@ pub struct StructuredRichDisplay {
     // Elapsed-ms value at which the current blink cycle started (its "on" phase).
     blink_anchor_ms: u64,
 
-    // Link hover state
-    hovered_link: Option<(usize, usize)>, // (block_index, inline_index)
+    // Link hover state: the leaf path + inline index of the hovered link.
+    hovered_link: Option<(TreePath, usize)>,
 
     // Sticky horizontal position for vertical navigation across proportional fonts
     cursor_preferred_line_offset: Option<usize>,
@@ -377,6 +385,8 @@ impl StructuredRichDisplay {
             editor: StructuredEditor::new(),
             layout_lines: Vec::new(),
             table_layouts: Vec::new(),
+            layout_leaves: Vec::new(),
+            layout_blocks: Vec::new(),
             layout_valid: false,
             scroll_offset: 0,
             cursor_visible: true,
@@ -505,14 +515,56 @@ impl StructuredRichDisplay {
         let content_width = self.w - 2 * self.theme.padding_horizontal;
         let mut current_y = self.theme.padding_vertical;
 
-        // Clone blocks to avoid borrow checker issues
-        let blocks = self.editor.document().blocks().to_vec();
+        // Project the authoritative tdoc tree into a flat list of leaves (in document
+        // order) and a parallel list of renderable blocks. `block_index` on layout lines
+        // is an index into these vecs.
+        let (leaves, blocks) = {
+            let tdoc = self.editor.tdoc();
+            let leaves = tree_walk::enumerate_leaves(tdoc);
+            let blocks: Vec<Block> = leaves
+                .iter()
+                .map(|info| Block {
+                    block_type: tree_walk::leaf_block_type(tdoc, info),
+                    content: tree_walk::leaf_inline(tdoc, &info.path),
+                })
+                .collect();
+            (leaves, blocks)
+        };
 
-        for (block_idx, block) in blocks.iter().enumerate() {
-            current_y = self.layout_block(block, block_idx, current_y, content_width, ctx);
+        for block_idx in 0..blocks.len() {
+            current_y = self.layout_block(
+                &blocks[block_idx],
+                &blocks,
+                block_idx,
+                current_y,
+                content_width,
+                ctx,
+            );
         }
 
+        self.layout_leaves = leaves;
+        self.layout_blocks = blocks;
         self.layout_valid = true;
+    }
+
+    /// The tree path of the leaf at frame index `idx` (empty path if out of range).
+    fn path_for_index(&self, idx: usize) -> TreePath {
+        self.layout_leaves
+            .get(idx)
+            .map(|info| info.path.clone())
+            .unwrap_or_default()
+    }
+
+    /// The frame index of the leaf at `path`, if present in the current layout frame.
+    fn index_for_path(&self, path: &TreePath) -> Option<usize> {
+        self.layout_leaves
+            .iter()
+            .position(|info| &info.path == path)
+    }
+
+    /// Build a position from a frame leaf index and a byte offset.
+    fn pos_at_index(&self, idx: usize, offset: usize) -> DocumentPosition {
+        DocumentPosition::at(self.path_for_index(idx), offset)
     }
 
     /// Compute a precise character offset within a given line for a desired x position using font metrics.
@@ -585,10 +637,11 @@ impl StructuredRichDisplay {
         self.is_last_visual_line_in_block(line_index) && offset == line.char_end
     }
 
-    /// Get the character offset within the visual line for a given block index and offset.
+    /// Get the character offset within the visual line for a given position.
     fn visual_line_offset(&self, pos: DocumentPosition) -> Option<usize> {
+        let target = self.index_for_path(&pos.path)?;
         for (i, line) in self.layout_lines.iter().enumerate() {
-            if line.block_index == pos.block_index && self.offset_belongs_to_line(i, pos.offset) {
+            if line.block_index == target && self.offset_belongs_to_line(i, pos.offset) {
                 return Some(pos.offset - line.char_start);
             }
         }
@@ -627,18 +680,17 @@ impl StructuredRichDisplay {
 
     fn current_line_index_for_cursor(&self) -> Option<usize> {
         let cursor = self.editor.cursor();
+        let cidx = self.index_for_path(&cursor.path)?;
         // First, look for a line in the same block whose char range contains the offset
         for (i, line) in self.layout_lines.iter().enumerate() {
-            if line.block_index == cursor.block_index
-                && self.offset_belongs_to_line(i, cursor.offset)
-            {
+            if line.block_index == cidx && self.offset_belongs_to_line(i, cursor.offset) {
                 return Some(i);
             }
         }
         // Fallback: closest line in the same block by char range proximity
         let mut candidate: Option<(usize, usize)> = None; // (index, distance)
         for (i, line) in self.layout_lines.iter().enumerate() {
-            if line.block_index == cursor.block_index {
+            if line.block_index == cidx {
                 let dist = if cursor.offset < line.char_start {
                     line.char_start - cursor.offset
                 } else {
@@ -665,17 +717,13 @@ impl StructuredRichDisplay {
         let line_visual_len = line.visual_char_end.saturating_sub(line.char_start);
         let effective_offset = preferred_offset.min(line_visual_len);
 
-        DocumentPosition::new(line.block_index, line.char_start + effective_offset)
+        self.pos_at_index(line.block_index, line.char_start + effective_offset)
     }
 
-    /// Whether the block at `block_index` is a (read-only) table.
+    /// Whether the leaf at frame index `block_index` is a (read-only) table.
     fn block_is_table(&self, block_index: usize) -> bool {
         matches!(
-            self.editor
-                .document()
-                .blocks()
-                .get(block_index)
-                .map(|b| &b.block_type),
+            self.layout_blocks.get(block_index).map(|b| &b.block_type),
             Some(BlockType::Table { .. })
         )
     }
@@ -687,7 +735,7 @@ impl StructuredRichDisplay {
     fn vertical_target_pos(&self, target_idx: usize) -> DocumentPosition {
         let line = &self.layout_lines[target_idx];
         if self.block_is_table(line.block_index) {
-            DocumentPosition::new(line.block_index, 0)
+            self.pos_at_index(line.block_index, 0)
         } else {
             self.get_preferred_pos_for_line(line)
         }
@@ -811,7 +859,7 @@ impl StructuredRichDisplay {
             return;
         }
 
-        let cursor_block = self.editor.cursor().block_index;
+        let cursor_block = self.index_for_path(&self.editor.cursor().path);
         let line_idx = match self.current_line_index_for_cursor() {
             Some(idx) => idx,
             None => {
@@ -824,7 +872,7 @@ impl StructuredRichDisplay {
             }
         };
         let line = &self.layout_lines[line_idx];
-        if line.block_index != cursor_block {
+        if Some(line.block_index) != cursor_block {
             if extend {
                 self.editor.move_cursor_to_line_start_extend();
             } else {
@@ -833,11 +881,11 @@ impl StructuredRichDisplay {
             return;
         }
 
-        let new_pos = DocumentPosition::new(line.block_index, line.char_start);
+        let new_pos = self.pos_at_index(line.block_index, line.char_start);
         if extend {
-            self.editor.extend_selection_to(new_pos);
+            self.editor.extend_selection_to(new_pos.clone());
         } else {
-            self.editor.set_cursor(new_pos);
+            self.editor.set_cursor(new_pos.clone());
         }
         self.record_preferred_pos(new_pos);
     }
@@ -854,7 +902,7 @@ impl StructuredRichDisplay {
             return;
         }
 
-        let cursor_block = self.editor.cursor().block_index;
+        let cursor_block = self.index_for_path(&self.editor.cursor().path);
         let line_idx = match self.current_line_index_for_cursor() {
             Some(idx) => idx,
             None => {
@@ -867,7 +915,7 @@ impl StructuredRichDisplay {
             }
         };
         let line = &self.layout_lines[line_idx];
-        if line.block_index != cursor_block {
+        if Some(line.block_index) != cursor_block {
             if extend {
                 self.editor.move_cursor_to_line_end_extend();
             } else {
@@ -883,19 +931,21 @@ impl StructuredRichDisplay {
             target_offset -= 1;
         }
 
-        let new_pos = DocumentPosition::new(line.block_index, target_offset);
+        let new_pos = self.pos_at_index(line.block_index, target_offset);
         if extend {
-            self.editor.extend_selection_to(new_pos);
+            self.editor.extend_selection_to(new_pos.clone());
         } else {
-            self.editor.set_cursor(new_pos);
+            self.editor.set_cursor(new_pos.clone());
         }
         self.record_preferred_pos(new_pos);
     }
 
-    /// Layout a single block
+    /// Layout a single block. `blocks` is the full frame slice (for sibling scans such as
+    /// ordered-list run detection); `block_idx` indexes it.
     fn layout_block(
         &mut self,
         block: &Block,
+        blocks: &[Block],
         block_idx: usize,
         y: i32,
         width: i32,
@@ -1009,6 +1059,7 @@ impl StructuredRichDisplay {
                 ordered,
                 number,
                 checkbox,
+                ..
             } => {
                 let plain_font = self.theme.plain_text;
 
@@ -1049,8 +1100,6 @@ impl StructuredRichDisplay {
                     (String::new(), label_pad_width, content_start_x)
                 } else if *ordered {
                     // Find contiguous ordered list run (adjacent siblings)
-                    let doc = self.editor.document();
-                    let blocks = doc.blocks();
 
                     // Find run start
                     let mut run_start = block_idx;
@@ -1732,20 +1781,14 @@ impl StructuredRichDisplay {
     /// Check if a visual run intersects with the current selection
     /// Returns None if no selection, or Some((start_offset, end_offset)) relative to the run
     fn get_run_selection_range(&self, run: &VisualRun) -> Option<(usize, usize)> {
-        let selection = self.editor.selection()?;
-        let (sel_start, sel_end) = selection;
-
-        // Normalize selection so start <= end
-        let (sel_start, sel_end) = if sel_start.block_index < sel_end.block_index
-            || (sel_start.block_index == sel_end.block_index && sel_start.offset <= sel_end.offset)
-        {
-            (sel_start, sel_end)
-        } else {
-            (sel_end, sel_start)
-        };
+        let (a, b) = self.editor.selection()?;
+        // Normalize selection so start <= end (document order).
+        let (sel_start, sel_end) = if a <= b { (a, b) } else { (b, a) };
+        let sel_start_idx = self.index_for_path(&sel_start.path)?;
+        let sel_end_idx = self.index_for_path(&sel_end.path)?;
 
         // Check if this run's block is within the selection
-        if run.block_index < sel_start.block_index || run.block_index > sel_end.block_index {
+        if run.block_index < sel_start_idx || run.block_index > sel_end_idx {
             return None;
         }
 
@@ -1753,13 +1796,13 @@ impl StructuredRichDisplay {
         let run_start = run.char_range.0;
         let run_end = run.char_range.1;
 
-        let sel_start_offset = if run.block_index == sel_start.block_index {
+        let sel_start_offset = if run.block_index == sel_start_idx {
             sel_start.offset
         } else {
             0
         };
 
-        let sel_end_offset = if run.block_index == sel_end.block_index {
+        let sel_end_offset = if run.block_index == sel_end_idx {
             sel_end.offset
         } else {
             usize::MAX
@@ -1787,7 +1830,7 @@ impl StructuredRichDisplay {
     fn draw_tables(&self, ctx: &mut dyn DrawContext) {
         let viewport_top = self.scroll_offset;
         let viewport_bottom = self.scroll_offset + self.h;
-        let blocks = self.editor.document().blocks();
+        let blocks = &self.layout_blocks;
 
         for table in &self.table_layouts {
             let (top, bottom) = match (table.row_y.first(), table.row_y.last()) {
@@ -1861,7 +1904,7 @@ impl StructuredRichDisplay {
 
             // If this line belongs to a BlockQuote, draw a vertical bar to the left.
             // We draw a short segment per line to keep implementation simple.
-            if let Some(block) = self.editor.document().blocks().get(line.block_index)
+            if let Some(block) = self.layout_blocks.get(line.block_index)
                 && let BlockType::BlockQuote = block.block_type
             {
                 // Position the bar slightly left of the quote text indent (start_x + 20)
@@ -1872,10 +1915,16 @@ impl StructuredRichDisplay {
                 ctx.draw_line(bar_x, bar_y1, bar_x, bar_y2);
             }
 
+            // Resolve the hovered link (if any) to this frame's leaf index for comparison.
+            let hovered_idx = self
+                .hovered_link
+                .as_ref()
+                .and_then(|(path, inline)| self.index_for_path(path).map(|idx| (idx, *inline)));
+
             for run in &line.runs {
                 // Check if this run is part of a hovered link
-                let is_hovered = self.hovered_link.is_some_and(|(block_idx, inline_idx)| {
-                    run.block_index == block_idx && run.inline_index == Some(inline_idx)
+                let is_hovered = hovered_idx.is_some_and(|(idx, inline)| {
+                    run.block_index == idx && run.inline_index == Some(inline)
                 });
 
                 let descent = ctx.text_descent(run.font_type, run.font_style, run.font_size);
@@ -2062,15 +2111,11 @@ impl StructuredRichDisplay {
     /// Get visual position of cursor (x, y, height) relative to widget
     fn get_cursor_visual_position(&self, ctx: &mut dyn DrawContext) -> Option<(i32, i32, i32)> {
         let cursor = self.editor.cursor();
-        let doc = self.editor.document();
-
-        if cursor.block_index >= doc.block_count() {
-            return None;
-        }
+        let cur_idx = self.index_for_path(&cursor.path);
 
         // Find the layout line containing the cursor
         for (idx, line) in self.layout_lines.iter().enumerate() {
-            if line.block_index != cursor.block_index {
+            if Some(line.block_index) != cur_idx {
                 continue;
             }
             if !self.offset_belongs_to_line(idx, cursor.offset) {
@@ -2126,10 +2171,8 @@ impl StructuredRichDisplay {
     }
 
     /// Determine if a point (widget coordinates) hits a checklist marker
-    pub(crate) fn checklist_marker_hit(&self, x: i32, y: i32) -> Option<usize> {
+    pub(crate) fn checklist_marker_hit(&self, x: i32, y: i32) -> Option<TreePath> {
         let adjusted_y = y + self.scroll_offset;
-        let doc = self.editor.document();
-        let blocks = doc.blocks();
 
         for line in &self.layout_lines {
             if adjusted_y < line.y || adjusted_y > line.y + line.height {
@@ -2148,7 +2191,7 @@ impl StructuredRichDisplay {
                     let tolerance = 2;
                     if x >= marker_start_x - tolerance
                         && x <= marker_end_x + tolerance
-                        && let Some(block) = blocks.get(line.block_index)
+                        && let Some(block) = self.layout_blocks.get(line.block_index)
                         && matches!(
                             block.block_type,
                             BlockType::ListItem {
@@ -2157,7 +2200,7 @@ impl StructuredRichDisplay {
                             }
                         )
                     {
-                        return Some(line.block_index);
+                        return Some(self.path_for_index(line.block_index));
                     }
                 }
             }
@@ -2201,9 +2244,8 @@ impl StructuredRichDisplay {
         // First try: direct hit on a line
         for line in &self.layout_lines {
             if adjusted_y >= line.y && adjusted_y < line.y + line.height {
-                let block_index = line.block_index;
                 let offset = offset_in_line(line, x);
-                return DocumentPosition::new(block_index, offset);
+                return self.pos_at_index(line.block_index, offset);
             }
         }
 
@@ -2239,9 +2281,8 @@ impl StructuredRichDisplay {
         };
 
         let line = &self.layout_lines[target_idx];
-        let block_index = line.block_index;
         let offset = offset_in_line(line, x);
-        DocumentPosition::new(block_index, offset)
+        self.pos_at_index(line.block_index, offset)
     }
 
     /// Set cursor visibility
@@ -2280,7 +2321,7 @@ impl StructuredRichDisplay {
 
     /// Find link at given widget coordinates (relative to widget, not screen)
     /// Returns ((block_index, inline_index), destination) if a link is found
-    pub fn find_link_at(&self, x: i32, y: i32) -> Option<((usize, usize), String)> {
+    pub fn find_link_at(&self, x: i32, y: i32) -> Option<((TreePath, usize), String)> {
         let adjusted_y = y + self.scroll_offset;
         let adjusted_x = x;
 
@@ -2291,20 +2332,15 @@ impl StructuredRichDisplay {
                 for run in &line.runs {
                     if adjusted_x >= run.x && adjusted_x < run.x + run.width {
                         // Check if this run has an inline_index pointing to a link
-                        if let Some(inline_idx) = run.inline_index {
-                            let doc = self.editor.document();
-                            if run.block_index < doc.block_count() {
-                                let block = &doc.blocks()[run.block_index];
-                                if inline_idx < block.content.len()
-                                    && let InlineContent::Link { link, .. } =
-                                        &block.content[inline_idx]
-                                {
-                                    return Some((
-                                        (run.block_index, inline_idx),
-                                        link.destination.clone(),
-                                    ));
-                                }
-                            }
+                        if let Some(inline_idx) = run.inline_index
+                            && let Some(block) = self.layout_blocks.get(run.block_index)
+                            && inline_idx < block.content.len()
+                            && let InlineContent::Link { link, .. } = &block.content[inline_idx]
+                        {
+                            return Some((
+                                (self.path_for_index(run.block_index), inline_idx),
+                                link.destination.clone(),
+                            ));
                         }
                     }
                 }
@@ -2314,7 +2350,7 @@ impl StructuredRichDisplay {
     }
 
     /// Set hovered link (for hover highlighting)
-    pub fn set_hovered_link(&mut self, link: Option<(usize, usize)>) {
+    pub fn set_hovered_link(&mut self, link: Option<(TreePath, usize)>) {
         if self.hovered_link != link {
             self.hovered_link = link;
             // Don't invalidate layout, just trigger redraw
@@ -2322,8 +2358,8 @@ impl StructuredRichDisplay {
     }
 
     /// Get hovered link
-    pub fn hovered_link(&self) -> Option<(usize, usize)> {
-        self.hovered_link
+    pub fn hovered_link(&self) -> Option<(TreePath, usize)> {
+        self.hovered_link.clone()
     }
 
     /// Find a link at or adjacent to the current cursor position.
@@ -2333,15 +2369,10 @@ impl StructuredRichDisplay {
     /// before) or exactly at the end (directly after) of the link.
     ///
     /// Returns ((block_index, inline_index), destination) if a link is found.
-    pub fn find_link_near_cursor(&self) -> Option<((usize, usize), String)> {
+    pub fn find_link_near_cursor(&self) -> Option<((TreePath, usize), String)> {
         let cursor = self.editor.cursor();
-        let doc = self.editor.document();
-
-        if cursor.block_index >= doc.block_count() {
-            return None;
-        }
-
-        let block = &doc.blocks()[cursor.block_index];
+        let cur_idx = self.index_for_path(&cursor.path)?;
+        let block = self.layout_blocks.get(cur_idx)?;
         let mut pos = 0usize;
 
         for (inline_idx, item) in block.content.iter().enumerate() {
@@ -2352,7 +2383,7 @@ impl StructuredRichDisplay {
 
                 // Cursor is within, or exactly at start/end (adjacent)
                 if cursor.offset >= start && cursor.offset <= end {
-                    return Some(((cursor.block_index, inline_idx), link.destination.clone()));
+                    return Some(((cursor.path.clone(), inline_idx), link.destination.clone()));
                 }
             }
             pos += len;
@@ -2376,10 +2407,11 @@ impl StructuredRichDisplay {
         }
 
         let term_lower = term.to_lowercase();
-        let doc = self.editor.document();
-
-        for (block_idx, block) in doc.blocks().iter().enumerate() {
-            let text = block.to_plain_text();
+        // `block_index` is the leaf's index in document order, matching layout frames.
+        let leaves = tree_walk::enumerate_leaves(self.editor.tdoc());
+        let mut matches = Vec::new();
+        for (block_idx, info) in leaves.iter().enumerate() {
+            let text = tree_walk::leaf_plain_text(self.editor.tdoc(), &info.path);
             let text_lower = text.to_lowercase();
 
             // Find all occurrences in this block
@@ -2387,7 +2419,7 @@ impl StructuredRichDisplay {
             while let Some(pos) = text_lower[search_start..].find(&term_lower) {
                 let start_offset = search_start + pos;
                 let end_offset = start_offset + term.len();
-                self.search_matches.push(SearchMatch {
+                matches.push(SearchMatch {
                     block_index: block_idx,
                     start_offset,
                     end_offset,
@@ -2395,6 +2427,7 @@ impl StructuredRichDisplay {
                 search_start = start_offset + 1; // Move past this match to find overlapping matches
             }
         }
+        self.search_matches = matches;
 
         // If we found matches, set current index to 0
         if !self.search_matches.is_empty() {
@@ -2543,10 +2576,66 @@ impl StructuredRichDisplay {
 mod tests {
     use super::*;
     use crate::draw_context::{FontStyle, FontType};
+    use crate::richtext::inline_convert::inline_to_spans;
     use crate::richtext::structured_document::{
-        Block, BlockType, DocumentPosition, InlineContent, StructuredDocument, TableCell, TableRow,
-        TextRun,
+        Block, BlockType, InlineContent, TableCell, TableRow, TextRun,
     };
+    use crate::richtext::tree_path::{DocumentPosition, TreePath};
+    use crate::richtext::tree_walk;
+    use tdoc::Document;
+    use tdoc::paragraph::{
+        ChecklistItem, Paragraph, TableCell as TdocTableCell, TableRow as TdocTableRow,
+    };
+
+    /// Build a single tdoc paragraph from a transient `Block` (test convenience).
+    fn block_to_paragraph(block: &Block) -> Paragraph {
+        let spans = inline_to_spans(&block.content);
+        match &block.block_type {
+            BlockType::Paragraph => Paragraph::new_text().with_content(spans),
+            BlockType::Heading { level } => match level {
+                1 => Paragraph::new_header1().with_content(spans),
+                2 => Paragraph::new_header2().with_content(spans),
+                _ => Paragraph::new_header3().with_content(spans),
+            },
+            BlockType::CodeBlock { .. } => Paragraph::new_code_block().with_content(spans),
+            BlockType::BlockQuote => Paragraph::new_quote()
+                .with_children(vec![Paragraph::new_text().with_content(spans)]),
+            BlockType::ListItem {
+                ordered, checkbox, ..
+            } => {
+                if let Some(checked) = checkbox {
+                    let item = ChecklistItem::new(*checked).with_content(spans);
+                    Paragraph::new_checklist().with_checklist_items(vec![item])
+                } else if *ordered {
+                    Paragraph::new_ordered_list()
+                        .with_entries(vec![vec![Paragraph::new_text().with_content(spans)]])
+                } else {
+                    Paragraph::new_unordered_list()
+                        .with_entries(vec![vec![Paragraph::new_text().with_content(spans)]])
+                }
+            }
+            BlockType::Table { rows } => Paragraph::Table {
+                rows: rows
+                    .iter()
+                    .map(|r| TdocTableRow {
+                        cells: r
+                            .cells
+                            .iter()
+                            .map(|c| TdocTableCell {
+                                is_header: c.is_header,
+                                content: inline_to_spans(&c.content),
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+            },
+        }
+    }
+
+    /// Byte length of the first leaf's plain text.
+    fn leaf0_len(display: &StructuredRichDisplay) -> usize {
+        tree_walk::leaf_text_len(display.editor().tdoc(), &TreePath::root(0))
+    }
 
     #[derive(Default)]
     struct TestDrawContext {
@@ -2613,26 +2702,15 @@ mod tests {
     }
 
     fn make_display_with_block(block: Block) -> StructuredRichDisplay {
-        let mut display = StructuredRichDisplay::new(0, 0, 400, 300);
-        {
-            let editor = display.editor_mut();
-            let mut doc = StructuredDocument::new();
-            doc.add_block(block);
-            *editor.document_mut() = doc;
-            editor.set_cursor(DocumentPosition::new(0, 0));
-        }
-        display
+        make_display_with_blocks(vec![block])
     }
 
     fn make_display_with_blocks(blocks: Vec<Block>) -> StructuredRichDisplay {
         let mut display = StructuredRichDisplay::new(0, 0, 400, 300);
+        let doc = Document::new().with_paragraphs(blocks.iter().map(block_to_paragraph).collect());
         {
             let editor = display.editor_mut();
-            let mut doc = StructuredDocument::new();
-            for b in blocks {
-                doc.add_block(b);
-            }
-            *editor.document_mut() = doc;
+            editor.set_tdoc(doc);
             editor.set_cursor(DocumentPosition::new(0, 0));
         }
         display
@@ -2662,23 +2740,23 @@ mod tests {
         ]);
         // Force layout so the table contributes multiple layout lines.
         display.draw(&mut ctx);
-        assert_eq!(display.editor().cursor().block_index, 0);
+        assert_eq!(display.editor().cursor().path, TreePath::root(0));
 
         // Down: land on the table once.
         display.move_cursor_visual_down(false, &mut ctx);
-        assert_eq!(display.editor().cursor().block_index, 1);
+        assert_eq!(display.editor().cursor().path, TreePath::root(1));
 
         // Down again: skip the entire table to the paragraph below it.
         display.move_cursor_visual_down(false, &mut ctx);
-        assert_eq!(display.editor().cursor().block_index, 2);
+        assert_eq!(display.editor().cursor().path, TreePath::root(2));
 
         // Up: back onto the table once.
         display.move_cursor_visual_up(false, &mut ctx);
-        assert_eq!(display.editor().cursor().block_index, 1);
+        assert_eq!(display.editor().cursor().path, TreePath::root(1));
 
         // Up again: skip the entire table to the first paragraph.
         display.move_cursor_visual_up(false, &mut ctx);
-        assert_eq!(display.editor().cursor().block_index, 0);
+        assert_eq!(display.editor().cursor().path, TreePath::root(0));
     }
 
     #[test]
@@ -2705,6 +2783,7 @@ mod tests {
             ordered: false,
             number: None,
             checkbox: None,
+            depth: 0,
         });
         let mut display = make_display_with_block(block);
         let mut ctx = TestDrawContext::new_with_focus();
@@ -2726,16 +2805,18 @@ mod tests {
 
     #[test]
     fn cursor_in_empty_ordered_list_respects_content_indent() {
+        // A single ordered item renders as "1." (ordinals are derived from tree position).
         let block = Block::new(BlockType::ListItem {
             ordered: true,
-            number: Some(3),
+            number: Some(1),
             checkbox: None,
+            depth: 0,
         });
         let mut display = make_display_with_block(block);
         let mut ctx = TestDrawContext::new_with_focus();
 
         let label_width = ctx.text_width(
-            "3. ",
+            "1. ",
             display.theme.plain_text.font_type,
             display.theme.plain_text.font_style,
             display.theme.plain_text.font_size,
@@ -2755,6 +2836,7 @@ mod tests {
             ordered: false,
             number: None,
             checkbox: Some(false),
+            depth: 0,
         });
         let mut display = make_display_with_block(block);
         let mut ctx = TestDrawContext::new_with_focus();
@@ -2817,7 +2899,7 @@ mod tests {
             "Trailing hard break should produce two visual lines"
         );
 
-        let end_offset = display.editor().document().blocks()[0].text_len();
+        let end_offset = leaf0_len(&display);
         {
             let editor = display.editor_mut();
             editor.set_cursor(DocumentPosition::new(0, end_offset));
@@ -2906,8 +2988,6 @@ mod tests {
 
     #[test]
     fn hard_break_blank_line_has_nonzero_offset() {
-        let mut display = StructuredRichDisplay::new(0, 0, 400, 200);
-        let mut doc = StructuredDocument::new();
         let mut block = Block::paragraph();
         block
             .content
@@ -2917,13 +2997,7 @@ mod tests {
         block
             .content
             .push(InlineContent::Text(TextRun::plain("World")));
-        doc.add_block(block);
-
-        {
-            let editor = display.editor_mut();
-            *editor.document_mut() = doc;
-            editor.set_cursor(DocumentPosition::new(0, 0));
-        }
+        let mut display = make_display_with_block(block);
 
         let mut ctx = TestDrawContext::new_with_focus();
         display.layout_valid = false;

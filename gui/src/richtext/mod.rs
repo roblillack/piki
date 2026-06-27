@@ -1,6 +1,8 @@
 pub mod markdown_converter;
 
+pub mod inline_convert;
 pub mod structured_document;
 pub mod structured_editor;
 pub mod structured_rich_display;
-mod tdoc_bridge;
+pub mod tree_path;
+pub mod tree_walk;

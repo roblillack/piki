@@ -3,8 +3,8 @@
 pub mod svg_draw_context;
 
 use piki_gui::richtext::markdown_converter::markdown_to_document;
-use piki_gui::richtext::structured_document::DocumentPosition;
 use piki_gui::richtext::structured_rich_display::StructuredRichDisplay;
+use piki_gui::richtext::tree_path::DocumentPosition;
 
 use crate::svg_draw_context::SvgDrawContext;
 
@@ -13,10 +13,7 @@ fn render_markdown_to_svg(markdown: &str, width: i32, height: i32) -> Vec<u8> {
 
     // Load document into editor
     let doc = markdown_to_document(markdown);
-    {
-        let editor = display.editor_mut();
-        *editor.document_mut() = doc;
-    }
+    display.editor_mut().set_tdoc(doc);
 
     // Render to SVG
     let mut ctx = SvgDrawContext::new(width, height);
@@ -48,7 +45,7 @@ fn selection_single_block() {
     {
         let doc = markdown_to_document(md);
         let editor = display.editor_mut();
-        *editor.document_mut() = doc;
+        editor.set_tdoc(doc);
         // Select the word "selection"
         let start = md.find("selection").unwrap();
         let end = start + "selection".len();
@@ -73,7 +70,7 @@ fn cursor_positioning_middle_of_line() {
     {
         let doc = markdown_to_document(md);
         let editor = display.editor_mut();
-        *editor.document_mut() = doc;
+        editor.set_tdoc(doc);
         // Place cursor after word "with"
         let pos = md.find("with").unwrap() + "with".len();
         editor.set_cursor(DocumentPosition::new(0, pos));
@@ -122,7 +119,7 @@ fn selection_across_blocks() {
     {
         let doc = markdown_to_document(md);
         let editor = display.editor_mut();
-        *editor.document_mut() = doc;
+        editor.set_tdoc(doc);
 
         // Blocks: 0=Heading, 1=Para1, 2=Para2
         let para1 = "Paragraph one with content.";

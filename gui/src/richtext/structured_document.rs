@@ -1,11 +1,13 @@
-// Structured Document Model
-// A document representation completely independent of markdown syntax
-// Markdown is only used as a storage/serialization format
+// Block & inline content types.
+//
+// These are the editor/display's *transient* working representation of a single leaf:
+// a `BlockType` (presentation kind) plus a flat `Vec<InlineContent>` of styled runs.
+// The authoritative document is the `tdoc::Document` tree owned by the editor; a leaf's
+// spans are converted to/from this flat form (see `inline_convert`) only while laying it
+// out or editing it. Positions live in `tree_path`; tree navigation in `tree_walk`.
 
 use std::borrow::Cow;
 use std::cmp::min;
-use std::fmt;
-use unicode_segmentation::UnicodeSegmentation;
 
 /// Text styling (semantic, not syntactic)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -164,7 +166,7 @@ impl TableRow {
     }
 }
 
-/// Block-level content types
+/// Block-level content types. Built transiently per leaf during layout/editing.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BlockType {
     Paragraph,
@@ -177,8 +179,11 @@ pub enum BlockType {
     BlockQuote,
     ListItem {
         ordered: bool,
+        /// 1-based ordinal for ordered lists, derived from tree position.
         number: Option<u64>,
         checkbox: Option<bool>,
+        /// Nesting depth (0 = top-level item).
+        depth: usize,
     },
     /// A table. The rows live here rather than in [`Block::content`]; a table
     /// block keeps its `content` empty. Tables are read-only for now.
@@ -487,442 +492,8 @@ impl Block {
     }
 }
 
-/// Position within a document
-/// This represents a logical cursor position in the structured content
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DocumentPosition {
-    pub block_index: usize,
-    pub offset: usize, // Character offset within the block's flattened text
-}
-
-impl DocumentPosition {
-    pub fn new(block_index: usize, offset: usize) -> Self {
-        DocumentPosition {
-            block_index,
-            offset,
-        }
-    }
-
-    pub fn start() -> Self {
-        DocumentPosition::new(0, 0)
-    }
-}
-
-/// The structured document
-#[derive(Debug, Clone, PartialEq)]
-pub struct StructuredDocument {
-    blocks: Vec<Block>,
-}
-
-impl StructuredDocument {
-    pub fn new() -> Self {
-        StructuredDocument { blocks: Vec::new() }
-    }
-
-    /// Get blocks
-    pub fn blocks(&self) -> &[Block] {
-        &self.blocks
-    }
-
-    /// Get mutable blocks
-    pub fn blocks_mut(&mut self) -> &mut Vec<Block> {
-        &mut self.blocks
-    }
-
-    /// Add a block
-    pub fn add_block(&mut self, block: Block) {
-        self.blocks.push(block);
-    }
-
-    /// Insert a block at a specific position
-    pub fn insert_block(&mut self, index: usize, block: Block) {
-        self.blocks.insert(index, block);
-    }
-
-    /// Remove a block
-    pub fn remove_block(&mut self, index: usize) -> Option<Block> {
-        if index < self.blocks.len() {
-            Some(self.blocks.remove(index))
-        } else {
-            None
-        }
-    }
-
-    /// Get block count
-    pub fn block_count(&self) -> usize {
-        self.blocks.len()
-    }
-
-    /// Validate and clamp a position to document bounds
-    pub fn clamp_position(&self, pos: DocumentPosition) -> DocumentPosition {
-        if self.blocks.is_empty() {
-            return DocumentPosition::start();
-        }
-
-        let block_index = pos.block_index.min(self.blocks.len() - 1);
-        let offset = self
-            .grapheme_offset_at_or_before(block_index, pos.offset)
-            .unwrap_or(0);
-
-        DocumentPosition::new(block_index, offset)
-    }
-
-    /// Clamp a position so that its offset lies on or after the next grapheme boundary.
-    pub fn clamp_position_forward(&self, pos: DocumentPosition) -> DocumentPosition {
-        if self.blocks.is_empty() {
-            return DocumentPosition::start();
-        }
-
-        let block_index = pos.block_index.min(self.blocks.len() - 1);
-        let offset = self
-            .grapheme_offset_at_or_after(block_index, pos.offset)
-            .unwrap_or(0);
-
-        DocumentPosition::new(block_index, offset)
-    }
-
-    /// Get the previous grapheme position within the same block.
-    pub fn previous_grapheme_position(&self, pos: DocumentPosition) -> DocumentPosition {
-        if self.blocks.is_empty() {
-            return DocumentPosition::start();
-        }
-
-        let block_index = pos.block_index.min(self.blocks.len() - 1);
-        let offset = self
-            .previous_grapheme_offset(block_index, pos.offset)
-            .unwrap_or(0);
-
-        DocumentPosition::new(block_index, offset)
-    }
-
-    /// Get the next grapheme position within the same block.
-    pub fn next_grapheme_position(&self, pos: DocumentPosition) -> DocumentPosition {
-        if self.blocks.is_empty() {
-            return DocumentPosition::start();
-        }
-
-        let block_index = pos.block_index.min(self.blocks.len() - 1);
-        let offset = self
-            .next_grapheme_offset(block_index, pos.offset)
-            .unwrap_or_else(|| {
-                self.blocks
-                    .get(block_index)
-                    .map(|block| block.text_len())
-                    .unwrap_or(0)
-            });
-
-        DocumentPosition::new(block_index, offset)
-    }
-
-    /// Return the nearest grapheme boundary at or before the provided offset.
-    pub fn grapheme_offset_at_or_before(&self, block_index: usize, offset: usize) -> Option<usize> {
-        self.blocks.get(block_index).map(|block| {
-            let text = block.to_plain_text();
-            grapheme_offset_at_or_before(&text, offset)
-        })
-    }
-
-    /// Return the nearest grapheme boundary at or after the provided offset.
-    pub fn grapheme_offset_at_or_after(&self, block_index: usize, offset: usize) -> Option<usize> {
-        self.blocks.get(block_index).map(|block| {
-            let text = block.to_plain_text();
-            grapheme_offset_at_or_after(&text, offset)
-        })
-    }
-
-    /// Return the previous grapheme boundary strictly before the provided offset.
-    pub fn previous_grapheme_offset(&self, block_index: usize, offset: usize) -> Option<usize> {
-        self.blocks.get(block_index).map(|block| {
-            let text = block.to_plain_text();
-            grapheme_offset_before(&text, offset)
-        })
-    }
-
-    /// Return the next grapheme boundary strictly after the provided offset.
-    pub fn next_grapheme_offset(&self, block_index: usize, offset: usize) -> Option<usize> {
-        self.blocks.get(block_index).map(|block| {
-            let text = block.to_plain_text();
-            grapheme_offset_after(&text, offset)
-        })
-    }
-
-    /// Convert to plain text
-    pub fn to_plain_text(&self) -> String {
-        self.blocks
-            .iter()
-            .map(|b| b.to_plain_text())
-            .collect::<Vec<_>>()
-            .join("\n\n")
-    }
-
-    /// Check if document is empty
-    pub fn is_empty(&self) -> bool {
-        self.blocks.is_empty()
-    }
-
-    /// Create a simple document with one paragraph
-    pub fn with_paragraph(text: impl Into<String>) -> Self {
-        let mut doc = Self::new();
-        let block = Block::paragraph().with_plain_text(text);
-        doc.add_block(block);
-        doc
-    }
-
-    /// Delete content in [start..end) across blocks.
-    /// If the range spans multiple blocks, merges the tail of the end block into the start block
-    /// and removes all fully-covered blocks in between.
-    pub fn delete_range(&mut self, start: DocumentPosition, end: DocumentPosition) {
-        if self.blocks.is_empty() {
-            return;
-        }
-        let mut a = self.clamp_position(start);
-        let mut b = self.clamp_position(end);
-        // Ensure a <= b
-        if (b.block_index < a.block_index)
-            || (b.block_index == a.block_index && b.offset < a.offset)
-        {
-            std::mem::swap(&mut a, &mut b);
-        }
-
-        if a.block_index == b.block_index {
-            let block = &mut self.blocks[a.block_index];
-            block.delete_text_range(a.offset, b.offset);
-            return;
-        }
-
-        // A table is atomic and has no editable text. If a multi-block deletion
-        // starts at a table, the table is fully consumed, so demote it to a
-        // paragraph before any trailing content is merged into it — otherwise
-        // that text would be trapped in a table block the renderer ignores.
-        if matches!(
-            self.blocks[a.block_index].block_type,
-            BlockType::Table { .. }
-        ) {
-            self.blocks[a.block_index].block_type = BlockType::Paragraph;
-        }
-
-        // Delete tail of start block
-        {
-            let block = &mut self.blocks[a.block_index];
-            let len = block.text_len();
-            block.delete_text_range(a.offset, len);
-        }
-
-        // Delete head of end block and capture its remaining content
-        let mut tail_content: Vec<InlineContent> = {
-            let block = &mut self.blocks[b.block_index];
-
-            // At this point, block contains left/head, right is tail we want to keep
-            block.split_content_at(b.offset)
-        };
-
-        // Remove blocks between start+1 and end inclusive of the original end head block
-        // After split, the end block now contains only head we deleted; we can remove it.
-        let remove_start = a.block_index + 1;
-        let remove_count = b.block_index - a.block_index; // number of blocks to remove starting at remove_start
-        for _ in 0..remove_count {
-            if remove_start < self.blocks.len() {
-                self.blocks.remove(remove_start);
-            }
-        }
-
-        // Append tail_content to the (now) start block
-        if !tail_content.is_empty() {
-            self.blocks[a.block_index].content.append(&mut tail_content);
-        }
-        self.blocks[a.block_index].normalize_content();
-    }
-
-    /// Replace content in [start..end) with plain text. Supports multi-paragraph text using newline separators.
-    /// If the replacement spans multiple paragraphs, any tail content from the original end
-    /// position is appended to the last inserted paragraph block.
-    pub fn replace_range(&mut self, start: DocumentPosition, end: DocumentPosition, text: &str) {
-        if self.blocks.is_empty() {
-            // If empty, create a paragraph and insert
-            self.blocks.push(Block::paragraph());
-        }
-
-        // First, delete the target range
-        let a = self.clamp_position(start);
-        let b = self.clamp_position(end);
-        let (start_pos, end_pos) = if (b.block_index < a.block_index)
-            || (b.block_index == a.block_index && b.offset < a.offset)
-        {
-            (b, a)
-        } else {
-            (a, b)
-        };
-
-        // Perform deletion to normalize insertion point
-        self.delete_range(start_pos, end_pos);
-
-        // Determine insertion point in the normalized document
-        let insert_block_index = start_pos
-            .block_index
-            .min(self.blocks.len().saturating_sub(1));
-        let insert_offset = start_pos
-            .offset
-            .min(self.blocks[insert_block_index].text_len());
-
-        let normalized = normalize_plain_text(text);
-        if normalized.is_empty() {
-            return;
-        }
-
-        // We want the content after the insertion point (which may include the tail from the
-        // original end block) to end up after the LAST inserted paragraph. So split the current
-        // block at the insertion point and hold on to the right side for later.
-        let mut trailing_right = self.blocks[insert_block_index].split_content_at(insert_offset);
-
-        // Insert paragraphs (each newline starts a new paragraph)
-        let paragraphs: Vec<&str> = normalized.split('\n').collect();
-
-        // First paragraph goes into the (now split) current block
-        if !paragraphs[0].is_empty() {
-            self.blocks[insert_block_index]
-                .content
-                .push(InlineContent::Text(TextRun::plain(paragraphs[0])));
-        }
-
-        // Subsequent paragraphs become new blocks after the current block
-        let mut last_block_index = insert_block_index;
-        if paragraphs.len() > 1 {
-            for (insert_at, p) in (insert_block_index + 1..).zip(paragraphs.iter().skip(1)) {
-                let mut block = Block::paragraph();
-                if !p.is_empty() {
-                    block.content.push(InlineContent::Text(TextRun::plain(*p)));
-                }
-                self.insert_block(insert_at, block);
-                last_block_index = insert_at;
-            }
-        }
-
-        // Append the trailing content to the last affected block
-        if !trailing_right.is_empty() {
-            let target = last_block_index;
-            self.blocks[target].content.append(&mut trailing_right);
-        }
-        self.blocks[last_block_index].normalize_content();
-    }
-}
-
-impl Default for StructuredDocument {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl fmt::Display for StructuredDocument {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "StructuredDocument ({} blocks):", self.blocks.len())?;
-        for (i, block) in self.blocks.iter().enumerate() {
-            write!(f, "  [{}] ", i)?;
-            match &block.block_type {
-                BlockType::Paragraph => write!(f, "Paragraph")?,
-                BlockType::Heading { level } => write!(f, "Heading(h{})", level)?,
-                BlockType::CodeBlock { language } => write!(f, "CodeBlock({:?})", language)?,
-                BlockType::BlockQuote => write!(f, "BlockQuote")?,
-                BlockType::ListItem {
-                    ordered,
-                    number,
-                    checkbox,
-                } => write!(
-                    f,
-                    "ListItem({}{}{})",
-                    if *ordered { "ordered" } else { "unordered" },
-                    if let Some(n) = number {
-                        format!(", #{}", n)
-                    } else {
-                        String::new()
-                    },
-                    if let Some(checked) = checkbox {
-                        if *checked { ", checked" } else { ", unchecked" }.to_string()
-                    } else {
-                        String::new()
-                    }
-                )?,
-                BlockType::Table { rows } => {
-                    let cols = rows.iter().map(|r| r.cells.len()).max().unwrap_or(0);
-                    write!(f, "Table({}x{})", rows.len(), cols)?
-                }
-            }
-            writeln!(f, ": {:?}", block.to_plain_text())?;
-        }
-        Ok(())
-    }
-}
-
-fn grapheme_boundaries(text: &str) -> Vec<usize> {
-    let mut boundaries: Vec<usize> = text.grapheme_indices(true).map(|(idx, _)| idx).collect();
-    if boundaries.is_empty() {
-        boundaries.push(0);
-        return boundaries;
-    }
-    if boundaries[0] != 0 {
-        boundaries.insert(0, 0);
-    }
-    if *boundaries.last().unwrap() != text.len() {
-        boundaries.push(text.len());
-    }
-    boundaries
-}
-
-fn grapheme_offset_at_or_before(text: &str, offset: usize) -> usize {
-    let boundaries = grapheme_boundaries(text);
-    let mut result = 0usize;
-    let max_offset = offset.min(text.len());
-    for boundary in boundaries {
-        if boundary > max_offset {
-            break;
-        }
-        result = boundary;
-    }
-    result
-}
-
-fn grapheme_offset_at_or_after(text: &str, offset: usize) -> usize {
-    let boundaries = grapheme_boundaries(text);
-    let max_offset = offset.min(text.len());
-    for boundary in boundaries {
-        if boundary >= max_offset {
-            return boundary;
-        }
-    }
-    text.len()
-}
-
-fn grapheme_offset_before(text: &str, offset: usize) -> usize {
-    if offset == 0 {
-        return 0;
-    }
-    let boundaries = grapheme_boundaries(text);
-    let mut previous = 0usize;
-    let max_offset = offset.min(text.len());
-    for boundary in boundaries {
-        if boundary >= max_offset {
-            if boundary == max_offset {
-                return previous;
-            }
-            break;
-        }
-        previous = boundary;
-    }
-    previous
-}
-
-fn grapheme_offset_after(text: &str, offset: usize) -> usize {
-    let boundaries = grapheme_boundaries(text);
-    let max_offset = offset.min(text.len());
-    for boundary in boundaries {
-        if boundary > max_offset {
-            return boundary;
-        }
-    }
-    text.len()
-}
-
 /// Normalize clipboard/plain text input so CRLF/CR line endings become `\n`.
-pub(crate) fn normalize_plain_text<'a>(text: &'a str) -> Cow<'a, str> {
+pub(crate) fn normalize_plain_text(text: &str) -> Cow<'_, str> {
     if text.contains('\r') {
         let mut normalized = String::with_capacity(text.len());
         let mut chars = text.chars().peekable();
@@ -967,95 +538,16 @@ mod tests {
     }
 
     #[test]
-    fn test_document_creation() {
-        let mut doc = StructuredDocument::new();
-        doc.add_block(Block::paragraph().with_plain_text("First paragraph"));
-        doc.add_block(Block::heading(1).with_plain_text("A heading"));
+    fn test_block_split_and_delete() {
+        let mut block = Block::paragraph().with_plain_text("Hello world");
+        let right = block.split_content_at(5);
+        assert_eq!(block.to_plain_text(), "Hello");
+        let mut right_block = Block::paragraph();
+        right_block.content = right;
+        assert_eq!(right_block.to_plain_text(), " world");
 
-        assert_eq!(doc.block_count(), 2);
-    }
-
-    #[test]
-    fn test_position_clamping() {
-        let mut doc = StructuredDocument::new();
-        doc.add_block(Block::paragraph().with_plain_text("hello"));
-
-        let pos = DocumentPosition::new(0, 100);
-        let clamped = doc.clamp_position(pos);
-        assert_eq!(clamped.offset, 5); // Length of "hello"
-    }
-
-    #[test]
-    fn test_delete_range_within_block() {
-        let mut doc = StructuredDocument::new();
-        doc.add_block(Block::paragraph().with_plain_text("Hello world"));
-        let start = DocumentPosition::new(0, 5);
-        let end = DocumentPosition::new(0, 11);
-        doc.delete_range(start, end);
-        assert_eq!(doc.blocks()[0].to_plain_text(), "Hello");
-    }
-
-    #[test]
-    fn test_delete_range_across_blocks_merges() {
-        let mut doc = StructuredDocument::new();
-        doc.add_block(Block::paragraph().with_plain_text("First para"));
-        doc.add_block(Block::paragraph().with_plain_text("Second"));
-        doc.add_block(Block::paragraph().with_plain_text("Third para"));
-
-        // Delete from after "Fir" in block 0 to after "Th" in block 2
-        let start = DocumentPosition::new(0, 3); // "Fir|st para"
-        let end = DocumentPosition::new(2, 2); // "Th|ird para"
-        doc.delete_range(start, end);
-
-        // Blocks between should be removed, and result should be "Fir" + "ird para"
-        assert_eq!(doc.block_count(), 1);
-        assert_eq!(doc.blocks()[0].to_plain_text(), "Firird para");
-    }
-
-    #[test]
-    fn test_replace_range_across_blocks_with_paragraphs() {
-        let mut doc = StructuredDocument::new();
-        doc.add_block(Block::paragraph().with_plain_text("Hello one"));
-        doc.add_block(Block::paragraph().with_plain_text("Hello two"));
-        doc.add_block(Block::paragraph().with_plain_text("Hello three"));
-
-        let start = DocumentPosition::new(0, 6); // at "Hello |one"
-        let end = DocumentPosition::new(2, 5); // at "Hello |three"
-        doc.replace_range(start, end, "X\nY");
-
-        // Expect first block: "Hello " + "X" + tail of last after offset 5 was removed by replace
-        assert_eq!(doc.blocks()[0].to_plain_text(), "Hello X");
-        // New paragraph inserted after with "Y"
-        assert_eq!(doc.blocks()[1].to_plain_text(), "Y three");
-    }
-
-    #[test]
-    fn test_replace_range_preserves_blank_paragraphs() {
-        let mut doc = StructuredDocument::new();
-        doc.add_block(Block::paragraph().with_plain_text("Alpha"));
-        doc.add_block(Block::paragraph().with_plain_text("Omega"));
-
-        let start = DocumentPosition::new(0, 5);
-        let end = DocumentPosition::new(1, 0);
-        doc.replace_range(start, end, "X\n\nY");
-
-        assert_eq!(doc.block_count(), 3);
-        assert_eq!(doc.blocks()[0].to_plain_text(), "AlphaX");
-        assert_eq!(doc.blocks()[1].to_plain_text(), "");
-        assert_eq!(doc.blocks()[2].to_plain_text(), "YOmega");
-    }
-
-    #[test]
-    fn test_replace_range_normalizes_crlf() {
-        let mut doc = StructuredDocument::new();
-        doc.add_block(Block::paragraph().with_plain_text("Base"));
-
-        let start = DocumentPosition::new(0, 0);
-        doc.replace_range(start, start, "Line 1\r\nLine 2\r\nLine 3");
-
-        assert_eq!(doc.block_count(), 3);
-        assert_eq!(doc.blocks()[0].to_plain_text(), "Line 1");
-        assert_eq!(doc.blocks()[1].to_plain_text(), "Line 2");
-        assert_eq!(doc.blocks()[2].to_plain_text(), "Line 3Base");
+        let mut del = Block::paragraph().with_plain_text("Hello world");
+        del.delete_text_range(5, 11);
+        assert_eq!(del.to_plain_text(), "Hello");
     }
 }

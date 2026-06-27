@@ -1,12 +1,23 @@
 // Structured Editor
-// Provides editing operations on a StructuredDocument
-// Completely independent of markdown syntax
+//
+// Editing operations over a `tdoc::Document` (the authoritative document tree). Cursor
+// and selection are tree-path positions (`DocumentPosition { path, offset }`). Intra-leaf
+// text editing reuses the `Block` inline helpers via a transient round-trip
+// (spans -> InlineContent runs -> edit -> spans). Tree navigation goes through `tree_walk`.
+//
+// PHASE 1 SCOPE: storage, positions, cursor/selection, movement, intra-leaf insert/delete,
+// undo/redo, load. Structural ops (block-spanning splits/merges, list/quote/style toggles,
+// links, moves, paste of multi-paragraph content) are stubbed and land in Phase 2/3 — see
+// the `// TODO(phase2)` markers.
 
+use super::inline_convert::inline_to_spans;
 use super::markdown_converter::markdown_to_document;
-use super::structured_document::*;
-use std::cmp::min;
+use super::structured_document::{Block, BlockType, InlineContent, TextRun, normalize_plain_text};
+use super::tree_path::{DocumentPosition, TreePath};
+use super::tree_walk::{self, LeafInfo};
 use std::time::{Duration, Instant};
-use tdoc::{Document, markdown};
+use tdoc::Document;
+use tdoc::paragraph::Paragraph;
 
 /// Result of an editing operation
 pub type EditResult = Result<(), EditError>;
@@ -23,90 +34,53 @@ pub enum EditError {
 /// Maximum number of undo steps retained on the undo stack.
 const MAX_UNDO_STEPS: usize = 200;
 
-/// Idle gap after which the next typing/deletion starts a fresh undo step even
-/// without a caret move. This keeps a long passage typed with natural pauses
-/// from collapsing into a single undo step.
+/// Idle gap after which the next typing/deletion starts a fresh undo step.
 const UNDO_COALESCE_IDLE: Duration = Duration::from_secs(2);
 
-/// Classifies an edit so consecutive edits of the same kind can be coalesced
-/// into a single undo step (e.g. a run of typed characters).
+/// Classifies an edit so consecutive edits of the same kind can be coalesced.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UndoKind {
-    /// Text insertion; consecutive insertions merge into one undo step.
     Typing,
-    /// Character/word deletion; consecutive deletions merge into one undo step.
     Deleting,
-    /// A discrete edit (styling, block changes, paste, …) that always forms its
-    /// own undo step.
     Other,
 }
 
 /// An immutable snapshot of the editable state, used for undo/redo.
 #[derive(Debug, Clone)]
 struct EditorSnapshot {
-    document: StructuredDocument,
+    tdoc: Document,
     cursor: DocumentPosition,
     selection: Option<(DocumentPosition, DocumentPosition)>,
 }
 
-/// The structured editor with cursor state
+/// The structured editor with cursor state.
 pub struct StructuredEditor {
-    document: StructuredDocument,
+    tdoc: Document,
     cursor: DocumentPosition,
-    selection: Option<(DocumentPosition, DocumentPosition)>, // (start, end)
+    selection: Option<(DocumentPosition, DocumentPosition)>,
     paragraph_cb: Option<Box<dyn FnMut(BlockType) + 'static>>,
-    /// Past states that can be restored via [`StructuredEditor::undo`].
     undo_stack: Vec<EditorSnapshot>,
-    /// States undone and available again via [`StructuredEditor::redo`].
     redo_stack: Vec<EditorSnapshot>,
-    /// The committed state as of the last checkpoint. Edits since then are
-    /// detected by comparing this against the live document.
     undo_baseline: EditorSnapshot,
-    /// Kind of the most recent committed edit, for coalescing.
     last_edit_kind: Option<UndoKind>,
-    /// When the last edit was committed, for idle-timeout coalescing.
     last_edit_time: Option<Instant>,
 }
 
 impl StructuredEditor {
-    /// Renumber a contiguous run of ordered list items starting at `start_index` with `start_number`.
-    fn renumber_ordered_from(&mut self, start_index: usize, start_number: u64) {
-        let mut n = start_number;
-        let blocks_len = self.document.block_count();
-        if start_index >= blocks_len {
-            return;
-        }
-        let blocks = self.document.blocks_mut();
-        let mut i = start_index;
-        while i < blocks.len() {
-            match blocks[i].block_type {
-                BlockType::ListItem { ordered: true, .. } => {
-                    blocks[i].block_type = BlockType::ListItem {
-                        ordered: true,
-                        number: Some(n),
-                        checkbox: None,
-                    };
-                    n += 1;
-                    i += 1;
-                }
-                _ => break,
-            }
-        }
-    }
-    /// Create a new editor with an empty document
+    /// Create a new editor with an empty document.
     pub fn new() -> Self {
-        Self::with_document(StructuredDocument::new())
+        Self::with_tdoc(Document::new())
     }
 
-    /// Create an editor with an existing document
-    pub fn with_document(document: StructuredDocument) -> Self {
+    /// Create an editor wrapping an existing tdoc document.
+    pub fn with_tdoc(tdoc: Document) -> Self {
         let baseline = EditorSnapshot {
-            document: document.clone(),
+            tdoc: tdoc.clone(),
             cursor: DocumentPosition::start(),
             selection: None,
         };
-        StructuredEditor {
-            document,
+        let mut editor = StructuredEditor {
+            tdoc,
             cursor: DocumentPosition::start(),
             selection: None,
             paragraph_cb: None,
@@ -115,17 +89,41 @@ impl StructuredEditor {
             undo_baseline: baseline,
             last_edit_kind: None,
             last_edit_time: None,
-        }
+        };
+        editor.normalize_cursor();
+        editor
     }
 
-    /// Get the document
-    pub fn document(&self) -> &StructuredDocument {
-        &self.document
+    /// The authoritative document tree.
+    pub fn tdoc(&self) -> &Document {
+        &self.tdoc
     }
 
-    /// Get mutable document
-    pub fn document_mut(&mut self) -> &mut StructuredDocument {
-        &mut self.document
+    /// Mutable access to the authoritative document tree. Callers that mutate it should
+    /// follow up with [`StructuredEditor::after_external_change`].
+    pub fn tdoc_mut(&mut self) -> &mut Document {
+        &mut self.tdoc
+    }
+
+    /// Replace the whole document (e.g. when loading a page). Resets the caret.
+    pub fn set_tdoc(&mut self, tdoc: Document) {
+        self.tdoc = tdoc;
+        self.cursor = DocumentPosition::start();
+        self.selection = None;
+        self.normalize_cursor();
+        self.trigger_paragraph_change();
+    }
+
+    /// Load markdown as the document, clearing undo history.
+    pub fn load_markdown(&mut self, markdown: &str) {
+        self.set_tdoc(markdown_to_document(markdown));
+        self.reset_undo_history();
+    }
+
+    /// Re-clamp the caret after the document was mutated through `tdoc_mut`.
+    pub fn after_external_change(&mut self) {
+        self.normalize_cursor();
+        self.trigger_paragraph_change();
     }
 
     pub fn set_paragraph_change_callback(
@@ -137,38 +135,74 @@ impl StructuredEditor {
     }
 
     fn trigger_paragraph_change(&mut self) {
-        println!("Triggering paragraph change");
-        if let Some(cb) = self.paragraph_cb.as_mut() {
-            println!("Calling paragraph change callback");
-            let block_type = self
-                .document
-                .blocks()
-                .get(self.cursor.block_index)
-                .map(|b| b.block_type.clone())
-                .unwrap_or(BlockType::Paragraph);
-            cb(block_type);
+        if self.paragraph_cb.is_some() {
+            let block_type = self.block_type_at(&self.cursor.path);
+            if let Some(cb) = self.paragraph_cb.as_mut() {
+                cb(block_type);
+            }
         }
     }
 
-    // ----- Undo / redo -----
+    // ----- Leaf helpers --------------------------------------------------------------
+
+    fn leaves(&self) -> Vec<LeafInfo> {
+        tree_walk::enumerate_leaves(&self.tdoc)
+    }
+
+    fn leaf_paths(&self) -> Vec<TreePath> {
+        tree_walk::leaf_paths(&self.tdoc)
+    }
+
+    fn leaf_count(&self) -> usize {
+        tree_walk::leaf_count(&self.tdoc)
+    }
+
+    fn leaf_text_len(&self, path: &TreePath) -> usize {
+        tree_walk::leaf_text_len(&self.tdoc, path)
+    }
+
+    fn leaf_plain_text(&self, path: &TreePath) -> String {
+        tree_walk::leaf_plain_text(&self.tdoc, path)
+    }
+
+    /// The presentation block type at the cursor (for menus / paragraph-style UI).
+    pub fn current_block_type(&self) -> BlockType {
+        self.block_type_at(&self.cursor.path)
+    }
+
+    /// The presentation block type at a path (`Paragraph` when the path is invalid).
+    fn block_type_at(&self, path: &TreePath) -> BlockType {
+        self.leaves()
+            .iter()
+            .find(|l| &l.path == path)
+            .map(|info| tree_walk::leaf_block_type(&self.tdoc, info))
+            .unwrap_or(BlockType::Paragraph)
+    }
+
+    fn is_table_leaf(&self, path: &TreePath) -> bool {
+        matches!(self.block_type_at(path), BlockType::Table { .. })
+    }
+
+    /// Edit the inline runs of the leaf at `path` in place. The closure receives the
+    /// leaf's content as flat runs; the result is written back as spans. No-op (and the
+    /// closure still runs on a throwaway copy) for tables / invalid paths.
+    fn edit_leaf<R>(&mut self, path: &TreePath, f: impl FnOnce(&mut Vec<InlineContent>) -> R) -> R {
+        let mut content = tree_walk::leaf_inline(&self.tdoc, path);
+        let result = f(&mut content);
+        tree_walk::set_leaf_inline(&mut self.tdoc, path, &content);
+        result
+    }
+
+    // ----- Undo / redo ---------------------------------------------------------------
 
     fn current_snapshot(&self) -> EditorSnapshot {
         EditorSnapshot {
-            document: self.document.clone(),
-            cursor: self.cursor,
-            selection: self.selection,
+            tdoc: self.tdoc.clone(),
+            cursor: self.cursor.clone(),
+            selection: self.selection.clone(),
         }
     }
 
-    /// Record an undo checkpoint covering all edits made since the last commit.
-    ///
-    /// The UI calls this right after a mutating action, passing the current
-    /// time. The live document is compared against the last committed baseline,
-    /// so calling it when nothing changed (e.g. a cursor move or a no-op edit)
-    /// is harmless. Consecutive `Typing`/`Deleting` edits coalesce into a single
-    /// undo step, but only while they happen in quick succession — once more
-    /// than [`UNDO_COALESCE_IDLE`] passes between edits, the next one begins a
-    /// fresh step.
     pub fn commit_undo_step(&mut self, kind: UndoKind, now: Instant) {
         let within_idle_window = self
             .last_edit_time
@@ -177,15 +211,10 @@ impl StructuredEditor {
         self.record_step(kind, within_idle_window);
     }
 
-    /// Push the pre-edit baseline onto the undo stack (unless this edit
-    /// coalesces with the previous one) and re-baseline to the current state.
     fn record_step(&mut self, kind: UndoKind, within_idle_window: bool) {
-        if self.undo_baseline.document == self.document {
-            // No document change (e.g. a cursor move). Keep the baseline caret
-            // current so that a later undo restores the caret to where editing
-            // resumed rather than to where the previous edit ended.
-            self.undo_baseline.cursor = self.cursor;
-            self.undo_baseline.selection = self.selection;
+        if self.undo_baseline.tdoc == self.tdoc {
+            self.undo_baseline.cursor = self.cursor.clone();
+            self.undo_baseline.selection = self.selection.clone();
             return;
         }
 
@@ -206,21 +235,16 @@ impl StructuredEditor {
         self.last_edit_kind = Some(kind);
     }
 
-    /// Whether there is anything to undo.
     pub fn can_undo(&self) -> bool {
-        !self.undo_stack.is_empty() || self.undo_baseline.document != self.document
+        !self.undo_stack.is_empty() || self.undo_baseline.tdoc != self.tdoc
     }
 
-    /// Whether there is anything to redo.
     pub fn can_redo(&self) -> bool {
         !self.redo_stack.is_empty()
     }
 
-    /// Undo the most recent edit. Returns `true` if the state changed.
     pub fn undo(&mut self) -> bool {
-        // Fold any uncommitted edit into a discrete step so it is not lost.
         self.flush_pending_edit();
-
         let Some(previous) = self.undo_stack.pop() else {
             return false;
         };
@@ -231,11 +255,8 @@ impl StructuredEditor {
         true
     }
 
-    /// Redo the most recently undone edit. Returns `true` if the state changed.
     pub fn redo(&mut self) -> bool {
-        // A pending edit invalidates the redo history (same as commit_undo_step).
         self.flush_pending_edit();
-
         let Some(next) = self.redo_stack.pop() else {
             return false;
         };
@@ -246,8 +267,6 @@ impl StructuredEditor {
         true
     }
 
-    /// Discard all undo/redo history and re-baseline to the current state.
-    /// Call this after loading a different document into the editor.
     pub fn reset_undo_history(&mut self) {
         self.undo_stack.clear();
         self.redo_stack.clear();
@@ -256,21 +275,16 @@ impl StructuredEditor {
         self.undo_baseline = self.current_snapshot();
     }
 
-    /// Break edit coalescing so the next typing/deletion begins a fresh undo
-    /// step. Called whenever the caret or selection moves on its own.
     fn break_undo_coalescing(&mut self) {
         self.last_edit_kind = None;
     }
 
-    /// Commit any edits made since the last checkpoint as a discrete step.
-    /// Used before undo/redo so an uncommitted edit is not lost. `Other` never
-    /// coalesces, so no timestamp is needed.
     fn flush_pending_edit(&mut self) {
         self.record_step(UndoKind::Other, false);
     }
 
     fn restore_snapshot(&mut self, snapshot: EditorSnapshot) {
-        self.document = snapshot.document;
+        self.tdoc = snapshot.tdoc;
         self.cursor = snapshot.cursor;
         self.selection = snapshot.selection;
         self.normalize_cursor();
@@ -278,154 +292,74 @@ impl StructuredEditor {
     }
 
     fn normalize_cursor(&mut self) {
-        self.cursor = self.document.clamp_position(self.cursor);
+        self.cursor = tree_walk::clamp_position(&self.tdoc, &self.cursor);
     }
 
-    /// Get cursor position
+    // ----- Cursor & selection --------------------------------------------------------
+
     pub fn cursor(&self) -> DocumentPosition {
-        self.cursor
+        self.cursor.clone()
     }
 
-    /// Set cursor position (will be clamped to valid range)
     pub fn set_cursor(&mut self, pos: DocumentPosition) {
         self.break_undo_coalescing();
-        self.cursor = self.document.clamp_position(pos);
-        self.selection = None; // Clear selection when moving cursor
+        self.cursor = tree_walk::clamp_position(&self.tdoc, &pos);
+        self.selection = None;
         self.trigger_paragraph_change();
     }
 
-    /// Get selection range
     pub fn selection(&self) -> Option<(DocumentPosition, DocumentPosition)> {
-        self.selection
+        self.selection.clone()
     }
 
-    /// Set selection range
     pub fn set_selection(&mut self, start: DocumentPosition, end: DocumentPosition) {
         self.break_undo_coalescing();
-        let start = self.document.clamp_position(start);
-        let end = self.document.clamp_position_forward(end);
+        let start = tree_walk::clamp_position(&self.tdoc, &start);
+        let end = tree_walk::clamp_position_forward(&self.tdoc, &end);
         self.selection = Some((start, end));
     }
 
-    /// Clear selection
     pub fn clear_selection(&mut self) {
         self.break_undo_coalescing();
         self.selection = None;
     }
 
-    /// Select all content in the document
     pub fn select_all(&mut self) {
         self.break_undo_coalescing();
-        if self.document.block_count() == 0 {
+        let paths = self.leaf_paths();
+        let (Some(first), Some(last)) = (paths.first().cloned(), paths.last().cloned()) else {
             self.selection = None;
             return;
-        }
-        let start = DocumentPosition::new(0, 0);
-        let last_idx = self.document.block_count() - 1;
-        let end = {
-            let blocks = self.document.blocks();
-            let last_len = blocks[last_idx].text_len();
-            DocumentPosition::new(last_idx, last_len)
         };
-        self.selection = Some((start, end));
+        let start = DocumentPosition::at(first, 0);
+        let end = DocumentPosition::at(last.clone(), self.leaf_text_len(&last));
+        self.selection = Some((start, end.clone()));
         self.cursor = end;
         self.normalize_cursor();
     }
 
-    /// Start or extend selection from current cursor position to a new position
-    /// This is used for shift+movement and mouse drag selection
     pub fn extend_selection_to(&mut self, end: DocumentPosition) {
         self.break_undo_coalescing();
-        let end = self.document.clamp_position(end);
-
-        if let Some((start, _)) = self.selection {
-            // Already have a selection - keep the original start, update end
-            self.selection = Some((start, end));
+        let end = tree_walk::clamp_position(&self.tdoc, &end);
+        if let Some((start, _)) = self.selection.clone() {
+            self.selection = Some((start, end.clone()));
         } else {
-            // Start new selection from current cursor position
-            self.selection = Some((self.cursor, end));
+            self.selection = Some((self.cursor.clone(), end.clone()));
         }
-
-        // Update cursor to the end position
         self.cursor = end;
         self.normalize_cursor();
     }
 
-    /// Collect unique block indices covered by the current selection (if any).
-    /// Returns an empty vector when there is no active selection or the selection is collapsed.
-    fn collect_selection_block_indices(&self) -> Vec<usize> {
-        let block_count = self.document.block_count();
-        if block_count == 0 {
-            return Vec::new();
-        }
-
-        let Some((mut start, mut end)) = self.selection else {
-            return Vec::new();
-        };
-
-        if start.block_index > end.block_index
-            || (start.block_index == end.block_index && start.offset > end.offset)
-        {
-            std::mem::swap(&mut start, &mut end);
-        }
-
-        if start.block_index == end.block_index && start.offset == end.offset {
-            return Vec::new();
-        }
-
-        let start = self.document.clamp_position(start);
-        let end = self.document.clamp_position_forward(end);
-
-        let start_idx = start.block_index.min(block_count - 1);
-        let end_idx = end.block_index.min(block_count - 1);
-
-        let mut indices: Vec<usize> = (start_idx..=end_idx).collect();
-
-        if let Some(&last) = indices.last()
-            && start_idx != end_idx
-            && last == end_idx
-        {
-            let include_end = if end.offset == 0 {
-                self.document
-                    .blocks()
-                    .get(end_idx)
-                    .map(|block| block.is_empty())
-                    .unwrap_or(false)
-            } else {
-                true
-            };
-            if !include_end {
-                indices.pop();
-            }
-        }
-
-        indices.sort_unstable();
-        indices.dedup();
-        indices
-    }
-
-    /// Select the word at the given position
     pub fn select_word_at(&mut self, pos: DocumentPosition) {
-        let pos = self.document.clamp_position(pos);
-        let blocks = self.document.blocks();
-
-        if pos.block_index >= blocks.len() {
-            return;
-        }
-
-        let block = &blocks[pos.block_index];
-        let text = block.to_plain_text();
-
+        let pos = tree_walk::clamp_position(&self.tdoc, &pos);
+        let text = self.leaf_plain_text(&pos.path);
         if text.is_empty() || pos.offset >= text.len() {
-            // Empty block or cursor at end - select nothing
             return;
         }
 
-        // Find word boundaries
         let mut start = pos.offset;
         let mut end = pos.offset;
 
-        // Move start backward to beginning of word
         while start > 0 {
             let ch = text[..start].chars().next_back().unwrap();
             if ch.is_whitespace() || ch.is_ascii_punctuation() {
@@ -438,9 +372,7 @@ impl StructuredEditor {
                 .unwrap_or(0);
         }
 
-        // Move end forward to end of word
-        let chars = text[end..].char_indices();
-        for (_, ch) in chars {
+        for (_, ch) in text[end..].char_indices() {
             if ch.is_whitespace() || ch.is_ascii_punctuation() {
                 break;
             }
@@ -451,7 +383,6 @@ impl StructuredEditor {
                 .unwrap_or(end);
         }
 
-        // If we're on whitespace, extend to include it
         if start == end {
             end = text[end..]
                 .chars()
@@ -460,983 +391,365 @@ impl StructuredEditor {
                 .unwrap_or(end);
         }
 
-        let start_pos = DocumentPosition::new(pos.block_index, start);
-        let end_pos = DocumentPosition::new(pos.block_index, end);
-
-        self.set_selection(start_pos, end_pos);
-        self.cursor = self.document.clamp_position_forward(end_pos);
+        let start_pos = DocumentPosition::at(pos.path.clone(), start);
+        let end_pos = DocumentPosition::at(pos.path, end);
+        self.set_selection(start_pos, end_pos.clone());
+        self.cursor = tree_walk::clamp_position_forward(&self.tdoc, &end_pos);
     }
 
-    /// Select the entire line (block) at the given position
     pub fn select_line_at(&mut self, pos: DocumentPosition) {
-        let pos = self.document.clamp_position(pos);
-        let blocks = self.document.blocks();
-
-        if pos.block_index >= blocks.len() {
-            return;
-        }
-
-        let block = &blocks[pos.block_index];
-        let start_pos = DocumentPosition::new(pos.block_index, 0);
-        let end_pos = DocumentPosition::new(pos.block_index, block.text_len());
-
-        self.set_selection(start_pos, end_pos);
-        self.cursor = self.document.clamp_position_forward(end_pos);
+        let pos = tree_walk::clamp_position(&self.tdoc, &pos);
+        let len = self.leaf_text_len(&pos.path);
+        let start_pos = DocumentPosition::at(pos.path.clone(), 0);
+        let end_pos = DocumentPosition::at(pos.path, len);
+        self.set_selection(start_pos, end_pos.clone());
+        self.cursor = tree_walk::clamp_position_forward(&self.tdoc, &end_pos);
     }
 
-    /// Insert text at cursor position
+    // ----- Insertion -----------------------------------------------------------------
+
     pub fn insert_text(&mut self, text: &str) -> EditResult {
-        if self.document.is_empty() {
-            // Create a new paragraph if document is empty
-            let block = Block::paragraph().with_plain_text(text);
-            self.document.add_block(block);
-            self.cursor = DocumentPosition::new(0, text.len());
+        if self.leaf_count() == 0 {
+            self.tdoc
+                .add_paragraph(Paragraph::new_text().with_content(inline_to_spans(&[
+                    InlineContent::Text(TextRun::plain(text)),
+                ])));
+            self.cursor = DocumentPosition::at(TreePath::root(0), text.len());
             return Ok(());
         }
 
-        let block_index = self.cursor.block_index;
-        if block_index >= self.document.block_count() {
-            return Err(EditError::InvalidBlockIndex);
-        }
-
-        // Tables are read-only: typing on a table (with no selection to replace)
-        // is a no-op rather than corrupting the block's unused content.
-        if self.selection.is_none() && self.is_table_block(block_index) {
-            return Ok(());
-        }
-
-        // Delete selection first if there is one
+        // Replace any selection first (intra-leaf for now).
         if self.selection.is_some() {
             self.delete_selection()?;
+        }
+
+        let path = self.cursor.path.clone();
+        // Tables are read-only.
+        if self.is_table_leaf(&path) {
+            return Ok(());
         }
 
         let offset = self.cursor.offset;
-
-        // Find the inline content and offset within it - need to do this before borrowing
-        let (content_idx, content_offset) = {
-            let blocks = self.document.blocks();
-            let block = &blocks[block_index];
-            Self::find_content_at_offset_static(&block.content, offset)
-        };
-
-        // Precompute inner indices if we're inside a link to avoid borrow issues
-        let inner_within_link: Option<(usize, usize)> = {
-            let blocks = self.document.blocks();
-            let block = &blocks[block_index];
-            if content_idx < block.content.len() {
-                if let InlineContent::Link { content, .. } = &block.content[content_idx] {
-                    let (inner_idx, inner_off) =
-                        Self::find_content_at_offset_static(content, content_offset);
-                    Some((inner_idx, inner_off))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        };
-
-        let blocks = self.document.blocks_mut();
-        let block = &mut blocks[block_index];
-
-        // Handle different inline content types
-        if content_idx >= block.content.len() {
-            // Append to end
-            block
-                .content
-                .push(InlineContent::Text(TextRun::plain(text)));
-        } else {
-            match &mut block.content[content_idx] {
-                InlineContent::Text(run) => {
-                    run.insert_text(content_offset, text);
-                }
-                InlineContent::Link { content, .. } => {
-                    // Special handling at link edges: if the cursor is exactly at the
-                    // start or end of the link, insert outside the link rather than
-                    // into its inner content.
-                    let link_len: usize = content.iter().map(|c| c.text_len()).sum();
-
-                    if content_offset == 0 {
-                        // Insert before the link. If there is a previous text run,
-                        // append into it; otherwise insert a fresh text run.
-                        if content_idx > 0 {
-                            if let InlineContent::Text(prev_run) =
-                                &mut block.content[content_idx - 1]
-                            {
-                                let prev_len = prev_run.len();
-                                prev_run.insert_text(prev_len, text);
-                            } else {
-                                block
-                                    .content
-                                    .insert(content_idx, InlineContent::Text(TextRun::plain(text)));
-                            }
-                        } else {
-                            block
-                                .content
-                                .insert(content_idx, InlineContent::Text(TextRun::plain(text)));
-                        }
-                    } else if content_offset >= link_len {
-                        // Insert after the link. If there is a following text run,
-                        // prepend into it; otherwise insert a fresh text run.
-                        if content_idx + 1 < block.content.len() {
-                            if let InlineContent::Text(next_run) =
-                                &mut block.content[content_idx + 1]
-                            {
-                                next_run.insert_text(0, text);
-                            } else {
-                                block.content.insert(
-                                    content_idx + 1,
-                                    InlineContent::Text(TextRun::plain(text)),
-                                );
-                            }
-                        } else {
-                            block
-                                .content
-                                .push(InlineContent::Text(TextRun::plain(text)));
-                        }
-                    } else {
-                        // Insert within the link's inner content so typing stays inside the link
-                        let (inner_idx, inner_off) =
-                            inner_within_link.unwrap_or((content.len(), 0));
-                        if inner_idx >= content.len() {
-                            content.push(InlineContent::Text(TextRun::plain(text)));
-                        } else {
-                            match &mut content[inner_idx] {
-                                InlineContent::Text(run) => run.insert_text(inner_off, text),
-                                _ => content
-                                    .insert(inner_idx, InlineContent::Text(TextRun::plain(text))),
-                            }
-                        }
-                    }
-                }
-                InlineContent::HardBreak => {
-                    // Insert relative to the hard break depending on cursor offset:
-                    // offset 0 -> before break, offset >= break length -> after break.
-                    if content_offset == 0 {
-                        block
-                            .content
-                            .insert(content_idx, InlineContent::Text(TextRun::plain(text)));
-                    } else {
-                        // After the hard break: merge with following text run when possible.
-                        if content_idx + 1 < block.content.len() {
-                            match &mut block.content[content_idx + 1] {
-                                InlineContent::Text(run) => run.insert_text(0, text),
-                                _ => block.content.insert(
-                                    content_idx + 1,
-                                    InlineContent::Text(TextRun::plain(text)),
-                                ),
-                            }
-                        } else {
-                            block
-                                .content
-                                .push(InlineContent::Text(TextRun::plain(text)));
-                        }
-                    }
-                }
-            }
-        }
-
-        // Move cursor forward
-        self.cursor.offset += text.len();
-
+        self.edit_leaf(&path, |content| insert_into_content(content, offset, text));
+        self.cursor.offset = offset + text.len();
         Ok(())
     }
 
-    /// Calculate the cursor position immediately after inserting newline-delimited plain text.
-    fn cursor_after_plain_insert(
-        &self,
-        start: DocumentPosition,
-        paragraphs: &[&str],
-    ) -> DocumentPosition {
-        let insert_block = start
-            .block_index
-            .min(self.document.block_count().saturating_sub(1));
-
-        let (block_index, offset) = if paragraphs.len() <= 1 {
-            let inserted_len = paragraphs.first().map(|s| s.len()).unwrap_or(0);
-            let left_len = start
-                .offset
-                .min(self.document.blocks()[insert_block].text_len());
-            (insert_block, left_len + inserted_len)
-        } else {
-            let last_block = (insert_block + paragraphs.len() - 1)
-                .min(self.document.block_count().saturating_sub(1));
-            let last_len = paragraphs.last().map(|s| s.len()).unwrap_or(0);
-            (last_block, last_len)
-        };
-
-        let block_len = self.document.blocks()[block_index].text_len();
-        DocumentPosition::new(block_index, min(offset, block_len))
-    }
-
-    fn structured_from_tdoc(document: &Document) -> Result<StructuredDocument, EditError> {
-        let mut buffer = Vec::new();
-        markdown::write(&mut buffer, document)
-            .map_err(|err| EditError::ConversionFailed(err.to_string()))?;
-        let markdown = String::from_utf8(buffer)
-            .map_err(|err| EditError::ConversionFailed(err.to_string()))?;
-        Ok(markdown_to_document(&markdown))
-    }
-
-    fn insert_structured_fragment(&mut self, fragment: &StructuredDocument) -> EditResult {
-        if fragment.block_count() == 0 {
-            return Ok(());
-        }
-
-        if self.document.is_empty() {
-            for block in fragment.blocks() {
-                self.document.add_block(block.clone());
-            }
-            let last_idx = self.document.block_count() - 1;
-            let last_len = self.document.blocks()[last_idx].text_len();
-            self.cursor = DocumentPosition::new(last_idx, last_len);
-            self.selection = None;
-            self.trigger_paragraph_change();
-            return Ok(());
-        }
-
-        if self.selection.is_some() {
-            self.delete_selection()?;
-        }
-
-        let block_index = self
-            .cursor
-            .block_index
-            .min(self.document.block_count().saturating_sub(1));
-        let offset = self
-            .cursor
-            .offset
-            .min(self.document.blocks()[block_index].text_len());
-
-        let (right_content, left_empty, original_block_type) = {
-            let blocks = self.document.blocks_mut();
-            let block = &mut blocks[block_index];
-            let right = block.split_content_at(offset);
-            let empty = block.content.is_empty();
-            let block_type = block.block_type.clone();
-            (right, empty, block_type)
-        };
-
-        let mut fragments: Vec<Block> = fragment.blocks().to_vec();
-        if fragments.is_empty() {
-            self.cursor = DocumentPosition::new(block_index, offset);
-            self.selection = None;
-            return Ok(());
-        }
-
-        let mut last_insert_block_index: Option<usize> = None;
-        let mut merged_len = 0usize;
-
-        {
-            let blocks = self.document.blocks_mut();
-            let current_block = &mut blocks[block_index];
-            if left_empty {
-                let mut replacement = fragments.remove(0);
-                replacement.normalize_content();
-                *current_block = replacement;
-                last_insert_block_index = Some(block_index);
-            } else if fragments
-                .first()
-                .map(|candidate| Self::can_merge_paragraphs(current_block, candidate))
-                .unwrap_or(false)
-            {
-                let mut first = fragments.remove(0);
-                merged_len = first.text_len();
-                current_block.content.append(&mut first.content);
-                current_block.normalize_content();
-            }
-        }
-
-        let mut insert_pos = block_index + 1;
-        for mut block in fragments.into_iter() {
-            block.normalize_content();
-            self.document.insert_block(insert_pos, block);
-            last_insert_block_index = Some(insert_pos);
-            insert_pos += 1;
-        }
-
-        if !right_content.is_empty() {
-            let mut tail_block = Block::new(original_block_type);
-            tail_block.content = right_content;
-            tail_block.normalize_content();
-            self.document.insert_block(insert_pos, tail_block);
-        }
-
-        if let Some(idx) = last_insert_block_index {
-            let len = self.document.blocks()[idx].text_len();
-            self.cursor = DocumentPosition::new(idx, len);
-        } else {
-            self.cursor = DocumentPosition::new(block_index, offset + merged_len);
-        }
-
-        self.selection = None;
-        self.trigger_paragraph_change();
-        Ok(())
-    }
-
-    fn can_merge_paragraphs(left: &Block, right: &Block) -> bool {
-        matches!(left.block_type, BlockType::Paragraph)
-            && matches!(right.block_type, BlockType::Paragraph)
-    }
-
-    /// Insert a newline at cursor (creates new paragraph or continues list)
-    pub fn insert_newline(&mut self) -> EditResult {
-        if self.document.is_empty() {
-            // Create two paragraphs if document is empty
-            self.document.add_block(Block::paragraph());
-            self.document.add_block(Block::paragraph());
-            self.cursor = DocumentPosition::new(1, 0);
-            return Ok(());
-        }
-
-        let block_index = self.cursor.block_index;
-        if block_index >= self.document.block_count() {
-            return Err(EditError::InvalidBlockIndex);
-        }
-
-        // Delete selection first if there is one
-        if self.selection.is_some() {
-            self.delete_selection()?;
-        }
-
-        let offset = self.cursor.offset;
-
-        // Get block type and check conditions before mut borrow
-        let (block_type, is_empty) = {
-            let blocks = self.document.blocks();
-            let current_block = &blocks[block_index];
-            (current_block.block_type.clone(), current_block.is_empty())
-        };
-
-        // Check if we're in a list item
-        if let BlockType::ListItem {
-            ordered,
-            number,
-            checkbox,
-        } = &block_type
-        {
-            // Check if list item is empty
-            if is_empty || offset == 0 {
-                // Convert to paragraph to exit list
-                let blocks = self.document.blocks_mut();
-                blocks[block_index].block_type = BlockType::Paragraph;
-                self.cursor.offset = 0;
-                return Ok(());
-            }
-
-            // Split the current list item at the cursor, preserving link structure
-            let right_content = {
-                let blocks = self.document.blocks_mut();
-                let block = &mut blocks[block_index];
-                block.split_content_at(offset)
-            };
-
-            // Create new list item with the right-side content
-            let new_number = if *ordered { number.unwrap_or(1) + 1 } else { 0 };
-            let new_checkbox = if checkbox.is_some() {
-                Some(false)
-            } else {
-                None
-            };
-            let mut new_item = Block::new(BlockType::ListItem {
-                ordered: *ordered,
-                number: if *ordered { Some(new_number) } else { None },
-                checkbox: new_checkbox,
-            });
-            new_item.content = right_content;
-
-            self.document.insert_block(block_index + 1, new_item);
-            self.cursor = DocumentPosition::new(block_index + 1, 0);
-
-            // If ordered, renumber the new item and all following ordered items to continue the sequence
-            if *ordered {
-                // Determine the correct number for the current (left) item if missing
-                let cur_left_num = number.unwrap_or_else(|| {
-                    // Walk backwards to find start of run and compute index
-                    let blocks = self.document.blocks();
-                    let mut start = block_index;
-                    while start > 0 {
-                        if let BlockType::ListItem { ordered: true, .. } =
-                            blocks[start - 1].block_type
-                        {
-                            start -= 1;
-                        } else {
-                            break;
-                        }
-                    }
-                    let first = match blocks[start].block_type {
-                        BlockType::ListItem {
-                            ordered: true,
-                            number,
-                            ..
-                        } => number.unwrap_or(1),
-                        _ => 1,
-                    };
-                    let idx_in_run = block_index - start;
-                    first + idx_in_run as u64
-                });
-
-                // Renumber from the newly inserted block onward
-                let start_n = cur_left_num + 1;
-                self.renumber_ordered_from(block_index + 1, start_n);
-            }
-        } else {
-            // Regular paragraph split: split the block at the cursor, preserving link structure
-            let right_content = {
-                let blocks = self.document.blocks_mut();
-                let block = &mut blocks[block_index];
-                block.split_content_at(offset)
-            };
-
-            // Create new paragraph with remaining content (right side)
-            let mut new_para = Block::paragraph();
-            new_para.content = right_content;
-
-            self.document.insert_block(block_index + 1, new_para);
-            self.cursor = DocumentPosition::new(block_index + 1, 0);
-        }
-
-        Ok(())
-    }
-
-    /// Insert an explicit hard line break at the current position (within the block)
     pub fn insert_hard_break(&mut self) -> EditResult {
-        if self.document.is_empty() {
-            let mut block = Block::paragraph();
-            block.content.push(InlineContent::HardBreak);
-            self.document.add_block(block);
-            self.cursor = DocumentPosition::new(0, 1);
+        if self.leaf_count() == 0 {
+            self.tdoc.add_paragraph(
+                Paragraph::new_text().with_content(inline_to_spans(&[InlineContent::HardBreak])),
+            );
+            self.cursor = DocumentPosition::at(TreePath::root(0), 1);
             return Ok(());
-        }
-
-        let block_index = self.cursor.block_index;
-        if block_index >= self.document.block_count() {
-            return Err(EditError::InvalidBlockIndex);
         }
 
         if self.selection.is_some() {
             self.delete_selection()?;
         }
 
+        let path = self.cursor.path.clone();
+        if self.is_table_leaf(&path) {
+            return Ok(());
+        }
         let offset = self.cursor.offset;
-        let blocks = self.document.blocks_mut();
-        let block = &mut blocks[block_index];
-
-        let right_content = block.split_content_at(offset);
-        block.content.push(InlineContent::HardBreak);
-        block.content.extend(right_content);
-
-        self.cursor.offset += 1;
-
+        self.edit_leaf(&path, |content| {
+            let mut block = Block::paragraph();
+            block.content = std::mem::take(content);
+            let right = block.split_content_at(offset);
+            block.content.push(InlineContent::HardBreak);
+            block.content.extend(right);
+            *content = block.content;
+        });
+        self.cursor.offset = offset + 1;
         Ok(())
     }
 
-    /// Delete character before cursor (backspace)
-    /// Whether the block at `index` is a (read-only) table.
-    fn is_table_block(&self, index: usize) -> bool {
-        matches!(
-            self.document.blocks().get(index).map(|b| &b.block_type),
-            Some(BlockType::Table { .. })
-        )
-    }
-
-    /// Remove an atomic block (e.g. a table, which has no editable text) and
-    /// place the cursor at `cursor`. Keeps the document non-empty by inserting a
-    /// blank paragraph when the last block is removed.
-    fn remove_atomic_block(&mut self, index: usize, cursor: DocumentPosition) -> EditResult {
-        if index >= self.document.block_count() {
-            return Err(EditError::InvalidBlockIndex);
+    /// Split the current leaf into a new sibling. TODO(phase2): full tree-aware split that
+    /// continues lists / quotes and outdents empty items. Phase 1 handles only the
+    /// top-level paragraph case; otherwise it is a no-op.
+    pub fn insert_newline(&mut self) -> EditResult {
+        if self.selection.is_some() {
+            self.delete_selection()?;
         }
-        self.document.remove_block(index);
-        if self.document.block_count() == 0 {
-            self.document.add_block(Block::paragraph());
-            self.cursor = DocumentPosition::start();
-        } else {
-            self.cursor = cursor;
+        let path = self.cursor.path.clone();
+        let segs = path.segments();
+        // Only top-level paragraphs are split in Phase 1.
+        if segs.len() == 1
+            && let super::tree_path::PathSegment::Paragraph(idx) = segs[0]
+            && !self.is_table_leaf(&path)
+        {
+            let offset = self.cursor.offset;
+            let right = self.edit_leaf(&path, |content| {
+                let mut block = Block::paragraph();
+                block.content = std::mem::take(content);
+                let right = block.split_content_at(offset);
+                *content = block.content;
+                right
+            });
+            self.tdoc.paragraphs.insert(
+                idx + 1,
+                Paragraph::new_text().with_content(inline_to_spans(&right)),
+            );
+            self.cursor = DocumentPosition::at(TreePath::root(idx + 1), 0);
         }
-        self.selection = None;
-        self.normalize_cursor();
-        self.trigger_paragraph_change();
+        // TODO(phase2): list/quote/checklist splits.
         Ok(())
     }
+
+    // ----- Deletion ------------------------------------------------------------------
 
     pub fn delete_backward(&mut self) -> EditResult {
-        if self.document.is_empty() {
+        if self.leaf_count() == 0 {
             return Err(EditError::EmptyDocument);
         }
-
-        // If there's a selection, delete it
         if self.selection.is_some() {
             return self.delete_selection();
         }
 
-        let block_index = self.cursor.block_index;
+        let path = self.cursor.path.clone();
         let offset = self.cursor.offset;
 
         if offset == 0 {
-            // A table has no editable text, so backspace removes the whole
-            // table atomically: either the one the cursor sits on, or the table
-            // immediately before the cursor.
-            if self.is_table_block(block_index) {
-                let target = if block_index > 0 {
-                    DocumentPosition::new(
-                        block_index - 1,
-                        self.document.blocks()[block_index - 1].text_len(),
-                    )
-                } else {
-                    DocumentPosition::start()
-                };
-                return self.remove_atomic_block(block_index, target);
-            }
+            // TODO(phase2): tree-aware merge with the previous leaf / outdent.
+            return Ok(());
+        }
+        if self.is_table_leaf(&path) {
+            return Ok(());
+        }
 
-            // At start of block - merge with previous block
-            if block_index == 0 {
-                return Ok(()); // At start of document, nothing to delete
-            }
-
-            if self.is_table_block(block_index - 1) {
-                // The cursor is just after a table; remove the table and keep
-                // the current block (now shifted up by one).
-                return self.remove_atomic_block(
-                    block_index - 1,
-                    DocumentPosition::new(block_index - 1, 0),
-                );
-            }
-
-            // Capture types before mutation
-            let (prev_type, cur_type) = {
-                let blocks = self.document.blocks();
-                (
-                    blocks[block_index - 1].block_type.clone(),
-                    blocks[block_index].block_type.clone(),
-                )
-            };
-
-            let mut renumber_after: Option<(usize, u64)> = None;
-
-            // Perform merge
-            {
-                let blocks = self.document.blocks_mut();
-                let current_block = blocks.remove(block_index);
-                let prev_block = &mut blocks[block_index - 1];
-                let prev_len = prev_block.text_len();
-                // Merge content
-                prev_block.content.extend(current_block.content);
-                prev_block.normalize_content();
-                self.cursor = DocumentPosition::new(block_index - 1, prev_len);
-            }
-
-            // Post-merge renumbering rules for ordered lists
-            match (prev_type, cur_type) {
-                // Merged two ordered list items: renumber following items to close the gap
-                (
-                    BlockType::ListItem {
-                        ordered: true,
-                        number: prev_num,
-                        ..
-                    },
-                    BlockType::ListItem { ordered: true, .. },
-                ) => {
-                    let start_index = block_index; // after removal, this is the first following block
-                    let start_n = prev_num.unwrap_or(1) + 1;
-                    renumber_after = Some((start_index, start_n));
-                }
-                // Merged paragraph into previous ordered item: if next is ordered run, renumber it to continue
-                (
-                    BlockType::ListItem {
-                        ordered: true,
-                        number: prev_num,
-                        ..
-                    },
-                    BlockType::Paragraph,
-                ) => {
-                    let start_index = block_index; // next block after prev
-                    let start_n = prev_num.unwrap_or(1) + 1;
-                    renumber_after = Some((start_index, start_n));
-                }
-                // Merged ordered item into previous paragraph: following ordered run should reset to start at 1
-                (BlockType::Paragraph, BlockType::ListItem { ordered: true, .. }) => {
-                    let start_index = block_index; // after removal, next block index is same value
-                    renumber_after = Some((start_index, 1));
-                }
-                _ => {}
-            }
-
-            if let Some((start_idx, start_n)) = renumber_after {
-                self.renumber_ordered_from(start_idx, start_n);
-            }
-        } else {
-            // Delete a single character within this block, respecting UTF-8 and nested links
-            if let Some(prev_grapheme_start) =
-                self.document.previous_grapheme_offset(block_index, offset)
-                && prev_grapheme_start < offset
-            {
-                let blocks = self.document.blocks_mut();
-                let block = &mut blocks[block_index];
-                block.delete_text_range(prev_grapheme_start, offset);
-                self.cursor.offset = prev_grapheme_start;
-            }
+        let prev = tree_walk::previous_grapheme_position(
+            &self.tdoc,
+            &DocumentPosition::at(path.clone(), offset),
+        )
+        .offset;
+        if prev < offset {
+            self.delete_intra_leaf_range(&path, prev, offset);
+            self.cursor.offset = prev;
         }
         self.normalize_cursor();
         Ok(())
     }
 
-    /// Delete up to `byte_count` bytes immediately before the cursor (used for IME composition).
-    /// Returns `Ok(true)` when any content was removed.
-    pub fn delete_backward_bytes(&mut self, mut byte_count: usize) -> Result<bool, EditError> {
+    pub fn delete_backward_bytes(&mut self, byte_count: usize) -> Result<bool, EditError> {
         if byte_count == 0 {
             return Ok(false);
         }
-
-        if self.document.is_empty() {
+        if self.leaf_count() == 0 {
             return Err(EditError::EmptyDocument);
         }
-
-        // Ensure cursor is on a valid grapheme boundary before calculating ranges.
         self.normalize_cursor();
 
-        let original_cursor = self.cursor;
-        let mut start = original_cursor;
-
-        {
-            let doc = self.document();
-            if doc.block_count() == 0 {
-                return Ok(false);
+        let path = self.cursor.path.clone();
+        let end = self.cursor.offset;
+        let text = self.leaf_plain_text(&path);
+        // Walk back grapheme by grapheme within this leaf until we've covered byte_count.
+        let mut start = end;
+        let mut remaining = byte_count;
+        while start > 0 && remaining > 0 {
+            let prev = tree_walk::previous_grapheme_position(
+                &self.tdoc,
+                &DocumentPosition::at(path.clone(), start),
+            )
+            .offset;
+            if prev >= start {
+                break;
             }
-
-            // Clamp to valid block in case document shrank unexpectedly
-            if start.block_index >= doc.block_count() {
-                start.block_index = doc.block_count() - 1;
-                start.offset = doc.blocks()[start.block_index].text_len();
-            }
-
-            while byte_count > 0 {
-                if start.offset == 0 {
-                    if start.block_index == 0 {
-                        break;
-                    }
-                    start.block_index -= 1;
-                    start.offset = doc.blocks()[start.block_index].text_len();
-                    continue;
-                }
-
-                if let Some(prev_offset) =
-                    doc.previous_grapheme_offset(start.block_index, start.offset)
-                {
-                    let removed = start.offset - prev_offset;
-                    start.offset = prev_offset;
-
-                    if removed == 0 {
-                        break;
-                    }
-
-                    if removed > byte_count {
-                        byte_count = 0;
-                    } else {
-                        byte_count -= removed;
-                    }
-                } else {
-                    break;
-                }
-            }
+            let removed = start - prev;
+            start = prev;
+            remaining = remaining.saturating_sub(removed);
         }
-
-        if start == original_cursor {
+        let _ = text;
+        if start == end {
             return Ok(false);
         }
-
-        self.set_selection(start, original_cursor);
+        self.set_selection(
+            DocumentPosition::at(path.clone(), start),
+            DocumentPosition::at(path, end),
+        );
         self.delete_selection()?;
         Ok(true)
     }
 
-    /// Delete character at cursor (delete key)
     pub fn delete_forward(&mut self) -> EditResult {
-        if self.document.is_empty() {
+        if self.leaf_count() == 0 {
             return Err(EditError::EmptyDocument);
         }
-
-        // If there's a selection, delete it
         if self.selection.is_some() {
             return self.delete_selection();
         }
 
-        let block_index = self.cursor.block_index;
+        let path = self.cursor.path.clone();
         let offset = self.cursor.offset;
-        let block_count = self.document.block_count();
+        let len = self.leaf_text_len(&path);
 
-        if block_index >= block_count {
-            return Err(EditError::InvalidBlockIndex);
+        if offset >= len {
+            // TODO(phase2): tree-aware merge with the next leaf / table removal.
+            return Ok(());
         }
-
-        let block_len = {
-            let blocks = self.document.blocks();
-            blocks[block_index].text_len()
-        };
-
-        if offset >= block_len {
-            // Forward-delete also removes a table atomically: the one at the
-            // cursor (a table is both empty and at-end), or the table just after.
-            if self.is_table_block(block_index) {
-                return self
-                    .remove_atomic_block(block_index, DocumentPosition::new(block_index, 0));
-            }
-
-            if block_index >= block_count - 1 {
-                return Ok(()); // At end of document, nothing to delete
-            }
-
-            if self.is_table_block(block_index + 1) {
-                return self.remove_atomic_block(
-                    block_index + 1,
-                    DocumentPosition::new(block_index, offset),
-                );
-            }
-
-            let (cur_type, next_type) = {
-                let blocks = self.document.blocks();
-                let cur = blocks[block_index].block_type.clone();
-                let nxt = blocks[block_index + 1].block_type.clone();
-                (cur, nxt)
-            };
-
-            {
-                let blocks = self.document.blocks_mut();
-                let next_block = blocks.remove(block_index + 1);
-                let block = &mut blocks[block_index];
-                block.content.extend(next_block.content);
-                block.normalize_content();
-            }
-
-            match (cur_type, next_type) {
-                // Current and next were ordered: renumber following items to close the gap
-                (
-                    BlockType::ListItem {
-                        ordered: true,
-                        number: cur_num,
-                        ..
-                    },
-                    BlockType::ListItem { ordered: true, .. },
-                ) => {
-                    let start_index = block_index + 1;
-                    let start_n = cur_num.unwrap_or(1) + 1;
-                    self.renumber_ordered_from(start_index, start_n);
-                }
-                // Current paragraph merged with next ordered: following ordered run should reset numbering from 1
-                (BlockType::Paragraph, BlockType::ListItem { ordered: true, .. }) => {
-                    let start_index = block_index + 1;
-                    self.renumber_ordered_from(start_index, 1);
-                }
-                // Current ordered merged with next paragraph: if there is an ordered run after, continue numbering
-                (
-                    BlockType::ListItem {
-                        ordered: true,
-                        number: cur_num,
-                        ..
-                    },
-                    BlockType::Paragraph,
-                ) => {
-                    let start_index = block_index + 1;
-                    self.renumber_ordered_from(start_index, cur_num.unwrap_or(1) + 1);
-                }
-                _ => {}
-            }
-
-            self.normalize_cursor();
+        if self.is_table_leaf(&path) {
             return Ok(());
         }
 
-        let next_grapheme_end = self
-            .document
-            .next_grapheme_offset(block_index, offset)
-            .unwrap_or(offset);
-
-        if next_grapheme_end > offset {
-            let blocks = self.document.blocks_mut();
-            let block = &mut blocks[block_index];
-            block.delete_text_range(offset, next_grapheme_end);
+        let next = tree_walk::next_grapheme_position(
+            &self.tdoc,
+            &DocumentPosition::at(path.clone(), offset),
+        )
+        .offset;
+        if next > offset {
+            self.edit_leaf(&path, |content| {
+                let mut block = Block::paragraph();
+                block.content = std::mem::take(content);
+                block.delete_text_range(offset, next);
+                *content = block.content;
+            });
         }
-
         self.normalize_cursor();
         Ok(())
     }
 
-    /// Delete word before cursor (Alt/Ctrl+Backspace)
     pub fn delete_word_backward(&mut self) -> EditResult {
-        if self.document.is_empty() {
+        if self.leaf_count() == 0 {
             return Err(EditError::EmptyDocument);
         }
-
-        // If there's a selection, delete it
         if self.selection.is_some() {
             return self.delete_selection();
         }
-
-        // On a table, word-delete removes the whole (atomic) table.
-        if self.is_table_block(self.cursor.block_index) {
+        if self.is_table_leaf(&self.cursor.path.clone()) {
             return self.delete_backward();
         }
-
-        let from = self.cursor;
-        let to = self.word_left_position(from);
-
-        // Nothing to delete
-        if to == from {
-            return Ok(());
+        let from = self.cursor.clone();
+        let to = self.word_left_position(&from);
+        if to == from || to.path != from.path {
+            // Cross-leaf word delete is handled as a plain backspace in Phase 1.
+            return self.delete_backward();
         }
-
-        self.document.delete_range(to, from);
+        self.delete_intra_leaf_range(&to.path, to.offset, from.offset);
         self.cursor = to;
         self.normalize_cursor();
         self.selection = None;
         Ok(())
     }
 
-    /// Delete word at/after cursor (Alt/Ctrl+Delete)
     pub fn delete_word_forward(&mut self) -> EditResult {
-        if self.document.is_empty() {
+        if self.leaf_count() == 0 {
             return Err(EditError::EmptyDocument);
         }
-
-        // If there's a selection, delete it
         if self.selection.is_some() {
             return self.delete_selection();
         }
-
-        // On a table, word-delete removes the whole (atomic) table.
-        if self.is_table_block(self.cursor.block_index) {
+        if self.is_table_leaf(&self.cursor.path.clone()) {
             return self.delete_forward();
         }
-
-        let from = self.cursor;
-        let to = self.word_right_position(from);
-
-        // Nothing to delete
-        if to == from {
-            return Ok(());
+        let from = self.cursor.clone();
+        let to = self.word_right_position(&from);
+        if to == from || to.path != from.path {
+            return self.delete_forward();
         }
-
-        self.document.delete_range(from, to);
-        // Cursor stays at original start
+        self.delete_intra_leaf_range(&from.path, from.offset, to.offset);
         self.normalize_cursor();
         self.selection = None;
         Ok(())
     }
 
-    /// Delete the current selection
     pub fn delete_selection(&mut self) -> EditResult {
-        let Some((start, end)) = self.selection else {
+        let Some((a, b)) = self.selection.clone() else {
             return Ok(());
         };
-        // Ensure start <= end in document order
-        let (start, end) = if start.block_index < end.block_index
-            || (start.block_index == end.block_index && start.offset <= end.offset)
-        {
-            (start, end)
+        let (start, end) = if a <= b { (a, b) } else { (b, a) };
+
+        if start.path == end.path {
+            self.delete_intra_leaf_range(&start.path, start.offset, end.offset);
+            self.cursor = start;
         } else {
-            (end, start)
-        };
-
-        // Delegate range deletion to document, which handles intra- and inter-block cases
-        self.document.delete_range(start, end);
-
-        self.cursor = start;
+            // TODO(phase2): cross-leaf range deletion + merge.
+            self.cursor = start;
+        }
         self.selection = None;
         self.normalize_cursor();
-
         Ok(())
     }
 
-    /// Move cursor left by one character
+    fn delete_intra_leaf_range(&mut self, path: &TreePath, start: usize, end: usize) {
+        if start >= end {
+            return;
+        }
+        self.edit_leaf(path, |content| {
+            let mut block = Block::paragraph();
+            block.content = std::mem::take(content);
+            block.delete_text_range(start, end);
+            *content = block.content;
+        });
+    }
+
+    // ----- Movement ------------------------------------------------------------------
+
+    fn prev_leaf(&self, path: &TreePath) -> Option<TreePath> {
+        tree_walk::prev_leaf_path(&self.tdoc, path)
+    }
+
+    fn next_leaf(&self, path: &TreePath) -> Option<TreePath> {
+        tree_walk::next_leaf_path(&self.tdoc, path)
+    }
+
     pub fn move_cursor_left(&mut self) {
         self.break_undo_coalescing();
-        if self.document.block_count() == 0 {
-            self.cursor = DocumentPosition::start();
-            self.selection = None;
-            return;
-        }
-
-        if self.cursor.block_index >= self.document.block_count() {
-            self.cursor.block_index = self.document.block_count() - 1;
-            let blocks = self.document.blocks();
-            self.cursor.offset = blocks[self.cursor.block_index].text_len();
-        }
-
-        if self.cursor.offset > 0 {
-            self.cursor = self.document.previous_grapheme_position(self.cursor);
-        } else if self.cursor.block_index > 0 {
-            // Move to end of previous block
-            self.cursor.block_index -= 1;
-            let blocks = self.document.blocks();
-            self.cursor.offset = blocks[self.cursor.block_index].text_len();
-        }
+        let new = self.position_left(&self.cursor.clone());
+        self.cursor = new;
         self.normalize_cursor();
         self.selection = None;
     }
 
-    /// Move cursor right by one character
     pub fn move_cursor_right(&mut self) {
         self.break_undo_coalescing();
-        let block_count = self.document.block_count();
-        if block_count == 0 {
-            self.cursor = DocumentPosition::start();
-            self.selection = None;
-            return;
-        }
-
-        if self.cursor.block_index >= block_count {
-            self.cursor.block_index = block_count - 1;
-            let blocks = self.document.blocks();
-            self.cursor.offset = blocks[self.cursor.block_index].text_len();
-        }
-
-        let blocks = self.document.blocks();
-        let block_len = blocks[self.cursor.block_index].text_len();
-
-        if self.cursor.offset < block_len {
-            self.cursor = self.document.next_grapheme_position(self.cursor);
-        } else if self.cursor.block_index < block_count - 1 {
-            // Move to start of next block
-            self.cursor.block_index += 1;
-            self.cursor.offset = 0;
-        }
+        let new = self.position_right(&self.cursor.clone());
+        self.cursor = new;
         self.normalize_cursor();
         self.selection = None;
     }
 
-    /// Move cursor up (to previous block)
+    fn position_left(&self, pos: &DocumentPosition) -> DocumentPosition {
+        if pos.offset > 0 {
+            tree_walk::previous_grapheme_position(&self.tdoc, pos)
+        } else if let Some(prev) = self.prev_leaf(&pos.path) {
+            let len = self.leaf_text_len(&prev);
+            DocumentPosition::at(prev, len)
+        } else {
+            pos.clone()
+        }
+    }
+
+    fn position_right(&self, pos: &DocumentPosition) -> DocumentPosition {
+        let len = self.leaf_text_len(&pos.path);
+        if pos.offset < len {
+            tree_walk::next_grapheme_position(&self.tdoc, pos)
+        } else if let Some(next) = self.next_leaf(&pos.path) {
+            DocumentPosition::at(next, 0)
+        } else {
+            pos.clone()
+        }
+    }
+
     pub fn move_cursor_up(&mut self) {
         self.break_undo_coalescing();
-        if self.cursor.block_index > 0 {
-            self.cursor.block_index -= 1;
-            let blocks = self.document.blocks();
-            let new_block_len = blocks[self.cursor.block_index].text_len();
-            self.cursor.offset = self.cursor.offset.min(new_block_len);
+        if let Some(prev) = self.prev_leaf(&self.cursor.path) {
+            let len = self.leaf_text_len(&prev);
+            self.cursor = DocumentPosition::at(prev, self.cursor.offset.min(len));
             self.normalize_cursor();
         }
         self.selection = None;
     }
 
-    /// Move cursor down (to next block)
     pub fn move_cursor_down(&mut self) {
         self.break_undo_coalescing();
-        let block_count = self.document.block_count();
-        if block_count == 0 {
-            self.cursor = DocumentPosition::start();
-            self.selection = None;
-            return;
-        }
-        if self.cursor.block_index + 1 < block_count {
-            self.cursor.block_index += 1;
-            let blocks = self.document.blocks();
-            let new_block_len = blocks[self.cursor.block_index].text_len();
-            self.cursor.offset = self.cursor.offset.min(new_block_len);
+        if let Some(next) = self.next_leaf(&self.cursor.path) {
+            let len = self.leaf_text_len(&next);
+            self.cursor = DocumentPosition::at(next, self.cursor.offset.min(len));
             self.normalize_cursor();
         }
         self.selection = None;
     }
 
-    /// Move cursor to start of current block
     pub fn move_cursor_to_line_start(&mut self) {
         self.break_undo_coalescing();
         self.cursor.offset = 0;
@@ -1444,62 +757,47 @@ impl StructuredEditor {
         self.selection = None;
     }
 
-    /// Move cursor to end of current block
     pub fn move_cursor_to_line_end(&mut self) {
         self.break_undo_coalescing();
-        let blocks = self.document.blocks();
-        if self.cursor.block_index < blocks.len() {
-            self.cursor.offset = blocks[self.cursor.block_index].text_len();
-            self.normalize_cursor();
-        }
+        self.cursor.offset = self.leaf_text_len(&self.cursor.path.clone());
+        self.normalize_cursor();
         self.selection = None;
     }
 
-    /// Move cursor right by one word
     pub fn move_word_right(&mut self) {
         self.break_undo_coalescing();
-        let new_pos = self.word_right_position(self.cursor);
-        self.cursor = new_pos;
+        self.cursor = self.word_right_position(&self.cursor.clone());
         self.selection = None;
     }
 
-    /// Move cursor left by one word
     pub fn move_word_left(&mut self) {
         self.break_undo_coalescing();
-        let new_pos = self.word_left_position(self.cursor);
-        self.cursor = new_pos;
+        self.cursor = self.word_left_position(&self.cursor.clone());
         self.selection = None;
     }
 
-    /// Extend selection by moving right by one word
     pub fn move_word_right_extend(&mut self) {
-        let new_pos = self.word_right_position(self.cursor);
-        if new_pos != self.cursor {
-            self.extend_selection_to(new_pos);
+        let new = self.word_right_position(&self.cursor.clone());
+        if new != self.cursor {
+            self.extend_selection_to(new);
         }
     }
 
-    /// Extend selection by moving left by one word
     pub fn move_word_left_extend(&mut self) {
-        let new_pos = self.word_left_position(self.cursor);
-        if new_pos != self.cursor {
-            self.extend_selection_to(new_pos);
+        let new = self.word_left_position(&self.cursor.clone());
+        if new != self.cursor {
+            self.extend_selection_to(new);
         }
     }
 
-    /// Compute next word-right position from a given position
-    fn word_right_position(&self, pos: DocumentPosition) -> DocumentPosition {
-        let blocks = self.document.blocks();
-        if pos.block_index >= blocks.len() {
-            return self.document.clamp_position(pos);
-        }
-        let text = blocks[pos.block_index].to_plain_text();
+    fn word_right_position(&self, pos: &DocumentPosition) -> DocumentPosition {
+        let text = self.leaf_plain_text(&pos.path);
         let mut i = pos.offset.min(text.len());
         if i >= text.len() {
-            if pos.block_index + 1 < blocks.len() {
-                return DocumentPosition::new(pos.block_index + 1, 0);
+            if let Some(next) = self.next_leaf(&pos.path) {
+                return DocumentPosition::at(next, 0);
             }
-            return self.document.clamp_position(pos);
+            return tree_walk::clamp_position(&self.tdoc, pos);
         }
         while i < text.len() {
             let ch = text[i..].chars().next().unwrap();
@@ -1517,33 +815,21 @@ impl StructuredEditor {
                 break;
             }
         }
-        self.document
-            .clamp_position_forward(DocumentPosition::new(pos.block_index, i))
+        tree_walk::clamp_position_forward(&self.tdoc, &DocumentPosition::at(pos.path.clone(), i))
     }
 
-    /// Compute next word-left position from a given position
-    fn word_left_position(&self, pos: DocumentPosition) -> DocumentPosition {
-        let blocks = self.document.blocks();
-        if pos.block_index >= blocks.len() {
-            return self.document.clamp_position(pos);
-        }
-        let text = blocks[pos.block_index].to_plain_text();
+    fn word_left_position(&self, pos: &DocumentPosition) -> DocumentPosition {
+        let text = self.leaf_plain_text(&pos.path);
         let mut i = pos.offset.min(text.len());
         if i == 0 {
-            if pos.block_index > 0 {
-                return DocumentPosition::new(
-                    pos.block_index - 1,
-                    blocks[pos.block_index - 1].text_len(),
-                );
+            if let Some(prev) = self.prev_leaf(&pos.path) {
+                let len = self.leaf_text_len(&prev);
+                return DocumentPosition::at(prev, len);
             }
-            return self.document.clamp_position(pos);
+            return tree_walk::clamp_position(&self.tdoc, pos);
         }
         while i > 0 {
-            let (prev_i, ch) = {
-                let mut it = text[..i].char_indices();
-                let (prev_idx, prev_ch) = it.next_back().unwrap();
-                (prev_idx, prev_ch)
-            };
+            let (prev_i, ch) = text[..i].char_indices().next_back().unwrap();
             if ch.is_whitespace() || ch.is_ascii_punctuation() {
                 i = prev_i;
             } else {
@@ -1551,1646 +837,145 @@ impl StructuredEditor {
             }
         }
         while i > 0 {
-            let (prev_i, ch) = {
-                let mut it = text[..i].char_indices();
-                let (prev_idx, prev_ch) = it.next_back().unwrap();
-                (prev_idx, prev_ch)
-            };
+            let (prev_i, ch) = text[..i].char_indices().next_back().unwrap();
             if !(ch.is_whitespace() || ch.is_ascii_punctuation()) {
                 i = prev_i;
             } else {
                 break;
             }
         }
-        self.document
-            .clamp_position(DocumentPosition::new(pos.block_index, i))
+        tree_walk::clamp_position(&self.tdoc, &DocumentPosition::at(pos.path.clone(), i))
     }
 
-    // Selection-extending movement methods (for Shift+arrow keys)
-
-    /// Move cursor left by one character, extending selection
     pub fn move_cursor_left_extend(&mut self) {
         self.normalize_cursor();
-        let new_pos = if self.document.block_count() == 0 {
-            self.cursor
-        } else if self.cursor.offset > 0 {
-            self.document.previous_grapheme_position(self.cursor)
-        } else if self.cursor.block_index > 0 {
-            // Move to end of previous block
-            let blocks = self.document.blocks();
-            DocumentPosition::new(
-                self.cursor.block_index - 1,
-                blocks[self.cursor.block_index - 1].text_len(),
-            )
-        } else {
-            self.cursor
-        };
-
-        if new_pos != self.cursor {
-            self.extend_selection_to(new_pos);
+        let new = self.position_left(&self.cursor.clone());
+        if new != self.cursor {
+            self.extend_selection_to(new);
         }
     }
 
-    /// Move cursor right by one character, extending selection
     pub fn move_cursor_right_extend(&mut self) {
         self.normalize_cursor();
-        let block_count = self.document.block_count();
-        if block_count == 0 {
-            return;
-        }
-
-        let current_index = self.cursor.block_index.min(block_count - 1);
-        let blocks = self.document.blocks();
-        let block_len = blocks[current_index].text_len();
-        let new_pos = if self.cursor.offset < block_len {
-            self.document.next_grapheme_position(self.cursor)
-        } else if current_index + 1 < block_count {
-            // Move to start of next block
-            DocumentPosition::new(current_index + 1, 0)
-        } else {
-            self.cursor
-        };
-
-        if new_pos != self.cursor {
-            self.extend_selection_to(new_pos);
+        let new = self.position_right(&self.cursor.clone());
+        if new != self.cursor {
+            self.extend_selection_to(new);
         }
     }
 
-    /// Move cursor up (to previous block), extending selection
     pub fn move_cursor_up_extend(&mut self) {
-        if self.cursor.block_index > 0 {
-            let blocks = self.document.blocks();
-            let new_block_len = blocks[self.cursor.block_index - 1].text_len();
-            let new_pos = DocumentPosition::new(
-                self.cursor.block_index - 1,
-                self.cursor.offset.min(new_block_len),
-            );
-            self.extend_selection_to(new_pos);
+        if let Some(prev) = self.prev_leaf(&self.cursor.path) {
+            let len = self.leaf_text_len(&prev);
+            let new = DocumentPosition::at(prev, self.cursor.offset.min(len));
+            self.extend_selection_to(new);
         }
     }
 
-    /// Move cursor down (to next block), extending selection
     pub fn move_cursor_down_extend(&mut self) {
-        let blocks = self.document.blocks();
-        if self.cursor.block_index < blocks.len() - 1 {
-            let new_block_len = blocks[self.cursor.block_index + 1].text_len();
-            let new_pos = DocumentPosition::new(
-                self.cursor.block_index + 1,
-                self.cursor.offset.min(new_block_len),
-            );
-            self.extend_selection_to(new_pos);
+        if let Some(next) = self.next_leaf(&self.cursor.path) {
+            let len = self.leaf_text_len(&next);
+            let new = DocumentPosition::at(next, self.cursor.offset.min(len));
+            self.extend_selection_to(new);
         }
     }
 
-    /// Move cursor to start of current block, extending selection
     pub fn move_cursor_to_line_start_extend(&mut self) {
-        let new_pos = DocumentPosition::new(self.cursor.block_index, 0);
-        if new_pos != self.cursor {
-            self.extend_selection_to(new_pos);
+        let new = DocumentPosition::at(self.cursor.path.clone(), 0);
+        if new != self.cursor {
+            self.extend_selection_to(new);
         }
     }
 
-    /// Move cursor to end of current block, extending selection
     pub fn move_cursor_to_line_end_extend(&mut self) {
-        let blocks = self.document.blocks();
-        if self.cursor.block_index < blocks.len() {
-            let new_pos = DocumentPosition::new(
-                self.cursor.block_index,
-                blocks[self.cursor.block_index].text_len(),
-            );
-            if new_pos != self.cursor {
-                self.extend_selection_to(new_pos);
-            }
+        let new = DocumentPosition::at(
+            self.cursor.path.clone(),
+            self.leaf_text_len(&self.cursor.path.clone()),
+        );
+        if new != self.cursor {
+            self.extend_selection_to(new);
         }
     }
 
-    /// Toggle heading level (cycles through plain → H1 → H2 → H3 → plain)
-    /// Also removes list status if present
-    pub fn toggle_heading(&mut self) -> EditResult {
-        let block_index = self.cursor.block_index;
-        if block_index >= self.document.block_count() {
-            return Err(EditError::InvalidBlockIndex);
-        }
+    // ----- Text extraction -----------------------------------------------------------
 
-        let blocks = self.document.blocks_mut();
-        let block = &mut blocks[block_index];
-
-        // Cycle through heading levels
-        block.block_type = match &block.block_type {
-            BlockType::Paragraph => BlockType::Heading { level: 1 },
-            BlockType::Heading { level: 1 } => BlockType::Heading { level: 2 },
-            BlockType::Heading { level: 2 } => BlockType::Heading { level: 3 },
-            BlockType::Heading { level: 3 } => BlockType::Paragraph,
-            BlockType::Heading { level } => BlockType::Heading {
-                level: (*level % 3) + 1,
-            },
-            BlockType::ListItem { .. } => BlockType::Heading { level: 1 },
-            BlockType::CodeBlock { .. } => BlockType::Heading { level: 1 },
-            BlockType::BlockQuote => BlockType::Heading { level: 1 },
-            // Tables are read-only; leave them unchanged.
-            BlockType::Table { .. } => return Ok(()),
-        };
-
-        Ok(())
-    }
-
-    /// Insert an inline element at the current cursor position
-    pub fn insert_inline_at_cursor(&mut self, inline: InlineContent) -> EditResult {
-        if self.document.is_empty() {
-            let mut block = Block::paragraph();
-            block.content.push(inline);
-            let text_len = block.text_len();
-            self.document.add_block(block);
-            self.cursor = DocumentPosition::new(0, text_len);
-            return Ok(());
-        }
-
-        let block_index = self.cursor.block_index;
-        if block_index >= self.document.block_count() {
-            return Err(EditError::InvalidBlockIndex);
-        }
-
-        // Delete selection first if there is one
-        if self.selection.is_some() {
-            self.delete_selection()?;
-        }
-
-        let offset = self.cursor.offset;
-        let (left, right) = {
-            let blocks = self.document.blocks();
-            let block = &blocks[block_index];
-            Self::split_content_at_static(&block.content, offset)
-        };
-
-        let blocks = self.document.blocks_mut();
-        let block = &mut blocks[block_index];
-        block.content = left;
-        block.content.push(inline);
-        block.content.extend(right);
-
-        // Advance cursor by inserted inline's text length
-        let inserted_len = match block.content.get(block.content.len().saturating_sub(1)) {
-            Some(InlineContent::Text(run)) => run.len(),
-            Some(InlineContent::Link { content, .. }) => content.iter().map(|c| c.text_len()).sum(),
-            Some(InlineContent::HardBreak) => 1,
-            _ => 0,
-        };
-        self.cursor.offset = offset + inserted_len;
-        self.selection = None;
-        Ok(())
-    }
-
-    /// Replace current selection with a link (destination + text)
-    pub fn replace_selection_with_link(&mut self, destination: &str, text: &str) -> EditResult {
-        // Delete selection, which moves cursor to start of selection
-        self.delete_selection()?;
-        self.insert_link_at_cursor(destination, text)
-    }
-
-    /// Insert a link at the cursor
-    pub fn insert_link_at_cursor(&mut self, destination: &str, text: &str) -> EditResult {
-        let link_inline = InlineContent::Link {
-            link: Link {
-                destination: destination.to_string(),
-                title: None,
-            },
-            content: vec![InlineContent::Text(TextRun::plain(text))],
-        };
-        self.insert_inline_at_cursor(link_inline)
-    }
-
-    /// Edit an existing link at the given block + inline index
-    pub fn edit_link_at(
-        &mut self,
-        block_index: usize,
-        inline_index: usize,
-        destination: &str,
-        text: &str,
-    ) -> EditResult {
-        if block_index >= self.document.block_count() {
-            return Err(EditError::InvalidBlockIndex);
-        }
-        let blocks = self.document.blocks_mut();
-        let block = &mut blocks[block_index];
-        if inline_index >= block.content.len() {
-            return Err(EditError::InvalidPosition);
-        }
-        if let InlineContent::Link { link, content } = &mut block.content[inline_index] {
-            link.destination = destination.to_string();
-            *content = vec![InlineContent::Text(TextRun::plain(text))];
-            Ok(())
-        } else {
-            Err(EditError::InvalidPosition)
-        }
-    }
-
-    /// Remove (unwrap) a link at the given block + inline index, preserving its text content
-    pub fn remove_link_at(&mut self, block_index: usize, inline_index: usize) -> EditResult {
-        if block_index >= self.document.block_count() {
-            return Err(EditError::InvalidBlockIndex);
-        }
-        let blocks = self.document.blocks_mut();
-        let block = &mut blocks[block_index];
-        if inline_index >= block.content.len() {
-            return Err(EditError::InvalidPosition);
-        }
-        if let InlineContent::Link { content, .. } = block.content.remove(inline_index) {
-            // Splice inner content in place of the link
-            for (i, item) in content.into_iter().enumerate() {
-                block.content.insert(inline_index + i, item);
-            }
-            Ok(())
-        } else {
-            Err(EditError::InvalidPosition)
-        }
-    }
-
-    /// Extract plain text for a document range
     pub fn text_in_range(&self, start: DocumentPosition, end: DocumentPosition) -> String {
-        let doc = self.document();
-        if doc.block_count() == 0 {
-            return String::new();
-        }
-        let mut s = String::new();
-        let (mut a, mut b) = (start, end);
-        if a.block_index > b.block_index || (a.block_index == b.block_index && a.offset > b.offset)
-        {
-            std::mem::swap(&mut a, &mut b);
-        }
-        for bi in a.block_index..=b.block_index {
-            let block = &doc.blocks()[bi];
-            let text = block.to_plain_text();
-            let from = if bi == a.block_index {
-                a.offset.min(text.len())
+        let (start, end) = if start <= end {
+            (start, end)
+        } else {
+            (end, start)
+        };
+        let paths = self.leaf_paths();
+        let mut out = String::new();
+        let mut started = false;
+        for path in &paths {
+            if *path < start.path || *path > end.path {
+                continue;
+            }
+            let text = self.leaf_plain_text(path);
+            let from = if *path == start.path {
+                start.offset.min(text.len())
             } else {
                 0
             };
-            let to = if bi == b.block_index {
-                b.offset.min(text.len())
+            let to = if *path == end.path {
+                end.offset.min(text.len())
             } else {
                 text.len()
             };
             if from < to {
-                if !s.is_empty() {
-                    s.push_str("\n\n");
+                if started {
+                    out.push_str("\n\n");
                 }
-                s.push_str(&text[from..to]);
+                out.push_str(&text[from..to]);
+                started = true;
             }
         }
-        s
+        out
     }
 
-    /// Toggle bold style on the current selection
-    pub fn toggle_bold(&mut self) -> EditResult {
-        self.toggle_style_attribute(|style| {
-            style.bold = !style.bold;
-        })
-    }
-
-    /// Toggle italic style on the current selection
-    pub fn toggle_italic(&mut self) -> EditResult {
-        self.toggle_style_attribute(|style| {
-            style.italic = !style.italic;
-        })
-    }
-
-    /// Toggle a style attribute on the current selection
-    fn toggle_style_attribute<F>(&mut self, mut apply_style: F) -> EditResult
-    where
-        F: FnMut(&mut TextStyle),
-    {
-        let Some((start, end)) = self.selection else {
-            return Ok(());
-        };
-
-        // Ensure start <= end
-        let (start, end) = if start.block_index < end.block_index
-            || (start.block_index == end.block_index && start.offset <= end.offset)
-        {
-            (start, end)
-        } else {
-            (end, start)
-        };
-
-        // Single-block selection
-        if start.block_index == end.block_index {
-            let block_index = start.block_index;
-            if block_index >= self.document.block_count() {
-                return Err(EditError::InvalidBlockIndex);
-            }
-
-            // Get the content and split it into three parts: before, selected, after
-            let (content_before, selected_content, content_after) = {
-                let blocks = self.document.blocks();
-                let block = &blocks[block_index];
-                Self::split_content_for_style(&block.content, start.offset, end.offset)
-            };
-
-            // Apply style to the selected content (recursively for nested structures)
-            let styled_content = Self::map_style_on_runs(selected_content, &mut apply_style);
-
-            // Reconstruct the block content
-            let blocks = self.document.blocks_mut();
-            let block = &mut blocks[block_index];
-            block.content = content_before;
-            block.content.extend(styled_content);
-            block.content.extend(content_after);
-            return Ok(());
-        }
-
-        // Multi-block selection: style tail of start, all middle, head of end
-        let blocks_len = self.document.block_count();
-        if start.block_index >= blocks_len || end.block_index >= blocks_len {
-            return Err(EditError::InvalidBlockIndex);
-        }
-
-        // Start block: from start.offset to end of block
-        {
-            let blocks = self.document.blocks();
-            let block = &blocks[start.block_index];
-            let block_len = block.text_len();
-            let (before, selected, after) =
-                Self::split_content_for_style(&block.content, start.offset, block_len);
-            let styled = Self::map_style_on_runs(selected, &mut apply_style);
-            let blocks = self.document.blocks_mut();
-            let block_mut = &mut blocks[start.block_index];
-            block_mut.content = before.into_iter().chain(styled).chain(after).collect();
-        }
-
-        // Middle blocks
-        if end.block_index > start.block_index + 1 {
-            for i in (start.block_index + 1)..end.block_index {
-                let styled = {
-                    let blocks = self.document.blocks();
-                    let b = &blocks[i];
-                    Self::map_style_on_runs(b.content.clone(), &mut apply_style)
-                };
-                let blocks = self.document.blocks_mut();
-                blocks[i].content = styled;
-            }
-        }
-
-        // End block: from 0 to end.offset
-        {
-            let (before, selected, after) = {
-                let blocks = self.document.blocks();
-                let block = &blocks[end.block_index];
-                Self::split_content_for_style(&block.content, 0, end.offset)
-            };
-            let styled = Self::map_style_on_runs(selected, &mut apply_style);
-            let blocks = self.document.blocks_mut();
-            let block_mut = &mut blocks[end.block_index];
-            block_mut.content = before.into_iter().chain(styled).chain(after).collect();
-        }
-
-        Ok(())
-    }
-
-    /// Split content into three parts: before selection, within selection, after selection
-    fn split_content_for_style(
-        content: &[InlineContent],
-        start_offset: usize,
-        end_offset: usize,
-    ) -> (Vec<InlineContent>, Vec<InlineContent>, Vec<InlineContent>) {
-        let mut before = Vec::new();
-        let mut selected = Vec::new();
-        let mut after = Vec::new();
-
-        let mut current_offset = 0;
-
-        for item in content {
-            let item_len = item.text_len();
-            let item_start = current_offset;
-            let item_end = current_offset + item_len;
-
-            if item_end <= start_offset {
-                // Entirely before selection
-                before.push(item.clone());
-            } else if item_start >= end_offset {
-                // Entirely after selection
-                after.push(item.clone());
-            } else if item_start >= start_offset && item_end <= end_offset {
-                // Entirely within selection
-                selected.push(item.clone());
-            } else {
-                // Partially overlaps - need to split
-                match item {
-                    InlineContent::Text(run) => {
-                        let text = &run.text;
-
-                        // Calculate offsets within this run
-                        let sel_start_in_run = start_offset.saturating_sub(item_start);
-                        let sel_end_in_run = end_offset.saturating_sub(item_start).min(item_len);
-
-                        if sel_start_in_run > 0 {
-                            // Part before selection
-                            let mut before_run = run.clone();
-                            before_run.text = text[..sel_start_in_run].to_string();
-                            before.push(InlineContent::Text(before_run));
-                        }
-
-                        if sel_end_in_run > sel_start_in_run {
-                            // Part in selection
-                            let mut selected_run = run.clone();
-                            selected_run.text = text[sel_start_in_run..sel_end_in_run].to_string();
-                            selected.push(InlineContent::Text(selected_run));
-                        }
-
-                        if sel_end_in_run < item_len {
-                            // Part after selection
-                            let mut after_run = run.clone();
-                            after_run.text = text[sel_end_in_run..].to_string();
-                            after.push(InlineContent::Text(after_run));
-                        }
-                    }
-                    _ => {
-                        // For non-text items, include them in the appropriate section
-                        if item_start < start_offset {
-                            before.push(item.clone());
-                        } else if item_start < end_offset {
-                            selected.push(item.clone());
-                        } else {
-                            after.push(item.clone());
-                        }
-                    }
-                }
-            }
-
-            current_offset += item_len;
-        }
-
-        (before, selected, after)
-    }
-
-    /// Toggle list status (on/off)
-    /// When turning list on, removes heading if present
-    pub fn toggle_list(&mut self) -> EditResult {
-        let block_count = self.document.block_count();
-        if block_count == 0 {
-            return Err(EditError::InvalidBlockIndex);
-        }
-
-        let selection_blocks = self.collect_selection_block_indices();
-        if !selection_blocks.is_empty() {
-            let blocks_snapshot = self.document.blocks();
-            let all_plain_bullets = selection_blocks.iter().all(|&idx| {
-                matches!(
-                    blocks_snapshot.get(idx).map(|b| &b.block_type),
-                    Some(BlockType::ListItem {
-                        ordered: false,
-                        number: None,
-                        checkbox: None,
-                    })
-                )
-            });
-
-            if all_plain_bullets {
-                return self.set_block_type(BlockType::Paragraph);
-            }
-
-            return self.set_block_type(BlockType::ListItem {
-                ordered: false,
-                number: None,
-                checkbox: None,
-            });
-        }
-
-        let block_index = self.cursor.block_index;
-        if block_index >= block_count {
-            return Err(EditError::InvalidBlockIndex);
-        }
-
-        // Special case: If currently in an ordered list, convert the entire adjacent
-        // ordered list run to unordered bullets (switching list types).
-        let convert_ordered_to_bullets = {
-            let blocks = self.document.blocks();
-            matches!(
-                blocks.get(block_index).map(|b| &b.block_type),
-                Some(BlockType::ListItem { ordered: true, .. })
-            )
-        };
-
-        if convert_ordered_to_bullets {
-            // Find contiguous ordered list run around the current block
-            let (start, end) = {
-                let blocks = self.document.blocks();
-                let mut start = block_index;
-                while start > 0 {
-                    if let BlockType::ListItem { ordered: true, .. } = blocks[start - 1].block_type
-                    {
-                        start -= 1;
-                    } else {
-                        break;
-                    }
-                }
-                let mut end = block_index;
-                while end + 1 < blocks.len() {
-                    if let BlockType::ListItem { ordered: true, .. } = blocks[end + 1].block_type {
-                        end += 1;
-                    } else {
-                        break;
-                    }
-                }
-                (start, end)
-            };
-
-            let blocks = self.document.blocks_mut();
-            for block in blocks.iter_mut().take(end + 1).skip(start) {
-                block.block_type = BlockType::ListItem {
-                    ordered: false,
-                    number: None,
-                    checkbox: None,
-                };
-            }
-            self.trigger_paragraph_change();
-            return Ok(());
-        }
-
-        // Special case: converting a checklist run to plain bullets
-        let convert_checklist_to_bullets = {
-            let blocks = self.document.blocks();
-            matches!(
-                blocks.get(block_index).map(|b| &b.block_type),
-                Some(BlockType::ListItem {
-                    ordered: false,
-                    checkbox: Some(_),
-                    ..
-                })
-            )
-        };
-
-        if convert_checklist_to_bullets {
-            let (start, end) = {
-                let blocks = self.document.blocks();
-                let mut start = block_index;
-                while start > 0 {
-                    if let BlockType::ListItem {
-                        ordered: false,
-                        checkbox: Some(_),
-                        ..
-                    } = blocks[start - 1].block_type
-                    {
-                        start -= 1;
-                    } else {
-                        break;
-                    }
-                }
-                let mut end = block_index;
-                while end + 1 < blocks.len() {
-                    if let BlockType::ListItem {
-                        ordered: false,
-                        checkbox: Some(_),
-                        ..
-                    } = blocks[end + 1].block_type
-                    {
-                        end += 1;
-                    } else {
-                        break;
-                    }
-                }
-                (start, end)
-            };
-
-            let blocks = self.document.blocks_mut();
-            for block in blocks.iter_mut().take(end + 1).skip(start) {
-                block.block_type = BlockType::ListItem {
-                    ordered: false,
-                    number: None,
-                    checkbox: None,
-                };
-            }
-            self.trigger_paragraph_change();
-            return Ok(());
-        }
-
-        let blocks = self.document.blocks_mut();
-        let block = &mut blocks[block_index];
-
-        // Toggle bullet list on/off for non-ordered contexts
-        block.block_type = match &block.block_type {
-            BlockType::ListItem { ordered: false, .. } => BlockType::Paragraph,
-            BlockType::ListItem { ordered: true, .. } => BlockType::ListItem {
-                // Already handled above (convert range) but keep safe fallback
-                ordered: false,
-                number: None,
-                checkbox: None,
-            },
-            BlockType::Paragraph | BlockType::Heading { .. } => BlockType::ListItem {
-                ordered: false,
-                number: None,
-                checkbox: None,
-            },
-            BlockType::CodeBlock { .. } => BlockType::ListItem {
-                ordered: false,
-                number: None,
-                checkbox: None,
-            },
-            BlockType::BlockQuote => BlockType::ListItem {
-                ordered: false,
-                number: None,
-                checkbox: None,
-            },
-            // Tables are read-only; leave them unchanged.
-            BlockType::Table { .. } => return Ok(()),
-        };
-
-        self.trigger_paragraph_change();
-        Ok(())
-    }
-
-    /// Toggle checklist status (on/off) for current block/run
-    /// Converts ordered runs to checklists, bullets to checklists, and removes checklist state when toggled off.
-    pub fn toggle_checklist(&mut self) -> EditResult {
-        let block_count = self.document.block_count();
-        if block_count == 0 {
-            return Err(EditError::InvalidBlockIndex);
-        }
-
-        let selection_blocks = self.collect_selection_block_indices();
-        if !selection_blocks.is_empty() {
-            let blocks_snapshot = self.document.blocks();
-            let all_checklists = selection_blocks.iter().all(|&idx| {
-                matches!(
-                    blocks_snapshot.get(idx).map(|b| &b.block_type),
-                    Some(BlockType::ListItem {
-                        ordered: false,
-                        number: None,
-                        checkbox: Some(_),
-                    })
-                )
-            });
-
-            if all_checklists {
-                return self.set_block_type(BlockType::ListItem {
-                    ordered: false,
-                    number: None,
-                    checkbox: None,
-                });
-            }
-
-            return self.set_block_type(BlockType::ListItem {
-                ordered: false,
-                number: None,
-                checkbox: Some(false),
-            });
-        }
-
-        let block_index = self.cursor.block_index;
-        if block_index >= block_count {
-            return Err(EditError::InvalidBlockIndex);
-        }
-
-        let current_type = {
-            let blocks = self.document.blocks();
-            blocks[block_index].block_type.clone()
-        };
-
-        match current_type {
-            // Tables are read-only; list/checklist toggles don't apply.
-            BlockType::Table { .. } => Ok(()),
-            BlockType::ListItem { ordered: true, .. } => {
-                // Convert contiguous ordered run to checklist items
-                let (start, end) = {
-                    let blocks = self.document.blocks();
-                    let mut start = block_index;
-                    while start > 0 {
-                        if let BlockType::ListItem { ordered: true, .. } =
-                            blocks[start - 1].block_type
-                        {
-                            start -= 1;
-                        } else {
-                            break;
-                        }
-                    }
-                    let mut end = block_index;
-                    while end + 1 < blocks.len() {
-                        if let BlockType::ListItem { ordered: true, .. } =
-                            blocks[end + 1].block_type
-                        {
-                            end += 1;
-                        } else {
-                            break;
-                        }
-                    }
-                    (start, end)
-                };
-
-                let blocks = self.document.blocks_mut();
-                for block in blocks.iter_mut().take(end + 1).skip(start) {
-                    block.block_type = BlockType::ListItem {
-                        ordered: false,
-                        number: None,
-                        checkbox: Some(false),
-                    };
-                }
-                self.trigger_paragraph_change();
-                Ok(())
-            }
-            BlockType::ListItem {
-                ordered: false,
-                checkbox: Some(_),
-                ..
-            } => {
-                // Toggling off a checklist item returns it to a paragraph
-                let blocks = self.document.blocks_mut();
-                blocks[block_index].block_type = BlockType::Paragraph;
-                self.trigger_paragraph_change();
-                Ok(())
-            }
-            BlockType::ListItem {
-                ordered: false,
-                checkbox: None,
-                ..
-            } => {
-                // Convert contiguous bullet run to checklist items
-                let (start, end) = {
-                    let blocks = self.document.blocks();
-                    let mut start = block_index;
-                    while start > 0 {
-                        if let BlockType::ListItem {
-                            ordered: false,
-                            checkbox: None,
-                            ..
-                        } = blocks[start - 1].block_type
-                        {
-                            start -= 1;
-                        } else {
-                            break;
-                        }
-                    }
-                    let mut end = block_index;
-                    while end + 1 < blocks.len() {
-                        if let BlockType::ListItem {
-                            ordered: false,
-                            checkbox: None,
-                            ..
-                        } = blocks[end + 1].block_type
-                        {
-                            end += 1;
-                        } else {
-                            break;
-                        }
-                    }
-                    (start, end)
-                };
-
-                let blocks = self.document.blocks_mut();
-                for block in blocks.iter_mut().take(end + 1).skip(start) {
-                    block.block_type = BlockType::ListItem {
-                        ordered: false,
-                        number: None,
-                        checkbox: Some(false),
-                    };
-                }
-                self.trigger_paragraph_change();
-                Ok(())
-            }
-            BlockType::Paragraph
-            | BlockType::Heading { .. }
-            | BlockType::CodeBlock { .. }
-            | BlockType::BlockQuote => {
-                let blocks = self.document.blocks_mut();
-                blocks[block_index].block_type = BlockType::ListItem {
-                    ordered: false,
-                    number: None,
-                    checkbox: Some(false),
-                };
-                self.trigger_paragraph_change();
-                Ok(())
-            }
-        }
-    }
-
-    /// Toggle the checkmark state for a specific checklist block.
-    pub fn toggle_checkmark_at(&mut self, block_index: usize) -> Result<bool, EditError> {
-        if block_index >= self.document.block_count() {
-            return Err(EditError::InvalidBlockIndex);
-        }
-        let blocks = self.document.blocks_mut();
-        if let BlockType::ListItem {
-            checkbox: Some(state),
-            ..
-        } = &mut blocks[block_index].block_type
-        {
-            *state = !*state;
-            return Ok(true);
-        }
-        Ok(false)
-    }
-
-    /// Toggle the checkmark state for the block at the current cursor position.
-    pub fn toggle_current_checkmark(&mut self) -> Result<bool, EditError> {
-        let block_index = self.cursor.block_index;
-        self.toggle_checkmark_at(block_index)
-    }
-
-    fn ordered_start_number_for_selection(&self, selection_blocks: &[usize]) -> u64 {
-        if selection_blocks.is_empty() {
-            return 1;
-        }
-
-        let blocks = self.document.blocks();
-        if blocks.is_empty() {
-            return 1;
-        }
-
-        let first_idx = selection_blocks[0].min(blocks.len() - 1);
-
-        if let Some(BlockType::ListItem {
-            ordered: true,
-            number,
-            ..
-        }) = blocks.get(first_idx).map(|b| &b.block_type)
-        {
-            return number.unwrap_or(1);
-        }
-
-        if first_idx == 0 {
-            return 1;
-        }
-
-        if let Some(BlockType::ListItem { ordered: true, .. }) =
-            blocks.get(first_idx - 1).map(|b| &b.block_type)
-        {
-            let mut run_start = first_idx - 1;
-            while run_start > 0 {
-                if let BlockType::ListItem { ordered: true, .. } = blocks[run_start - 1].block_type
-                {
-                    run_start -= 1;
-                } else {
-                    break;
-                }
-            }
-
-            let first_number = match blocks[run_start].block_type {
-                BlockType::ListItem {
-                    ordered: true,
-                    number,
-                    ..
-                } => number.unwrap_or(1),
-                _ => 1,
-            };
-            let run_len = first_idx - run_start;
-            return first_number + run_len as u64;
-        }
-
-        1
-    }
-
-    /// Toggle ordered list (on/off) and handle conversion from bullets when applicable.
-    /// Special case: If currently in an unordered list, convert all adjacent bullet
-    /// list items into ordered list items with sequential numbering starting at 1.
-    pub fn toggle_ordered_list(&mut self) -> EditResult {
-        let block_count = self.document.block_count();
-        if block_count == 0 {
-            return Err(EditError::InvalidBlockIndex);
-        }
-
-        let selection_blocks = self.collect_selection_block_indices();
-        if !selection_blocks.is_empty() {
-            let blocks_snapshot = self.document.blocks();
-            let all_ordered = selection_blocks.iter().all(|&idx| {
-                matches!(
-                    blocks_snapshot.get(idx).map(|b| &b.block_type),
-                    Some(BlockType::ListItem { ordered: true, .. })
-                )
-            });
-
-            if all_ordered {
-                let result = self.set_block_type(BlockType::Paragraph);
-                if result.is_ok()
-                    && let Some(&last_idx) = selection_blocks.last()
-                    && last_idx + 1 < block_count
-                {
-                    self.renumber_ordered_from(last_idx + 1, 1);
-                }
-                return result;
-            }
-
-            let start_number = self.ordered_start_number_for_selection(&selection_blocks);
-            return self.set_block_type(BlockType::ListItem {
-                ordered: true,
-                number: Some(start_number),
-                checkbox: None,
-            });
-        }
-
-        let block_index = self.cursor.block_index;
-        if block_index >= block_count {
-            return Err(EditError::InvalidBlockIndex);
-        }
-
-        let current_type = {
-            let blocks = self.document.blocks();
-            blocks[block_index].block_type.clone()
-        };
-
-        match current_type {
-            // Tables are read-only; list/checklist toggles don't apply.
-            BlockType::Table { .. } => Ok(()),
-            BlockType::ListItem { ordered: true, .. } => {
-                // We are inside an ordered run. Capture run bounds first.
-                let (_run_start, run_end, _first_num) = {
-                    let blocks = self.document.blocks();
-                    // Find run start
-                    let mut start = block_index;
-                    while start > 0 {
-                        if let BlockType::ListItem { ordered: true, .. } =
-                            blocks[start - 1].block_type
-                        {
-                            start -= 1;
-                        } else {
-                            break;
-                        }
-                    }
-                    // Find run end
-                    let mut end = block_index;
-                    while end + 1 < blocks.len() {
-                        if let BlockType::ListItem { ordered: true, .. } =
-                            blocks[end + 1].block_type
-                        {
-                            end += 1;
-                        } else {
-                            break;
-                        }
-                    }
-                    // Determine starting number (default 1)
-                    let first_num = match blocks[start].block_type {
-                        BlockType::ListItem {
-                            ordered: true,
-                            number,
-                            ..
-                        } => number.unwrap_or(1),
-                        _ => 1,
-                    };
-                    (start, end, first_num)
-                };
-
-                // Turn off ordered list for current block (becomes paragraph)
-                {
-                    let blocks = self.document.blocks_mut();
-                    blocks[block_index].block_type = BlockType::Paragraph;
-                }
-
-                // Renumber the following part of the run to start from 1 (new list)
-                if block_index < run_end {
-                    let mut n: u64 = 1;
-                    let blocks = self.document.blocks_mut();
-                    for block in blocks.iter_mut().take(run_end + 1).skip(block_index + 1) {
-                        if let BlockType::ListItem { ordered: true, .. } = block.block_type {
-                            block.block_type = BlockType::ListItem {
-                                ordered: true,
-                                number: Some(n),
-                                checkbox: None,
-                            };
-                            n += 1;
-                        } else {
-                            break;
-                        }
-                    }
-                }
-                self.trigger_paragraph_change();
-                Ok(())
-            }
-            BlockType::ListItem { ordered: false, .. } => {
-                // Convert adjacent bullets to ordered list with numbering
-                let (start, end) = {
-                    let blocks = self.document.blocks();
-                    let mut start = block_index;
-                    while start > 0 {
-                        if let BlockType::ListItem { ordered: false, .. } =
-                            blocks[start - 1].block_type
-                        {
-                            start -= 1;
-                        } else {
-                            break;
-                        }
-                    }
-                    let mut end = block_index;
-                    while end + 1 < blocks.len() {
-                        if let BlockType::ListItem { ordered: false, .. } =
-                            blocks[end + 1].block_type
-                        {
-                            end += 1;
-                        } else {
-                            break;
-                        }
-                    }
-                    (start, end)
-                };
-
-                let blocks = self.document.blocks_mut();
-                for (num, block) in (1u64..).zip(blocks.iter_mut().take(end + 1).skip(start)) {
-                    block.block_type = BlockType::ListItem {
-                        ordered: true,
-                        number: Some(num),
-                        checkbox: None,
-                    };
-                }
-                self.trigger_paragraph_change();
-                Ok(())
-            }
-            BlockType::Paragraph
-            | BlockType::Heading { .. }
-            | BlockType::CodeBlock { .. }
-            | BlockType::BlockQuote => {
-                // Determine neighbors to decide numbering and renumber following run
-                let (prev_is_ord, next_is_ord) = {
-                    let blocks = self.document.blocks();
-                    let prev = if block_index > 0 {
-                        matches!(
-                            blocks[block_index - 1].block_type,
-                            BlockType::ListItem { ordered: true, .. }
-                        )
-                    } else {
-                        false
-                    };
-                    let next = if block_index + 1 < blocks.len() {
-                        matches!(
-                            blocks[block_index + 1].block_type,
-                            BlockType::ListItem { ordered: true, .. }
-                        )
-                    } else {
-                        false
-                    };
-                    (prev, next)
-                };
-
-                // Compute the number for the current item
-                let current_number = if prev_is_ord {
-                    // Determine previous run bounds and last number
-                    let (prev_start, prev_end, prev_first) = {
-                        let blocks = self.document.blocks();
-                        // prev_end is block_index - 1 and is ordered
-                        let mut start = block_index - 1;
-                        while start > 0 {
-                            if let BlockType::ListItem { ordered: true, .. } =
-                                blocks[start - 1].block_type
-                            {
-                                start -= 1;
-                            } else {
-                                break;
-                            }
-                        }
-                        let first = match blocks[start].block_type {
-                            BlockType::ListItem {
-                                ordered: true,
-                                number,
-                                ..
-                            } => number.unwrap_or(1),
-                            _ => 1,
-                        };
-                        (start, block_index - 1, first)
-                    };
-                    let prev_len = prev_end - prev_start + 1;
-                    Some(prev_first + prev_len as u64)
-                } else {
-                    Some(1)
-                };
-
-                // Set current block to ordered with computed number
-                {
-                    let blocks = self.document.blocks_mut();
-                    blocks[block_index].block_type = BlockType::ListItem {
-                        ordered: true,
-                        number: current_number,
-                        checkbox: None,
-                    };
-                }
-
-                // If there is a following ordered run, renumber it to continue
-                if next_is_ord {
-                    // Find following run end
-                    let (next_start, next_end) = {
-                        let blocks = self.document.blocks();
-                        let start = block_index + 1; // guaranteed ordered
-                        let mut end = start;
-                        while end + 1 < blocks.len() {
-                            if let BlockType::ListItem { ordered: true, .. } =
-                                blocks[end + 1].block_type
-                            {
-                                end += 1;
-                            } else {
-                                break;
-                            }
-                        }
-                        (start, end)
-                    };
-
-                    // Start numbering from current_number + 1
-                    let start_num = current_number.unwrap_or(1) + 1;
-                    let blocks = self.document.blocks_mut();
-                    for (n, block) in
-                        (start_num..).zip(blocks.iter_mut().take(next_end + 1).skip(next_start))
-                    {
-                        block.block_type = BlockType::ListItem {
-                            ordered: true,
-                            number: Some(n),
-                            checkbox: None,
-                        };
-                    }
-                }
-                self.trigger_paragraph_change();
-                Ok(())
-            }
-        }
-    }
-
-    /// Toggle quote status (on/off) for current block
-    /// If current block is a quote, switch to paragraph; otherwise set to quote
-    pub fn toggle_quote(&mut self) -> EditResult {
-        let block_index = self.cursor.block_index;
-        if block_index >= self.document.block_count() {
-            return Err(EditError::InvalidBlockIndex);
-        }
-
-        let blocks = self.document.blocks_mut();
-        blocks[block_index].block_type = match blocks[block_index].block_type {
-            BlockType::BlockQuote => BlockType::Paragraph,
-            _ => BlockType::BlockQuote,
-        };
-
-        self.trigger_paragraph_change();
-        Ok(())
-    }
-
-    /// Toggle code block status (on/off) for current block
-    /// If current block is a code block, switch to paragraph; otherwise set to code block (no language)
-    pub fn toggle_code_block(&mut self) -> EditResult {
-        let block_index = self.cursor.block_index;
-        if block_index >= self.document.block_count() {
-            return Err(EditError::InvalidBlockIndex);
-        }
-
-        let blocks = self.document.blocks_mut();
-        blocks[block_index].block_type = match &blocks[block_index].block_type {
-            BlockType::CodeBlock { .. } => BlockType::Paragraph,
-            _ => BlockType::CodeBlock { language: None },
-        };
-
-        self.trigger_paragraph_change();
-        Ok(())
-    }
-
-    /// Set the block type for the current block or all blocks covered by the selection.
-    pub fn set_block_type(&mut self, block_type: BlockType) -> EditResult {
-        let block_count = self.document.block_count();
-        if block_count == 0 {
-            return Err(EditError::InvalidBlockIndex);
-        }
-
-        let mut target_blocks = self.collect_selection_block_indices();
-        if target_blocks.is_empty() {
-            let cursor_index = self.cursor.block_index;
-            if cursor_index >= block_count {
-                return Err(EditError::InvalidBlockIndex);
-            }
-            target_blocks.push(cursor_index);
-        }
-
-        target_blocks.sort_unstable();
-        target_blocks.dedup();
-
-        if target_blocks.iter().any(|&idx| idx >= block_count) {
-            return Err(EditError::InvalidBlockIndex);
-        }
-
-        let ordered_conversion = matches!(block_type, BlockType::ListItem { ordered: true, .. });
-        let ordered_start_number = if let BlockType::ListItem {
-            ordered: true,
-            number,
-            ..
-        } = &block_type
-        {
-            number.unwrap_or(1)
-        } else {
-            0
-        };
-
-        let new_types: Vec<BlockType> = (0..target_blocks.len())
-            .map(|i| match &block_type {
-                BlockType::Paragraph => BlockType::Paragraph,
-                BlockType::Heading { level } => BlockType::Heading { level: *level },
-                BlockType::BlockQuote => BlockType::BlockQuote,
-                BlockType::CodeBlock { language } => BlockType::CodeBlock {
-                    language: language.clone(),
-                },
-                BlockType::ListItem {
-                    ordered, checkbox, ..
-                } => {
-                    if *ordered {
-                        BlockType::ListItem {
-                            ordered: true,
-                            number: Some(ordered_start_number + i as u64),
-                            checkbox: *checkbox,
-                        }
-                    } else {
-                        BlockType::ListItem {
-                            ordered: false,
-                            number: None,
-                            checkbox: *checkbox,
-                        }
-                    }
-                }
-                // Tables can't be produced via this API; preserve as-is.
-                BlockType::Table { rows } => BlockType::Table { rows: rows.clone() },
-            })
-            .collect();
-
-        {
-            let blocks = self.document.blocks_mut();
-            for (idx, new_type) in target_blocks.iter().copied().zip(new_types) {
-                blocks[idx].block_type = new_type;
-            }
-        }
-
-        if ordered_conversion
-            && let Some(last_idx) = target_blocks.last().copied()
-            && last_idx + 1 < block_count
-        {
-            let next_number = ordered_start_number + target_blocks.len() as u64;
-            self.renumber_ordered_from(last_idx + 1, next_number);
-        }
-
-        self.trigger_paragraph_change();
-        Ok(())
-    }
-
-    /// Move the block(s) covered by the selection (or the cursor's block when there is no
-    /// selection) up by one position, swapping with the block directly above.
-    ///
-    /// Always moves by the smallest increment (a single block) so it can be used to quickly
-    /// resort lists. The cursor and selection follow the moved block(s).
-    /// Returns `Ok(true)` when a move occurred, `Ok(false)` when already at the top.
-    pub fn move_blocks_up(&mut self) -> Result<bool, EditError> {
-        self.move_blocks(true)
-    }
-
-    /// Move the block(s) covered by the selection (or the cursor's block when there is no
-    /// selection) down by one position, swapping with the block directly below.
-    ///
-    /// Always moves by the smallest increment (a single block). The cursor and selection
-    /// follow the moved block(s). Returns `Ok(true)` when a move occurred, `Ok(false)` when
-    /// already at the bottom.
-    pub fn move_blocks_down(&mut self) -> Result<bool, EditError> {
-        self.move_blocks(false)
-    }
-
-    fn move_blocks(&mut self, up: bool) -> Result<bool, EditError> {
-        let block_count = self.document.block_count();
-        if block_count < 2 {
-            return Ok(false);
-        }
-
-        // Determine the contiguous range of blocks to move. A multi-block selection moves the
-        // whole group; otherwise just the block holding the cursor.
-        let indices = self.collect_selection_block_indices();
-        let (first, last) = match (indices.first(), indices.last()) {
-            (Some(&f), Some(&l)) => (f, l),
-            _ => {
-                let idx = self.cursor.block_index;
-                if idx >= block_count {
-                    return Err(EditError::InvalidBlockIndex);
-                }
-                (idx, idx)
-            }
-        };
-
-        let touched = if up {
-            if first == 0 {
-                return Ok(false);
-            }
-            // Lift the block above the group and reinsert it just after the group.
-            let blocks = self.document.blocks_mut();
-            let moved = blocks.remove(first - 1);
-            blocks.insert(last, moved);
-            self.offset_positions(-1);
-            (first - 1, last)
-        } else {
-            if last + 1 >= block_count {
-                return Ok(false);
-            }
-            // Lift the block below the group and reinsert it just before the group.
-            let blocks = self.document.blocks_mut();
-            let moved = blocks.remove(last + 1);
-            blocks.insert(first, moved);
-            self.offset_positions(1);
-            (first, last + 1)
-        };
-
-        // Reordering can merge/split ordered-list runs, so renumber any runs in the touched span.
-        self.renumber_ordered_runs_in(touched.0, touched.1);
-
-        self.trigger_paragraph_change();
-        Ok(true)
-    }
-
-    /// Shift the cursor (and selection, if any) block indices by `delta`, keeping offsets.
-    /// Used after moving blocks so the cursor/selection stay anchored to the moved content.
-    fn offset_positions(&mut self, delta: isize) {
-        let max_index = self.document.block_count().saturating_sub(1) as isize;
-        let shift = |pos: DocumentPosition| {
-            let block_index = (pos.block_index as isize + delta).clamp(0, max_index) as usize;
-            DocumentPosition::new(block_index, pos.offset)
-        };
-        self.cursor = shift(self.cursor);
-        if let Some((start, end)) = self.selection {
-            self.selection = Some((shift(start), shift(end)));
-        }
-    }
-
-    /// Renumber every ordered-list run that overlaps the inclusive block range `[lo, hi]`,
-    /// preserving each run's starting number. Runs extending past the range are renumbered fully.
-    fn renumber_ordered_runs_in(&mut self, lo: usize, hi: usize) {
-        let block_count = self.document.block_count();
-        if block_count == 0 {
-            return;
-        }
-        let lo = lo.min(block_count - 1);
-        let hi = hi.min(block_count - 1);
-
-        let is_ordered = |editor: &Self, idx: usize| {
-            matches!(
-                editor.document.blocks()[idx].block_type,
-                BlockType::ListItem { ordered: true, .. }
-            )
-        };
-
-        // Back up to the start of a run that may begin before `lo`.
-        let mut start = lo;
-        while start > 0 && is_ordered(self, start) && is_ordered(self, start - 1) {
-            start -= 1;
-        }
-
-        let mut i = start;
-        while i <= hi {
-            if is_ordered(self, i) {
-                let start_number = match self.document.blocks()[i].block_type {
-                    BlockType::ListItem {
-                        ordered: true,
-                        number,
-                        ..
-                    } => number.unwrap_or(1),
-                    _ => 1,
-                };
-                self.renumber_ordered_from(i, start_number);
-                // Skip past the run we just renumbered.
-                while i < block_count && is_ordered(self, i) {
-                    i += 1;
-                }
-            } else {
-                i += 1;
-            }
-        }
-    }
-
-    /// Toggle code style on the current selection
-    pub fn toggle_code(&mut self) -> EditResult {
-        self.toggle_style_attribute(|style| {
-            style.code = !style.code;
-        })
-    }
-
-    /// Toggle strikethrough style on the current selection
-    pub fn toggle_strikethrough(&mut self) -> EditResult {
-        self.toggle_style_attribute(|style| {
-            style.strikethrough = !style.strikethrough;
-        })
-    }
-
-    /// Toggle underline style on the current selection
-    pub fn toggle_underline(&mut self) -> EditResult {
-        self.toggle_style_attribute(|style| {
-            style.underline = !style.underline;
-        })
-    }
-
-    /// Toggle highlight style on the current selection
-    pub fn toggle_highlight(&mut self) -> EditResult {
-        self.toggle_style_attribute(|style| {
-            style.highlight = !style.highlight;
-        })
-    }
-
-    /// Clear all inline formatting on the current selection
-    /// Removes bold, italic, code, strikethrough, underline, and highlight
-    pub fn clear_formatting(&mut self) -> EditResult {
-        let Some((start, end)) = self.selection else {
-            return Ok(());
-        };
-
-        // Ensure start <= end
-        let (start, end) = if start.block_index < end.block_index
-            || (start.block_index == end.block_index && start.offset <= end.offset)
-        {
-            (start, end)
-        } else {
-            (end, start)
-        };
-
-        // Single-block selection case
-        if start.block_index == end.block_index {
-            let block_index = start.block_index;
-            if block_index >= self.document.block_count() {
-                return Err(EditError::InvalidBlockIndex);
-            }
-            let (before, selected, after) = {
-                let blocks = self.document.blocks();
-                let block = &blocks[block_index];
-                Self::split_content_for_style(&block.content, start.offset, end.offset)
-            };
-            let mut clear = |style: &mut TextStyle| {
-                *style = TextStyle::default();
-            };
-            let cleared = Self::map_style_on_runs(selected, &mut clear);
-            let blocks = self.document.blocks_mut();
-            let block_mut = &mut blocks[block_index];
-            block_mut.content = before.into_iter().chain(cleared).chain(after).collect();
-            return Ok(());
-        }
-
-        // Multi-block selection: clear tail of start, all middle, head of end
-        let blocks_len = self.document.block_count();
-        if start.block_index >= blocks_len || end.block_index >= blocks_len {
-            return Err(EditError::InvalidBlockIndex);
-        }
-
-        let mut clear = |style: &mut TextStyle| {
-            *style = TextStyle::default();
-        };
-
-        // Start block
-        {
-            let (before, selected, after) = {
-                let blocks = self.document.blocks();
-                let block = &blocks[start.block_index];
-                let len = block.text_len();
-                Self::split_content_for_style(&block.content, start.offset, len)
-            };
-            let cleared = Self::map_style_on_runs(selected, &mut clear);
-            let blocks = self.document.blocks_mut();
-            let block_mut = &mut blocks[start.block_index];
-            block_mut.content = before.into_iter().chain(cleared).chain(after).collect();
-        }
-
-        // Middle blocks
-        if end.block_index > start.block_index + 1 {
-            for i in (start.block_index + 1)..end.block_index {
-                let cleared_vec = {
-                    let blocks = self.document.blocks();
-                    let b = &blocks[i];
-                    Self::map_style_on_runs(b.content.clone(), &mut clear)
-                };
-                let blocks = self.document.blocks_mut();
-                blocks[i].content = cleared_vec;
-            }
-        }
-
-        // End block
-        {
-            let (before, selected, after) = {
-                let blocks = self.document.blocks();
-                let block = &blocks[end.block_index];
-                Self::split_content_for_style(&block.content, 0, end.offset)
-            };
-            let cleared = Self::map_style_on_runs(selected, &mut clear);
-            let blocks = self.document.blocks_mut();
-            let block_mut = &mut blocks[end.block_index];
-            block_mut.content = before.into_iter().chain(cleared).chain(after).collect();
-        }
-
-        Ok(())
-    }
-
-    /// Get the selected text as plain text
     pub fn get_selection_text(&self) -> String {
-        let Some((start, end)) = self.selection else {
+        let Some((start, end)) = self.selection.clone() else {
             return String::new();
         };
-
-        // Ensure start <= end
-        let (start, end) = if start.block_index < end.block_index
-            || (start.block_index == end.block_index && start.offset <= end.offset)
-        {
-            (start, end)
-        } else {
-            (end, start)
-        };
-
-        if start.block_index == end.block_index {
-            // Selection within single block
-            let blocks = self.document.blocks();
-            if start.block_index >= blocks.len() {
-                return String::new();
-            }
-            let block = &blocks[start.block_index];
-            let text = block.to_plain_text();
-            if start.offset < text.len() {
-                let end_offset = end.offset.min(text.len());
-                return text[start.offset..end_offset].to_string();
-            }
-        } else {
-            // Selection across multiple blocks
-            let blocks = self.document.blocks();
-            let mut result = String::new();
-
-            for (block_idx, block) in blocks
-                .iter()
-                .enumerate()
-                .take(end.block_index.min(blocks.len() - 1) + 1)
-                .skip(start.block_index)
-            {
-                let text = block.to_plain_text();
-
-                if block_idx == start.block_index {
-                    // First block - from start.offset to end
-                    result.push_str(&text[start.offset..]);
-                } else if block_idx == end.block_index {
-                    // Last block - from beginning to end.offset
-                    let end_offset = end.offset.min(text.len());
-                    result.push_str(&text[..end_offset]);
-                } else {
-                    // Middle block - entire text
-                    result.push_str(&text);
-                }
-
-                // Add newline between blocks (except after the last one)
-                if block_idx < end.block_index {
-                    result.push('\n');
-                }
-            }
-
-            return result;
-        }
-
-        String::new()
+        self.text_in_range(start, end)
     }
 
-    /// Get the selected content as a [`StructuredDocument`], preserving block
-    /// types and inline styling. Returns `None` when there is no selection or
-    /// the selection is empty.
-    pub fn get_selection_document(&self) -> Option<StructuredDocument> {
-        let (start, end) = self.selection?;
-
-        // Ensure start <= end
-        let (start, end) = if start.block_index < end.block_index
-            || (start.block_index == end.block_index && start.offset <= end.offset)
-        {
-            (start, end)
-        } else {
-            (end, start)
-        };
-
-        let blocks = self.document.blocks();
-        if start.block_index >= blocks.len() {
-            return None;
-        }
-
-        let mut doc = StructuredDocument::new();
-
-        if start.block_index == end.block_index {
-            let block = &blocks[start.block_index];
-            doc.add_block(Self::extract_block_range(block, start.offset, end.offset));
-        } else {
-            let last = end.block_index.min(blocks.len() - 1);
-            for (idx, block) in blocks
-                .iter()
-                .enumerate()
-                .take(last + 1)
-                .skip(start.block_index)
-            {
-                let extracted = if idx == start.block_index {
-                    Self::extract_block_range(block, start.offset, block.text_len())
-                } else if idx == last {
-                    Self::extract_block_range(block, 0, end.offset)
-                } else {
-                    block.clone()
-                };
-                doc.add_block(extracted);
+    /// The current selection as a standalone document. TODO(phase2): preserve block types
+    /// across a multi-leaf selection; Phase 1 yields plain text paragraphs.
+    pub fn get_selection_document(&self) -> Option<Document> {
+        let (a, b) = self.selection.clone()?;
+        let (start, end) = if a <= b { (a, b) } else { (b, a) };
+        let paths = self.leaf_paths();
+        let mut paragraphs: Vec<Paragraph> = Vec::new();
+        for path in &paths {
+            if *path < start.path || *path > end.path {
+                continue;
             }
+            let content = tree_walk::leaf_inline(&self.tdoc, path);
+            let len: usize = content.iter().map(|c| c.text_len()).sum();
+            let from = if *path == start.path {
+                start.offset.min(len)
+            } else {
+                0
+            };
+            let to = if *path == end.path {
+                end.offset.min(len)
+            } else {
+                len
+            };
+            if from >= to {
+                continue;
+            }
+            let runs = extract_inline_range(&content, from, to);
+            paragraphs.push(Paragraph::new_text().with_content(inline_to_spans(&runs)));
         }
-
-        if doc.blocks().iter().all(Block::is_empty) {
+        if paragraphs.is_empty() {
             None
         } else {
-            Some(doc)
+            Some(Document::new().with_paragraphs(paragraphs))
         }
     }
 
-    /// Extract the inline content within `[start, end)` (flattened byte
-    /// offsets) of `block`, preserving its block type and inline styling.
-    fn extract_block_range(block: &Block, start: usize, end: usize) -> Block {
-        let mut head = block.clone();
-        // head keeps [0, start); `tail` holds [start, len).
-        let tail = head.split_content_at(start);
-        let mut result = Block::new(block.block_type.clone());
-        result.content = tail;
-        // Drop everything from (end - start) onwards, leaving [start, end).
-        let _ = result.split_content_at(end.saturating_sub(start));
-        result
-    }
-
-    /// Cut the selected text (copy and delete)
     pub fn cut(&mut self) -> Result<String, EditError> {
         let text = self.get_selection_text();
         if !text.is_empty() {
@@ -3199,118 +984,121 @@ impl StructuredEditor {
         Ok(text)
     }
 
-    /// Copy the selected text
     pub fn copy(&self) -> String {
         self.get_selection_text()
     }
 
-    /// Paste text at cursor position (or replace selection)
     pub fn paste(&mut self, text: &str) -> EditResult {
         let normalized = normalize_plain_text(text);
         if normalized.is_empty() {
             return Ok(());
         }
-
-        let normalized_text = normalized.as_ref();
-        let paragraphs: Vec<&str> = normalized_text.split('\n').collect();
-
-        if let Some((start, end)) = self.selection {
-            // Replace selection using document-level range replace to support multi-paragraph pastes
-            self.document.replace_range(start, end, normalized_text);
-            let new_cursor = self.cursor_after_plain_insert(start, &paragraphs);
-            self.cursor = new_cursor;
-            self.selection = None;
-            Ok(())
-        } else if paragraphs.len() > 1 {
-            // Multi-paragraph paste at cursor with no selection uses replace_range on an empty span
-            let cursor_pos = self.cursor;
-            self.document
-                .replace_range(cursor_pos, cursor_pos, normalized_text);
-            let new_cursor = self.cursor_after_plain_insert(cursor_pos, &paragraphs);
-            self.cursor = new_cursor;
-            Ok(())
-        } else {
-            // Single-line paste uses inline insertion to preserve inline styling context
-            self.insert_text(normalized_text)
-        }
+        // TODO(phase2): multi-paragraph paste splits into sibling blocks. Phase 1 inserts
+        // the text into the current leaf (newlines become hard breaks).
+        let single_line = normalized.replace('\n', " ");
+        self.insert_text(&single_line)
     }
 
-    /// Insert a [`tdoc::Document`] (typically sourced from the clipboard) at the cursor or selection.
-    pub fn insert_document(&mut self, document: &Document) -> EditResult {
-        let structured = Self::structured_from_tdoc(document)?;
-        self.insert_structured_fragment(&structured)
+    // ----- Structural ops (TODO(phase2/3)) -------------------------------------------
+
+    pub fn toggle_heading(&mut self) -> EditResult {
+        Ok(()) // TODO(phase2)
     }
 
-    /// Find the content element and offset within it for a given block offset (static version)
-    fn find_content_at_offset_static(content: &[InlineContent], offset: usize) -> (usize, usize) {
-        let mut current_offset = 0;
-
-        for (idx, item) in content.iter().enumerate() {
-            let item_len = item.text_len();
-            // Use >= so that cursor at end of a run can still delete backward
-            if current_offset + item_len >= offset {
-                return (idx, offset - current_offset);
-            }
-            current_offset += item_len;
-        }
-
-        // Past the end - return position after last element
-        (content.len(), 0)
+    pub fn insert_inline_at_cursor(&mut self, _inline: InlineContent) -> EditResult {
+        Ok(()) // TODO(phase2)
     }
 
-    /// Split content at a given offset (static version)
-    fn split_content_at_static(
-        content: &[InlineContent],
-        offset: usize,
-    ) -> (Vec<InlineContent>, Vec<InlineContent>) {
-        let (idx, content_offset) = Self::find_content_at_offset_static(content, offset);
-
-        let mut left = content[..idx].to_vec();
-        let mut right = content[idx..].to_vec();
-
-        // Handle split within a text run
-        if idx < content.len()
-            && let Some(InlineContent::Text(run)) = content.get(idx)
-            && content_offset > 0
-        {
-            if content_offset == run.len() {
-                // Cursor at end of run - entire run goes to left
-                left.push(InlineContent::Text(run.clone()));
-                right.remove(0);
-            } else if content_offset < run.len() {
-                // Cursor in middle of run - split it
-                let (left_run, right_run) = run.split_at(content_offset);
-                left.push(InlineContent::Text(left_run));
-                right.remove(0);
-                right.insert(0, InlineContent::Text(right_run));
-            }
-        }
-
-        (left, right)
+    pub fn replace_selection_with_link(&mut self, _destination: &str, _text: &str) -> EditResult {
+        Ok(()) // TODO(phase2)
     }
 
-    /// Recursively apply a style-mapping function to all text runs in a vector of inline content
-    fn map_style_on_runs<F>(items: Vec<InlineContent>, apply: &mut F) -> Vec<InlineContent>
-    where
-        F: FnMut(&mut TextStyle),
-    {
-        items
-            .into_iter()
-            .map(|item| match item {
-                InlineContent::Text(mut run) => {
-                    apply(&mut run.style);
-                    InlineContent::Text(run)
-                }
-                InlineContent::Link { link, content } => {
-                    let mapped = Self::map_style_on_runs(content, apply);
-                    InlineContent::Link {
-                        link,
-                        content: mapped,
-                    }
-                }
-                other => other,
-            })
-            .collect()
+    pub fn insert_link_at_cursor(&mut self, _destination: &str, _text: &str) -> EditResult {
+        Ok(()) // TODO(phase2)
+    }
+
+    pub fn edit_link_at(
+        &mut self,
+        _path: TreePath,
+        _inline_index: usize,
+        _destination: &str,
+        _text: &str,
+    ) -> EditResult {
+        Ok(()) // TODO(phase2)
+    }
+
+    pub fn remove_link_at(&mut self, _path: TreePath, _inline_index: usize) -> EditResult {
+        Ok(()) // TODO(phase2)
+    }
+
+    pub fn toggle_bold(&mut self) -> EditResult {
+        Ok(()) // TODO(phase2)
+    }
+    pub fn toggle_italic(&mut self) -> EditResult {
+        Ok(()) // TODO(phase2)
+    }
+    pub fn toggle_code(&mut self) -> EditResult {
+        Ok(()) // TODO(phase2)
+    }
+    pub fn toggle_strikethrough(&mut self) -> EditResult {
+        Ok(()) // TODO(phase2)
+    }
+    pub fn toggle_underline(&mut self) -> EditResult {
+        Ok(()) // TODO(phase2)
+    }
+    pub fn toggle_highlight(&mut self) -> EditResult {
+        Ok(()) // TODO(phase2)
+    }
+    pub fn clear_formatting(&mut self) -> EditResult {
+        Ok(()) // TODO(phase2)
+    }
+
+    pub fn toggle_list(&mut self) -> EditResult {
+        Ok(()) // TODO(phase2)
+    }
+    pub fn toggle_checklist(&mut self) -> EditResult {
+        Ok(()) // TODO(phase2)
+    }
+    pub fn toggle_ordered_list(&mut self) -> EditResult {
+        Ok(()) // TODO(phase2)
+    }
+    pub fn toggle_quote(&mut self) -> EditResult {
+        Ok(()) // TODO(phase2)
+    }
+    pub fn toggle_code_block(&mut self) -> EditResult {
+        Ok(()) // TODO(phase2)
+    }
+
+    pub fn set_block_type(&mut self, _block_type: BlockType) -> EditResult {
+        Ok(()) // TODO(phase2)
+    }
+
+    pub fn toggle_checkmark_at(&mut self, _path: TreePath) -> Result<bool, EditError> {
+        Ok(false) // TODO(phase3)
+    }
+
+    pub fn toggle_current_checkmark(&mut self) -> Result<bool, EditError> {
+        Ok(false) // TODO(phase3)
+    }
+
+    pub fn move_blocks_up(&mut self) -> Result<bool, EditError> {
+        Ok(false) // TODO(phase2)
+    }
+
+    pub fn move_blocks_down(&mut self) -> Result<bool, EditError> {
+        Ok(false) // TODO(phase2)
+    }
+
+    pub fn indent_list_item(&mut self) -> EditResult {
+        Ok(()) // TODO(phase3)
+    }
+
+    pub fn outdent_list_item(&mut self) -> EditResult {
+        Ok(()) // TODO(phase3)
+    }
+
+    pub fn insert_document(&mut self, _document: &Document) -> EditResult {
+        Ok(()) // TODO(phase2)
     }
 }
 
@@ -3320,1277 +1108,143 @@ impl Default for StructuredEditor {
     }
 }
 
+/// Insert `text` into a flat inline-content vector at byte `offset`, preserving the style
+/// of the run the cursor sits in and keeping insertions at link edges outside the link.
+fn insert_into_content(content: &mut Vec<InlineContent>, offset: usize, text: &str) {
+    let (idx, content_offset) = find_content_at_offset(content, offset);
+    if idx >= content.len() {
+        content.push(InlineContent::Text(TextRun::plain(text)));
+        return;
+    }
+    match &mut content[idx] {
+        InlineContent::Text(run) => run.insert_text(content_offset, text),
+        InlineContent::Link { content: inner, .. } => {
+            let link_len: usize = inner.iter().map(|c| c.text_len()).sum();
+            if content_offset == 0 {
+                if idx > 0
+                    && let InlineContent::Text(prev) = &mut content[idx - 1]
+                {
+                    let prev_len = prev.len();
+                    prev.insert_text(prev_len, text);
+                } else {
+                    content.insert(idx, InlineContent::Text(TextRun::plain(text)));
+                }
+            } else if content_offset >= link_len {
+                if idx + 1 < content.len()
+                    && let InlineContent::Text(next) = &mut content[idx + 1]
+                {
+                    next.insert_text(0, text);
+                } else {
+                    content.insert(idx + 1, InlineContent::Text(TextRun::plain(text)));
+                }
+            } else {
+                let (inner_idx, inner_off) = find_content_at_offset(inner, content_offset);
+                if inner_idx >= inner.len() {
+                    inner.push(InlineContent::Text(TextRun::plain(text)));
+                } else if let InlineContent::Text(run) = &mut inner[inner_idx] {
+                    run.insert_text(inner_off, text);
+                } else {
+                    inner.insert(inner_idx, InlineContent::Text(TextRun::plain(text)));
+                }
+            }
+        }
+        InlineContent::HardBreak => {
+            if content_offset == 0 {
+                content.insert(idx, InlineContent::Text(TextRun::plain(text)));
+            } else if idx + 1 < content.len()
+                && let InlineContent::Text(run) = &mut content[idx + 1]
+            {
+                run.insert_text(0, text);
+            } else {
+                content.insert(idx + 1, InlineContent::Text(TextRun::plain(text)));
+            }
+        }
+    }
+}
+
+/// Find the inline element index and the offset within it for a flattened byte offset.
+fn find_content_at_offset(content: &[InlineContent], offset: usize) -> (usize, usize) {
+    let mut current = 0;
+    for (idx, item) in content.iter().enumerate() {
+        let len = item.text_len();
+        if current + len >= offset {
+            return (idx, offset - current);
+        }
+        current += len;
+    }
+    (content.len(), 0)
+}
+
+/// Extract the inline runs covering `[start, end)` (flattened byte offsets).
+fn extract_inline_range(content: &[InlineContent], start: usize, end: usize) -> Vec<InlineContent> {
+    let mut head = Block::paragraph();
+    head.content = content.to_vec();
+    let tail = head.split_content_at(start);
+    let mut result = Block::paragraph();
+    result.content = tail;
+    let _ = result.split_content_at(end.saturating_sub(start));
+    result.content
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{Duration, Instant};
 
     #[test]
-    fn test_insert_text() {
+    fn insert_text_into_empty_document() {
         let mut editor = StructuredEditor::new();
         editor.insert_text("Hello").unwrap();
-        assert_eq!(editor.document().to_plain_text(), "Hello");
+        assert_eq!(editor.leaf_plain_text(&TreePath::root(0)), "Hello");
         assert_eq!(editor.cursor().offset, 5);
     }
 
     #[test]
-    fn selection_document_preserves_block_types_and_styles() {
+    fn typing_continues_run_style() {
+        // Loading bold markdown then typing inside keeps it one styled leaf.
         let mut editor = StructuredEditor::new();
-        {
-            let doc = editor.document_mut();
-            *doc = StructuredDocument::new();
-
-            let mut heading = Block::heading(1);
-            heading
-                .content
-                .push(InlineContent::Text(TextRun::plain("Title")));
-            doc.add_block(heading);
-
-            let mut para = Block::paragraph();
-            para.content
-                .push(InlineContent::Text(TextRun::plain("Hello ")));
-            para.content.push(InlineContent::Text(TextRun::new(
-                "world",
-                TextStyle::bold(),
-            )));
-            doc.add_block(para);
-        }
-
-        // Select from after "Ti" in the heading through "Hello wo" in the
-        // paragraph (spanning two blocks and ending inside the bold run).
-        editor.set_selection(DocumentPosition::new(0, 2), DocumentPosition::new(1, 8));
-
-        let sel = editor
-            .get_selection_document()
-            .expect("selection should produce a document");
-        assert_eq!(sel.block_count(), 2);
-
-        // First block keeps the heading type and only the selected tail.
-        assert!(matches!(
-            sel.blocks()[0].block_type,
-            BlockType::Heading { level: 1 }
-        ));
-        assert_eq!(sel.blocks()[0].to_plain_text(), "tle");
-
-        // Second block keeps the paragraph type, the selected prefix, and the
-        // bold styling on the part of "world" that was inside the selection.
-        assert!(matches!(sel.blocks()[1].block_type, BlockType::Paragraph));
-        assert_eq!(sel.blocks()[1].to_plain_text(), "Hello wo");
-        let bold_text: String = sel.blocks()[1]
-            .content
-            .iter()
-            .filter_map(|c| match c {
-                InlineContent::Text(run) if run.style.bold => Some(run.text.clone()),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(bold_text, "wo");
-    }
-
-    #[test]
-    fn selection_document_none_without_selection() {
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("Hello").unwrap();
-        assert!(editor.get_selection_document().is_none());
-    }
-
-    #[test]
-    fn test_insert_text_multiple() {
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("Hello").unwrap();
-        editor.insert_text(" world").unwrap();
-        assert_eq!(editor.document().to_plain_text(), "Hello world");
-    }
-
-    #[test]
-    fn test_delete_backward() {
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("Hello").unwrap();
-        editor.delete_backward().unwrap();
-        assert_eq!(editor.document().to_plain_text(), "Hell");
-        assert_eq!(editor.cursor().offset, 4);
-    }
-
-    #[test]
-    fn cursor_respects_grapheme_clusters() {
-        let mut editor = StructuredEditor::new();
-        let flag = "\u{1F1FA}\u{1F1F8}";
-
-        editor.insert_text(flag).unwrap();
-        assert_eq!(editor.cursor().offset, flag.len());
-
-        editor.set_cursor(DocumentPosition::new(0, flag.len() / 2));
-        assert_eq!(
-            editor.cursor().offset,
-            0,
-            "cursor should snap to grapheme start"
-        );
-
-        editor.move_cursor_right();
-        assert_eq!(editor.cursor().offset, flag.len());
-
-        editor.move_cursor_left();
-        assert_eq!(editor.cursor().offset, 0);
-    }
-
-    #[test]
-    fn deletion_respects_grapheme_clusters() {
-        let mut editor = StructuredEditor::new();
-        let flag = "\u{1F1FA}\u{1F1F8}";
-
-        editor.insert_text(flag).unwrap();
-        editor.set_cursor(DocumentPosition::new(0, flag.len()));
-        editor.delete_backward().unwrap();
-        assert_eq!(editor.document().to_plain_text(), "");
-        assert_eq!(editor.cursor().offset, 0);
-
-        editor.insert_text(flag).unwrap();
-        editor.set_cursor(DocumentPosition::new(0, 0));
-        editor.delete_forward().unwrap();
-        assert_eq!(editor.document().to_plain_text(), "");
-        assert_eq!(editor.cursor().offset, 0);
-    }
-
-    #[test]
-    fn selection_respects_grapheme_clusters() {
-        let mut editor = StructuredEditor::new();
-        let flag = "\u{1F1FA}\u{1F1F8}";
-
-        editor.insert_text(flag).unwrap();
-        editor.move_cursor_to_line_start();
-        editor.move_cursor_right_extend();
-
-        let (start, end) = editor
-            .selection()
-            .expect("selection should be created when extending");
-        assert_eq!(start.offset, 0);
-        assert_eq!(end.offset, flag.len());
-        assert_eq!(editor.cursor().offset, flag.len());
-    }
-
-    #[test]
-    fn test_insert_newline() {
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("Hello").unwrap();
-        editor.insert_newline().unwrap();
-        editor.insert_text("World").unwrap();
-
-        assert_eq!(editor.document().block_count(), 2);
-        assert_eq!(editor.cursor().block_index, 1);
-    }
-
-    #[test]
-    fn test_insert_hard_break_in_text() {
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("HelloWorld").unwrap();
-        editor.set_cursor(DocumentPosition::new(0, 5));
-
-        editor.insert_hard_break().unwrap();
-
-        let block = &editor.document().blocks()[0];
-        assert_eq!(block.to_plain_text(), "Hello\nWorld");
-        assert!(matches!(block.content[1], InlineContent::HardBreak));
-        assert_eq!(editor.cursor(), DocumentPosition::new(0, 6));
-    }
-
-    #[test]
-    fn test_insert_text_after_trailing_hard_break_appends() {
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("Hello").unwrap();
-        editor.insert_hard_break().unwrap();
-
-        editor.insert_text("World").unwrap();
-
-        let block = &editor.document().blocks()[0];
-        assert_eq!(block.content.len(), 3, "Expected text, break, text runs");
-        assert!(
-            matches!(block.content[1], InlineContent::HardBreak),
-            "Second inline should remain the hard break"
-        );
-        assert!(
-            matches!(block.content[2], InlineContent::Text(_)),
-            "Inserted text should appear after the hard break"
-        );
-        assert_eq!(block.to_plain_text(), "Hello\nWorld");
-        assert_eq!(
-            editor.cursor(),
-            DocumentPosition::new(0, block.text_len()),
-            "Cursor should advance past inserted text"
-        );
-    }
-
-    #[test]
-    fn test_cursor_movement() {
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("Hello").unwrap();
-
-        editor.move_cursor_left();
-        assert_eq!(editor.cursor().offset, 4);
-
-        editor.move_cursor_to_line_start();
-        assert_eq!(editor.cursor().offset, 0);
-
-        editor.move_cursor_to_line_end();
-        assert_eq!(editor.cursor().offset, 5);
-    }
-
-    #[test]
-    fn test_insert_text_inside_link() {
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("ab").unwrap();
-        editor.insert_link_at_cursor("dest", "XY").unwrap();
-        editor.insert_text("cd").unwrap();
-
-        // Place caret between X and Y inside the link
-        editor.set_cursor(DocumentPosition::new(0, 3));
-        editor.insert_text("!").unwrap();
-
-        assert_eq!(editor.document().to_plain_text(), "abX!Ycd");
-
-        // Ensure the exclamation mark is inside the link, not outside
-        let block = &editor.document().blocks()[0];
-        // Content should be: Text("ab"), Link("X!Y"), Text("cd")
-        assert!(matches!(block.content[0], InlineContent::Text(_)));
-        if let InlineContent::Link { content, .. } = &block.content[1] {
-            let inner_text: String = content.iter().map(|c| c.to_plain_text()).collect();
-            assert_eq!(inner_text, "X!Y");
-        } else {
-            panic!("Expected a link at index 1");
-        }
-    }
-
-    #[test]
-    fn test_insert_text_at_start_of_link_inserts_before() {
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("ab").unwrap();
-        editor.insert_link_at_cursor("dest", "XY").unwrap();
-        editor.insert_text("cd").unwrap();
-
-        // Caret at the very start of the link (between b and X): ab|XYcd => offset 2
-        editor.set_cursor(DocumentPosition::new(0, 2));
-        editor.insert_text("!").unwrap();
-
-        assert_eq!(editor.document().to_plain_text(), "ab!XYcd");
-        // Ensure the exclamation mark is outside the link
-        let block = &editor.document().blocks()[0];
-        assert!(matches!(block.content[0], InlineContent::Text(_)));
-        if let InlineContent::Link { content, .. } = &block.content[1] {
-            let inner_text: String = content.iter().map(|c| c.to_plain_text()).collect();
-            assert_eq!(inner_text, "XY");
-        } else {
-            panic!("Expected a link at index 1");
-        }
-    }
-
-    #[test]
-    fn test_insert_text_at_end_of_link_inserts_after() {
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("ab").unwrap();
-        editor.insert_link_at_cursor("dest", "XY").unwrap();
-        editor.insert_text("cd").unwrap();
-
-        // Caret at the very end of the link (between Y and c): abXY|cd => offset 4
-        editor.set_cursor(DocumentPosition::new(0, 4));
-        editor.insert_text("!").unwrap();
-
-        assert_eq!(editor.document().to_plain_text(), "abXY!cd");
-        // Ensure the exclamation mark is outside the link
-        let block = &editor.document().blocks()[0];
-        if let InlineContent::Link { content, .. } = &block.content[1] {
-            let inner_text: String = content.iter().map(|c| c.to_plain_text()).collect();
-            assert_eq!(inner_text, "XY");
-        } else {
-            panic!("Expected a link at index 1");
-        }
-        assert!(matches!(block.content[2], InlineContent::Text(_)));
-    }
-
-    #[test]
-    fn test_toggle_list_clears_checklist_run() {
-        let mut editor = StructuredEditor::new();
-
-        // Prepare three checklist items
-        {
-            let mut doc = StructuredDocument::new();
-            for i in 0..3 {
-                let mut block = Block::new(BlockType::ListItem {
-                    ordered: false,
-                    number: None,
-                    checkbox: Some(i % 2 == 0),
-                });
-                block
-                    .content
-                    .push(InlineContent::Text(TextRun::plain(format!("Item {i}"))));
-                doc.add_block(block);
-            }
-            *editor.document_mut() = doc;
-        }
-
-        // Trigger bullet toggle on the middle checklist item
-        editor.set_cursor(DocumentPosition::new(1, 0));
-        editor.toggle_list().unwrap();
-
-        let blocks = editor.document().blocks();
-        assert!(blocks.iter().all(|block| {
-            matches!(
-                block.block_type,
-                BlockType::ListItem {
-                    ordered: false,
-                    number: None,
-                    checkbox: None,
-                }
-            )
-        }));
-    }
-
-    #[test]
-    fn test_set_block_type_multi_block_bullet() {
-        let mut editor = StructuredEditor::new();
-
-        let mut doc = StructuredDocument::new();
-        for text in ["One", "Two", "Three"] {
-            let block = Block::paragraph().with_plain_text(text);
-            doc.add_block(block);
-        }
-        let last_len = doc.blocks().last().unwrap().text_len();
-        *editor.document_mut() = doc;
-
-        editor.set_selection(
-            DocumentPosition::new(0, 0),
-            DocumentPosition::new(2, last_len),
-        );
-        editor
-            .set_block_type(BlockType::ListItem {
-                ordered: false,
-                number: None,
-                checkbox: None,
-            })
-            .unwrap();
-
-        let blocks = editor.document().blocks();
-        assert!(blocks.iter().all(|block| {
-            matches!(
-                block.block_type,
-                BlockType::ListItem {
-                    ordered: false,
-                    number: None,
-                    checkbox: None,
-                }
-            )
-        }));
-    }
-
-    #[test]
-    fn test_set_block_type_multi_block_ordered() {
-        let mut editor = StructuredEditor::new();
-
-        let mut doc = StructuredDocument::new();
-        for text in ["One", "Two", "Three"] {
-            let block = Block::paragraph().with_plain_text(text);
-            doc.add_block(block);
-        }
-        let last_len = doc.blocks().last().unwrap().text_len();
-        *editor.document_mut() = doc;
-
-        editor.set_selection(
-            DocumentPosition::new(0, 0),
-            DocumentPosition::new(2, last_len),
-        );
-        editor
-            .set_block_type(BlockType::ListItem {
-                ordered: true,
-                number: Some(1),
-                checkbox: None,
-            })
-            .unwrap();
-
-        let blocks = editor.document().blocks();
-        for (i, block) in blocks.iter().enumerate() {
-            match block.block_type {
-                BlockType::ListItem {
-                    ordered: true,
-                    number,
-                    checkbox: None,
-                } => assert_eq!(number, Some(1 + i as u64)),
-                ref other => panic!("unexpected block type: {:?}", other),
-            }
-        }
-    }
-
-    #[test]
-    fn test_toggle_list_multi_block_selection() {
-        let mut editor = StructuredEditor::new();
-
-        let mut doc = StructuredDocument::new();
-        for text in ["One", "Two", "Three"] {
-            let block = Block::paragraph().with_plain_text(text);
-            doc.add_block(block);
-        }
-        let last_len = doc.blocks().last().unwrap().text_len();
-        *editor.document_mut() = doc;
-
-        editor.set_selection(
-            DocumentPosition::new(0, 0),
-            DocumentPosition::new(2, last_len),
-        );
-        editor.toggle_list().unwrap();
-
-        {
-            let blocks = editor.document().blocks();
-            assert!(blocks.iter().all(|block| {
-                matches!(
-                    block.block_type,
-                    BlockType::ListItem {
-                        ordered: false,
-                        number: None,
-                        checkbox: None,
-                    }
-                )
-            }));
-        }
-
-        editor.set_selection(
-            DocumentPosition::new(0, 0),
-            DocumentPosition::new(2, last_len),
-        );
-        editor.toggle_list().unwrap();
-
-        let blocks = editor.document().blocks();
-        assert!(
-            blocks
-                .iter()
-                .all(|block| matches!(block.block_type, BlockType::Paragraph))
-        );
-    }
-
-    #[test]
-    fn test_toggle_ordered_list_multi_block_selection() {
-        let mut editor = StructuredEditor::new();
-
-        let mut doc = StructuredDocument::new();
-        for text in ["One", "Two", "Three"] {
-            let block = Block::paragraph().with_plain_text(text);
-            doc.add_block(block);
-        }
-        let last_len = doc.blocks().last().unwrap().text_len();
-        *editor.document_mut() = doc;
-
-        editor.set_selection(
-            DocumentPosition::new(0, 0),
-            DocumentPosition::new(2, last_len),
-        );
-        editor.toggle_ordered_list().unwrap();
-
-        {
-            let blocks = editor.document().blocks();
-            for (i, block) in blocks.iter().enumerate() {
-                match block.block_type {
-                    BlockType::ListItem {
-                        ordered: true,
-                        number,
-                        checkbox: None,
-                    } => assert_eq!(number, Some(1 + i as u64)),
-                    ref other => panic!("expected ordered list item, found {:?}", other),
-                }
-            }
-        }
-
-        editor.set_selection(
-            DocumentPosition::new(0, 0),
-            DocumentPosition::new(2, last_len),
-        );
-        editor.toggle_ordered_list().unwrap();
-
-        let blocks = editor.document().blocks();
-        assert!(
-            blocks
-                .iter()
-                .all(|block| matches!(block.block_type, BlockType::Paragraph))
-        );
-    }
-
-    #[test]
-    fn test_toggle_ordered_list_continues_numbering_after_run() {
-        let mut editor = StructuredEditor::new();
-
-        let mut doc = StructuredDocument::new();
-
-        doc.add_block(
-            Block::new(BlockType::ListItem {
-                ordered: true,
-                number: Some(3),
-                checkbox: None,
-            })
-            .with_plain_text("Item 3"),
-        );
-        doc.add_block(
-            Block::new(BlockType::ListItem {
-                ordered: true,
-                number: Some(4),
-                checkbox: None,
-            })
-            .with_plain_text("Item 4"),
-        );
-        doc.add_block(Block::paragraph().with_plain_text("Next"));
-        doc.add_block(Block::paragraph().with_plain_text("Another"));
-
-        let last_len = doc.blocks().last().unwrap().text_len();
-        *editor.document_mut() = doc;
-
-        editor.set_selection(
-            DocumentPosition::new(2, 0),
-            DocumentPosition::new(3, last_len),
-        );
-        editor.toggle_ordered_list().unwrap();
-
-        let blocks = editor.document().blocks();
-        assert_eq!(
-            blocks[2].block_type,
-            BlockType::ListItem {
-                ordered: true,
-                number: Some(5),
-                checkbox: None
-            }
-        );
-        assert_eq!(
-            blocks[3].block_type,
-            BlockType::ListItem {
-                ordered: true,
-                number: Some(6),
-                checkbox: None
-            }
-        );
-    }
-
-    #[test]
-    fn test_backspace_inside_link() {
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("ab").unwrap();
-        editor.insert_link_at_cursor("dest", "XYZ").unwrap();
-        editor.insert_text("cd").unwrap();
-
-        // Caret after Y inside the link (abXY|Zcd => offset 4)
-        editor.set_cursor(DocumentPosition::new(0, 4));
-        editor.delete_backward().unwrap();
-
-        assert_eq!(editor.document().to_plain_text(), "abXZcd");
-
-        let block = &editor.document().blocks()[0];
-        if let InlineContent::Link { content, .. } = &block.content[1] {
-            let inner_text: String = content.iter().map(|c| c.to_plain_text()).collect();
-            assert_eq!(inner_text, "XZ");
-        } else {
-            panic!("Expected a link at index 1");
-        }
-    }
-
-    #[test]
-    fn test_delete_forward_inside_link() {
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("ab").unwrap();
-        editor.insert_link_at_cursor("dest", "XYZ").unwrap();
-        editor.insert_text("cd").unwrap();
-
-        // Caret after X inside the link (abX|YZcd => offset 3)
-        editor.set_cursor(DocumentPosition::new(0, 3));
-        editor.delete_forward().unwrap();
-
-        assert_eq!(editor.document().to_plain_text(), "abXZcd");
-
-        let block = &editor.document().blocks()[0];
-        assert_eq!(block.content.len(), 3);
-        if let InlineContent::Link { content, .. } = &block.content[1] {
-            let inner_text: String = content.iter().map(|c| c.to_plain_text()).collect();
-            assert_eq!(inner_text, "XZ");
-        } else {
-            panic!("Expected a link at index 1");
-        }
-    }
-
-    #[test]
-    fn test_enter_inside_link_splits_and_preserves_links() {
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("A ").unwrap();
-        editor.insert_link_at_cursor("dest", "bc").unwrap();
-        editor.insert_text(" D").unwrap();
-
-        // Place caret between b and c inside the link: "A b|c D"
-        editor.set_cursor(DocumentPosition::new(0, 3));
-        editor.insert_newline().unwrap();
-
-        // Two paragraphs now
-        assert_eq!(editor.document().block_count(), 2);
-        assert_eq!(editor.document().blocks()[0].to_plain_text(), "A b");
-        assert_eq!(editor.document().blocks()[1].to_plain_text(), "c D");
-
-        // Both sides should retain links with the same destination
-        if let InlineContent::Link { link, content } = &editor.document().blocks()[0].content[1] {
-            assert_eq!(link.destination, "dest");
-            let inner_text: String = content.iter().map(|c| c.to_plain_text()).collect();
-            assert_eq!(inner_text, "b");
-        } else {
-            panic!("Expected a link in first paragraph after split");
-        }
-
-        if let InlineContent::Link { link, content } = &editor.document().blocks()[1].content[0] {
-            assert_eq!(link.destination, "dest");
-            let inner_text: String = content.iter().map(|c| c.to_plain_text()).collect();
-            assert_eq!(inner_text, "c");
-        } else {
-            panic!("Expected a link at start of second paragraph after split");
-        }
-    }
-    #[test]
-    fn test_delete_selection_across_blocks() {
-        let mut editor = StructuredEditor::new();
-        // Build three paragraphs
-        editor.insert_text("First para").unwrap();
-        editor.insert_newline().unwrap();
-        editor.insert_text("Second").unwrap();
-        editor.insert_newline().unwrap();
-        editor.insert_text("Third para").unwrap();
-
-        // Select from inside first to inside third
-        let start = DocumentPosition::new(0, 3);
-        let end = DocumentPosition::new(2, 2);
-        editor.set_selection(start, end);
-        editor.delete_selection().unwrap();
-
-        // Expect merged result
-        assert_eq!(editor.document().block_count(), 1);
-        assert_eq!(editor.document().blocks()[0].to_plain_text(), "Firird para");
-        assert_eq!(editor.cursor(), DocumentPosition::new(0, 3));
-    }
-
-    #[test]
-    fn test_toggle_bold_across_blocks() {
-        let mut editor = StructuredEditor::new();
-        // Build three paragraphs
-        editor.insert_text("First para").unwrap();
-        editor.insert_newline().unwrap();
-        editor.insert_text("Second").unwrap();
-        editor.insert_newline().unwrap();
-        editor.insert_text("Third para").unwrap();
-
-        // Select from inside first to inside third
-        let start = DocumentPosition::new(0, 3); // "Fir|st para"
-        let end = DocumentPosition::new(2, 2); // "Th|ird para"
-        editor.set_selection(start, end);
-
-        // Toggle bold
-        editor.toggle_bold().unwrap();
-
-        // Inspect styles
-        let doc = editor.document();
-        // First block should be split: "Fir" (plain) + "st para" (bold)
-        let b0 = &doc.blocks()[0];
-        let parts0: Vec<(String, bool)> = b0
-            .content
-            .iter()
-            .filter_map(|c| {
-                if let InlineContent::Text(run) = c {
-                    Some((run.text.clone(), run.style.bold))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        assert!(parts0.len() >= 2);
-        assert_eq!(parts0[0].0, "Fir");
-        assert!(!parts0[0].1);
-        assert!(parts0[1].1); // bold
-
-        // Middle block entire should be bold
-        let b1 = &doc.blocks()[1];
-        let parts1: Vec<bool> = b1
-            .content
-            .iter()
-            .filter_map(|c| {
-                if let InlineContent::Text(run) = c {
-                    Some(run.style.bold)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        assert!(!parts1.is_empty());
-        assert!(parts1.into_iter().all(|b| b));
-
-        // Last block should have first part bold, remainder plain
-        let b2 = &doc.blocks()[2];
-        let parts2: Vec<(String, bool)> = b2
-            .content
-            .iter()
-            .filter_map(|c| {
-                if let InlineContent::Text(run) = c {
-                    Some((run.text.clone(), run.style.bold))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        assert!(parts2.len() >= 2);
-        assert_eq!(parts2[0].0, "Th");
-        assert!(parts2[0].1);
-        assert!(!parts2.last().unwrap().1);
-    }
-
-    #[test]
-    fn test_select_all() {
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("Hello").unwrap();
-        editor.insert_newline().unwrap();
-        editor.insert_text("World").unwrap();
-        editor.select_all();
-        let sel = editor.selection().unwrap();
-        assert_eq!(sel.0, DocumentPosition::new(0, 0));
-        assert_eq!(sel.1, DocumentPosition::new(1, 5));
-        assert_eq!(editor.cursor(), DocumentPosition::new(1, 5));
-    }
-
-    #[test]
-    fn test_paste_multiline_without_selection_inserts_paragraphs() {
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("Hello").unwrap();
-        editor.set_cursor(DocumentPosition::new(0, 5));
-
-        editor.paste("Line1\nLine2\nLine3").unwrap();
-
-        assert_eq!(editor.document().block_count(), 3);
-        assert_eq!(editor.document().blocks()[0].to_plain_text(), "HelloLine1");
-        assert_eq!(editor.document().blocks()[1].to_plain_text(), "Line2");
-        assert_eq!(editor.document().blocks()[2].to_plain_text(), "Line3");
-        assert_eq!(editor.cursor(), DocumentPosition::new(2, 5));
-    }
-
-    #[test]
-    fn test_paste_multiline_replaces_selection() {
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("First para").unwrap();
-        editor.insert_newline().unwrap();
-        editor.insert_text("Second").unwrap();
-
-        let start = DocumentPosition::new(0, 0);
-        let end = DocumentPosition::new(1, 6);
-        editor.set_selection(start, end);
-
-        editor.paste("LineA\nLineB").unwrap();
-
-        assert_eq!(editor.document().block_count(), 2);
-        assert_eq!(editor.document().blocks()[0].to_plain_text(), "LineA");
-        assert_eq!(editor.document().blocks()[1].to_plain_text(), "LineB");
-        assert_eq!(editor.cursor(), DocumentPosition::new(1, 5));
-        assert!(editor.selection().is_none());
-    }
-
-    #[test]
-    fn test_insert_document_merges_plain_paragraph() {
-        use tdoc::ftml;
-
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("Hello ").unwrap();
-
-        let doc = ftml! {
-            p { "dear " b { "friend" } }
-        };
-
-        editor.insert_document(&doc).unwrap();
-
-        let block = &editor.document().blocks()[0];
-        let parts: Vec<(String, bool)> = block
-            .content
-            .iter()
-            .filter_map(|c| {
-                if let InlineContent::Text(run) = c {
-                    Some((run.text.clone(), run.style.bold))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        assert_eq!(parts[0].0, "Hello dear ");
-        assert!(!parts[0].1);
-        assert_eq!(parts[1].0, "friend");
-        assert!(parts[1].1);
-    }
-
-    #[test]
-    fn test_insert_document_from_html_inserts_blocks() {
-        use std::io::Cursor;
-
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("Intro").unwrap();
-        editor.insert_newline().unwrap();
-        editor.insert_text("Tail").unwrap();
-        editor.set_cursor(DocumentPosition::new(1, 0));
-
-        let html_doc = tdoc::html::parse(Cursor::new(
-            "<h2>Greeting</h2><p>Bold <strong>news</strong></p>",
-        ))
-        .unwrap();
-
-        editor.insert_document(&html_doc).unwrap();
-
-        assert_eq!(editor.document().block_count(), 4);
-        assert_eq!(
-            editor.document().blocks()[1].block_type,
-            BlockType::Heading { level: 2 }
-        );
-        assert_eq!(
-            editor.document().blocks()[2].block_type,
-            BlockType::Paragraph
-        );
-        assert_eq!(editor.document().blocks()[3].to_plain_text(), "Tail");
-        assert_eq!(editor.cursor(), DocumentPosition::new(2, 9));
-    }
-
-    #[test]
-    fn test_word_navigation() {
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("Hello  world").unwrap();
-        // Cursor at end
-        assert_eq!(editor.cursor(), DocumentPosition::new(0, 12));
-        // Move left by word to start of "world"
-        editor.move_word_left();
-        assert_eq!(editor.cursor(), DocumentPosition::new(0, 7));
-        // Extend right by word to end
-        editor.move_word_right_extend();
-        let sel = editor.selection().unwrap();
-        assert_eq!(sel.0, DocumentPosition::new(0, 7));
-        assert_eq!(sel.1, DocumentPosition::new(0, 12));
-    }
-
-    fn editor_with_paragraphs(texts: &[&str]) -> StructuredEditor {
-        let mut doc = StructuredDocument::new();
-        for t in texts {
-            doc.add_block(Block::paragraph().with_plain_text(*t));
-        }
-        StructuredEditor::with_document(doc)
-    }
-
-    fn paragraph_texts(editor: &StructuredEditor) -> Vec<String> {
-        editor
-            .document()
-            .blocks()
-            .iter()
-            .map(|b| b.to_plain_text())
-            .collect()
-    }
-
-    /// A simple 1x2 table block: a single body row with two cells.
-    fn sample_table() -> Block {
-        Block::table(vec![TableRow::new(vec![
-            TableCell::new(false, vec![InlineContent::Text(TextRun::plain("a"))]),
-            TableCell::new(false, vec![InlineContent::Text(TextRun::plain("b"))]),
-        ])])
-    }
-
-    fn block_types(editor: &StructuredEditor) -> Vec<BlockType> {
-        editor
-            .document()
-            .blocks()
-            .iter()
-            .map(|b| b.block_type.clone())
-            .collect()
-    }
-
-    fn editor_with_blocks(blocks: Vec<Block>) -> StructuredEditor {
-        let mut doc = StructuredDocument::new();
-        for b in blocks {
-            doc.add_block(b);
-        }
-        StructuredEditor::with_document(doc)
-    }
-
-    #[test]
-    fn backspace_on_table_removes_it() {
-        let mut editor = editor_with_blocks(vec![
-            Block::paragraph().with_plain_text("before"),
-            sample_table(),
-            Block::paragraph().with_plain_text("after"),
-        ]);
-        // Cursor on the table.
-        editor.set_cursor(DocumentPosition::new(1, 0));
-        editor.delete_backward().unwrap();
-
-        assert_eq!(paragraph_texts(&editor), vec!["before", "after"]);
-        assert!(!block_types(&editor).iter().any(is_table));
-        // Cursor lands at the end of the preceding paragraph.
-        assert_eq!(editor.cursor(), DocumentPosition::new(0, "before".len()));
-    }
-
-    #[test]
-    fn backspace_just_after_table_removes_table() {
-        let mut editor = editor_with_blocks(vec![
-            Block::paragraph().with_plain_text("before"),
-            sample_table(),
-            Block::paragraph().with_plain_text("after"),
-        ]);
-        // Cursor at the start of the paragraph that follows the table.
-        editor.set_cursor(DocumentPosition::new(2, 0));
-        editor.delete_backward().unwrap();
-
-        assert_eq!(paragraph_texts(&editor), vec!["before", "after"]);
-        assert!(!block_types(&editor).iter().any(is_table));
-        // The "after" paragraph (now index 1) keeps the cursor at its start.
-        assert_eq!(editor.cursor(), DocumentPosition::new(1, 0));
-    }
-
-    #[test]
-    fn delete_forward_on_table_removes_it() {
-        let mut editor = editor_with_blocks(vec![
-            sample_table(),
-            Block::paragraph().with_plain_text("after"),
-        ]);
-        editor.set_cursor(DocumentPosition::new(0, 0));
-        editor.delete_forward().unwrap();
-
-        assert_eq!(paragraph_texts(&editor), vec!["after"]);
-        assert!(!block_types(&editor).iter().any(is_table));
-    }
-
-    #[test]
-    fn delete_forward_before_table_removes_it() {
-        let mut editor = editor_with_blocks(vec![
-            Block::paragraph().with_plain_text("before"),
-            sample_table(),
-        ]);
-        // Cursor at the end of the paragraph that precedes the table.
-        editor.set_cursor(DocumentPosition::new(0, "before".len()));
-        editor.delete_forward().unwrap();
-
-        assert_eq!(paragraph_texts(&editor), vec!["before"]);
-        assert!(!block_types(&editor).iter().any(is_table));
-        assert_eq!(editor.cursor(), DocumentPosition::new(0, "before".len()));
-    }
-
-    #[test]
-    fn backspace_removes_table_as_only_block_keeps_a_paragraph() {
-        let mut editor = editor_with_blocks(vec![sample_table()]);
-        editor.set_cursor(DocumentPosition::new(0, 0));
-        editor.delete_backward().unwrap();
-
-        // The document never becomes block-less; a blank paragraph remains.
-        assert_eq!(editor.document().block_count(), 1);
-        assert!(matches!(
-            editor.document().blocks()[0].block_type,
-            BlockType::Paragraph
-        ));
-    }
-
-    #[test]
-    fn typing_on_table_is_a_no_op() {
-        let mut editor = editor_with_blocks(vec![sample_table()]);
-        editor.set_cursor(DocumentPosition::new(0, 0));
-        editor.insert_text("x").unwrap();
-
-        // The table is untouched: still a table, with no stray content.
-        assert!(matches!(
-            editor.document().blocks()[0].block_type,
-            BlockType::Table { .. }
-        ));
-        assert!(editor.document().blocks()[0].content.is_empty());
-    }
-
-    #[test]
-    fn selection_replacing_a_table_removes_it() {
-        let mut editor = editor_with_blocks(vec![
-            Block::paragraph().with_plain_text("before"),
-            sample_table(),
-            Block::paragraph().with_plain_text("after"),
-        ]);
-        // Select from the end of "before" through the start of "after",
-        // covering the whole table, then type to replace.
-        editor.set_selection(
-            DocumentPosition::new(0, "before".len()),
-            DocumentPosition::new(2, 0),
-        );
+        editor.load_markdown("**bold**");
+        editor.set_cursor(DocumentPosition::at(TreePath::root(0), 2));
         editor.insert_text("X").unwrap();
-
-        // No table survives, and no text is trapped in a table block.
-        assert!(!block_types(&editor).iter().any(is_table));
-        assert_eq!(editor.document().to_plain_text(), "beforeXafter");
+        assert_eq!(editor.leaf_plain_text(&TreePath::root(0)), "boXld");
     }
 
     #[test]
-    fn deleting_selection_starting_at_table_does_not_trap_text() {
-        // Selection starts at the table (block 0) and ends inside the next
-        // paragraph: the table must be demoted, not have text merged into it.
-        let mut editor = editor_with_blocks(vec![
-            sample_table(),
-            Block::paragraph().with_plain_text("tail"),
-        ]);
-        editor.set_selection(DocumentPosition::new(0, 0), DocumentPosition::new(1, 2));
-        editor.delete_selection().unwrap();
-
-        assert!(!block_types(&editor).iter().any(is_table));
-        assert_eq!(editor.document().to_plain_text(), "il");
-    }
-
-    fn is_table(bt: &BlockType) -> bool {
-        matches!(bt, BlockType::Table { .. })
+    fn intra_leaf_delete_backward() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("Hello").unwrap();
+        editor.delete_backward().unwrap();
+        assert_eq!(editor.leaf_plain_text(&TreePath::root(0)), "Hell");
+        assert_eq!(editor.cursor().offset, 4);
     }
 
     #[test]
-    fn move_block_up_swaps_with_previous_and_follows_cursor() {
-        let mut editor = editor_with_paragraphs(&["A", "B", "C"]);
-        editor.set_cursor(DocumentPosition::new(1, 1)); // inside "B"
-
-        assert_eq!(editor.move_blocks_up(), Ok(true));
-        assert_eq!(paragraph_texts(&editor), ["B", "A", "C"]);
-        // Cursor stays on "B", which is now at index 0, keeping its offset.
-        assert_eq!(editor.cursor(), DocumentPosition::new(0, 1));
-    }
-
-    #[test]
-    fn move_block_down_swaps_with_next_and_follows_cursor() {
-        let mut editor = editor_with_paragraphs(&["A", "B", "C"]);
-        editor.set_cursor(DocumentPosition::new(1, 0)); // inside "B"
-
-        assert_eq!(editor.move_blocks_down(), Ok(true));
-        assert_eq!(paragraph_texts(&editor), ["A", "C", "B"]);
-        assert_eq!(editor.cursor(), DocumentPosition::new(2, 0));
-    }
-
-    #[test]
-    fn move_block_up_at_top_is_noop() {
-        let mut editor = editor_with_paragraphs(&["A", "B"]);
-        editor.set_cursor(DocumentPosition::new(0, 0));
-
-        assert_eq!(editor.move_blocks_up(), Ok(false));
-        assert_eq!(paragraph_texts(&editor), ["A", "B"]);
-        assert_eq!(editor.cursor(), DocumentPosition::new(0, 0));
-    }
-
-    #[test]
-    fn move_block_down_at_bottom_is_noop() {
-        let mut editor = editor_with_paragraphs(&["A", "B"]);
-        editor.set_cursor(DocumentPosition::new(1, 0));
-
-        assert_eq!(editor.move_blocks_down(), Ok(false));
-        assert_eq!(paragraph_texts(&editor), ["A", "B"]);
-        assert_eq!(editor.cursor(), DocumentPosition::new(1, 0));
-    }
-
-    #[test]
-    fn move_block_in_single_block_document_is_noop() {
-        let mut editor = editor_with_paragraphs(&["Only"]);
-        assert_eq!(editor.move_blocks_up(), Ok(false));
-        assert_eq!(editor.move_blocks_down(), Ok(false));
-        assert_eq!(paragraph_texts(&editor), ["Only"]);
-    }
-
-    #[test]
-    fn move_selected_block_group_moves_together() {
-        let mut editor = editor_with_paragraphs(&["A", "B", "C", "D"]);
-        // Select across blocks 1 and 2 ("B" and "C").
-        editor.set_selection(DocumentPosition::new(1, 0), DocumentPosition::new(2, 1));
-
-        assert_eq!(editor.move_blocks_down(), Ok(true));
-        assert_eq!(paragraph_texts(&editor), ["A", "D", "B", "C"]);
-        // Selection follows the moved group.
-        let (start, end) = editor.selection().unwrap();
-        assert_eq!(start, DocumentPosition::new(2, 0));
-        assert_eq!(end, DocumentPosition::new(3, 1));
-    }
-
-    #[test]
-    fn move_ordered_list_item_renumbers_run() {
-        let mut doc = StructuredDocument::new();
-        for n in 1..=3u64 {
-            doc.add_block(
-                Block::new(BlockType::ListItem {
-                    ordered: true,
-                    number: Some(n),
-                    checkbox: None,
-                })
-                .with_plain_text(format!("item {n}")),
-            );
-        }
-        let mut editor = StructuredEditor::with_document(doc);
-        editor.set_cursor(DocumentPosition::new(2, 0)); // third item ("item 3")
-
-        assert_eq!(editor.move_blocks_up(), Ok(true));
-
-        // Text order reflects the move ...
-        assert_eq!(paragraph_texts(&editor), ["item 1", "item 3", "item 2"]);
-        // ... but the visible numbering stays sequential 1, 2, 3.
-        let numbers: Vec<Option<u64>> = editor
-            .document()
-            .blocks()
-            .iter()
-            .map(|b| match b.block_type {
-                BlockType::ListItem { number, .. } => number,
-                _ => None,
-            })
-            .collect();
-        assert_eq!(numbers, [Some(1), Some(2), Some(3)]);
+    fn word_navigation_within_leaf() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("alpha beta gamma");
+        editor.set_cursor(DocumentPosition::at(TreePath::root(0), 0));
+        editor.move_word_right();
+        assert_eq!(editor.cursor().offset, 5); // end of "alpha" (word-right stops after the word)
     }
 
     #[test]
     fn undo_redo_round_trips_typing() {
-        let t = Instant::now();
         let mut editor = StructuredEditor::new();
         editor.insert_text("Hello").unwrap();
-        editor.commit_undo_step(UndoKind::Typing, t);
-        assert_eq!(editor.document().to_plain_text(), "Hello");
-
+        editor.commit_undo_step(UndoKind::Typing, Instant::now());
         assert!(editor.undo());
-        assert_eq!(editor.document().to_plain_text(), "");
-        assert!(!editor.can_undo());
-
+        assert_eq!(editor.leaf_count(), 0);
         assert!(editor.redo());
-        assert_eq!(editor.document().to_plain_text(), "Hello");
-        assert!(!editor.can_redo());
+        assert_eq!(editor.leaf_plain_text(&TreePath::root(0)), "Hello");
     }
 
     #[test]
-    fn undo_coalesces_rapid_consecutive_typing() {
-        let t = Instant::now();
+    fn top_level_newline_splits_paragraph() {
         let mut editor = StructuredEditor::new();
-        // Characters typed in quick succession (small gaps) merge into one step.
-        for (i, ch) in ["H", "i", "!"].iter().enumerate() {
-            editor.insert_text(ch).unwrap();
-            editor.commit_undo_step(UndoKind::Typing, t + Duration::from_millis(i as u64 * 100));
-        }
-        assert_eq!(editor.document().to_plain_text(), "Hi!");
-
-        // A single undo reverts the whole run of rapidly typed characters.
-        assert!(editor.undo());
-        assert_eq!(editor.document().to_plain_text(), "");
-        assert!(!editor.can_undo());
-    }
-
-    #[test]
-    fn idle_pause_breaks_typing_coalescing() {
-        let t = Instant::now();
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("para").unwrap();
-        editor.commit_undo_step(UndoKind::Typing, t);
-
-        // After a long silence, the next typing begins a fresh undo step even
-        // though the caret never moved.
-        editor.insert_text(" fix").unwrap();
-        editor.commit_undo_step(
-            UndoKind::Typing,
-            t + UNDO_COALESCE_IDLE + Duration::from_millis(1),
-        );
-        assert_eq!(editor.document().to_plain_text(), "para fix");
-
-        // Undoing the small adjustment leaves the original passage intact.
-        assert!(editor.undo());
-        assert_eq!(editor.document().to_plain_text(), "para");
-        assert!(editor.undo());
-        assert_eq!(editor.document().to_plain_text(), "");
-    }
-
-    #[test]
-    fn cursor_move_breaks_typing_coalescing() {
-        let t = Instant::now();
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("ab").unwrap();
-        editor.commit_undo_step(UndoKind::Typing, t);
-
-        // Moving the caret starts a fresh undo step for subsequent typing,
-        // even with no idle gap.
-        editor.set_cursor(DocumentPosition::new(0, 0));
-        editor.commit_undo_step(UndoKind::Typing, t);
-        editor.insert_text("X").unwrap();
-        editor.commit_undo_step(UndoKind::Typing, t);
-        assert_eq!(editor.document().to_plain_text(), "Xab");
-
-        assert!(editor.undo());
-        assert_eq!(editor.document().to_plain_text(), "ab");
-        assert!(editor.undo());
-        assert_eq!(editor.document().to_plain_text(), "");
-    }
-
-    #[test]
-    fn a_new_edit_invalidates_redo() {
-        let t = Instant::now();
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("a").unwrap();
-        editor.commit_undo_step(UndoKind::Typing, t);
-        editor.set_cursor(editor.cursor());
-        editor.insert_text("b").unwrap();
-        editor.commit_undo_step(UndoKind::Typing, t);
-
-        assert!(editor.undo()); // back to "a"
-        assert!(editor.can_redo());
-
-        editor.insert_text("c").unwrap();
-        editor.commit_undo_step(UndoKind::Typing, t);
-        assert!(!editor.can_redo());
-        assert_eq!(editor.document().to_plain_text(), "ac");
-    }
-
-    #[test]
-    fn discrete_edits_are_separate_undo_steps() {
-        let t = Instant::now();
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("word").unwrap();
-        editor.commit_undo_step(UndoKind::Typing, t);
-        editor.select_all();
-        editor.toggle_bold().unwrap();
-        editor.commit_undo_step(UndoKind::Other, t);
-
-        // Undo the styling but keep the text.
-        assert!(editor.undo());
-        assert_eq!(editor.document().to_plain_text(), "word");
-        // Undo the typing.
-        assert!(editor.undo());
-        assert_eq!(editor.document().to_plain_text(), "");
-    }
-
-    #[test]
-    fn undo_restores_caret_to_where_editing_resumed() {
-        let t = Instant::now();
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("abc").unwrap();
-        editor.commit_undo_step(UndoKind::Typing, t);
-
-        // Move to the start (the UI commits after handling the move too).
-        editor.set_cursor(DocumentPosition::new(0, 0));
-        editor.commit_undo_step(UndoKind::Other, t);
-
-        editor.insert_text("Z").unwrap();
-        editor.commit_undo_step(UndoKind::Typing, t);
-        assert_eq!(editor.document().to_plain_text(), "Zabc");
-
-        assert!(editor.undo());
-        assert_eq!(editor.document().to_plain_text(), "abc");
-        assert_eq!(editor.cursor(), DocumentPosition::new(0, 0));
-    }
-
-    #[test]
-    fn reset_undo_history_keeps_content_but_clears_stacks() {
-        let t = Instant::now();
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("data").unwrap();
-        editor.commit_undo_step(UndoKind::Typing, t);
-        assert!(editor.can_undo());
-
-        editor.reset_undo_history();
-        assert!(!editor.can_undo());
-        assert!(!editor.can_redo());
-        assert_eq!(editor.document().to_plain_text(), "data");
-        // Nothing to undo even after the reset baseline.
-        assert!(!editor.undo());
-    }
-
-    #[test]
-    fn undo_with_uncommitted_edit_is_not_lost() {
-        let t = Instant::now();
-        let mut editor = StructuredEditor::new();
-        editor.insert_text("first").unwrap();
-        editor.commit_undo_step(UndoKind::Typing, t);
-
-        // Simulate an edit that was never explicitly committed before undo.
-        editor.insert_text(" second").unwrap();
-        assert!(editor.undo());
-        // The uncommitted edit is folded into a step and reverted.
-        assert_eq!(editor.document().to_plain_text(), "first");
-        assert!(editor.redo());
-        assert_eq!(editor.document().to_plain_text(), "first second");
+        editor.insert_text("HelloWorld").unwrap();
+        editor.set_cursor(DocumentPosition::at(TreePath::root(0), 5));
+        editor.insert_newline().unwrap();
+        assert_eq!(editor.leaf_count(), 2);
+        assert_eq!(editor.leaf_plain_text(&TreePath::root(0)), "Hello");
+        assert_eq!(editor.leaf_plain_text(&TreePath::root(1)), "World");
     }
 }

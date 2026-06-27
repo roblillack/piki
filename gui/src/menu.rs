@@ -929,26 +929,21 @@ fn perform_edit_link(
         let display = editor.0.display.borrow();
         let (init_target, init_text, mode_existing_link, selection_mode, link_pos) =
             if let Some((block_idx, inline_idx)) = display.hovered_link() {
-                let doc = display.editor().document();
-                let block = doc.blocks().get(block_idx);
-                if let Some(block) = block {
-                    if let Some(InlineContent::Link { link, content }) =
-                        block.content.get(inline_idx)
-                    {
-                        let text = content
-                            .iter()
-                            .map(|c| c.to_plain_text())
-                            .collect::<String>();
-                        (
-                            link.destination.clone(),
-                            text,
-                            true,
-                            false,
-                            Some((block_idx, inline_idx)),
-                        )
-                    } else {
-                        (String::new(), String::new(), false, false, None)
-                    }
+                let content =
+                    piki_gui::richtext::tree_walk::leaf_inline(display.editor().tdoc(), &block_idx);
+                if let Some(InlineContent::Link {
+                    link,
+                    content: inner,
+                }) = content.get(inline_idx)
+                {
+                    let text = inner.iter().map(|c| c.to_plain_text()).collect::<String>();
+                    (
+                        link.destination.clone(),
+                        text,
+                        true,
+                        false,
+                        Some((block_idx, inline_idx)),
+                    )
                 } else {
                     (String::new(), String::new(), false, false, None)
                 }
@@ -991,12 +986,13 @@ fn perform_edit_link(
 
     let active_editor_save = Rc::clone(active_editor);
     let is_structured_save = Rc::clone(is_structured);
-    let link_pos_for_save = link_pos;
+    let link_pos_for_save = link_pos.clone();
     let remove_cb = if link_pos.is_some() {
         let active_editor_remove = Rc::clone(active_editor);
         let is_structured_remove = Rc::clone(is_structured);
+        let link_pos_remove = link_pos.clone();
         Some(move || {
-            if let Some((block_idx, inline_idx)) = link_pos {
+            if let Some((block_idx, inline_idx)) = link_pos_remove.clone() {
                 let _ = with_structured_editor(
                     &active_editor_remove,
                     &is_structured_remove,
@@ -1005,7 +1001,9 @@ fn perform_edit_link(
                         let changed = {
                             let mut disp = editor.0.display.borrow_mut();
                             let editor_mut = disp.editor_mut();
-                            editor_mut.remove_link_at(block_idx, inline_idx).is_ok()
+                            editor_mut
+                                .remove_link_at(block_idx.clone(), inline_idx)
+                                .is_ok()
                         };
                         if changed {
                             editor.0.notify_change();
@@ -1028,9 +1026,9 @@ fn perform_edit_link(
                         let mut disp = editor.0.display.borrow_mut();
                         let editor_mut = disp.editor_mut();
 
-                        if let Some((block_idx, inline_idx)) = link_pos_for_save {
+                        if let Some((block_idx, inline_idx)) = link_pos_for_save.clone() {
                             editor_mut
-                                .edit_link_at(block_idx, inline_idx, &dest, &txt)
+                                .edit_link_at(block_idx.clone(), inline_idx, &dest, &txt)
                                 .is_ok()
                         } else if !txt.is_empty() {
                             if editor_mut.selection().is_some() {
