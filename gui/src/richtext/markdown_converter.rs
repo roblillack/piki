@@ -5,6 +5,7 @@ use super::structured_document::StructuredDocument;
 use super::tdoc_bridge::{structured_to_tdoc, tdoc_to_structured};
 use std::io::Cursor;
 use tdoc::markdown;
+use tdoc::writer::Writer;
 
 /// Convert markdown text to a [`StructuredDocument`].
 pub fn markdown_to_document(markdown: &str) -> StructuredDocument {
@@ -24,6 +25,22 @@ pub fn document_to_markdown(doc: &StructuredDocument) -> String {
         return String::new();
     }
     String::from_utf8(buffer).unwrap_or_default()
+}
+
+/// Convert a [`StructuredDocument`] into an HTML fragment.
+///
+/// Unlike markdown, the HTML output can represent every inline style the
+/// editor supports (e.g. underline and highlight), which makes it the richer
+/// representation for the system clipboard's `text/html` flavor.
+pub fn document_to_html(doc: &StructuredDocument) -> String {
+    let tdoc_doc = structured_to_tdoc(doc);
+    match Writer::new().write_to_string(&tdoc_doc) {
+        Ok(html) => html,
+        Err(err) => {
+            eprintln!("Failed to serialize document to HTML: {}", err);
+            String::new()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -82,6 +99,55 @@ mod tests {
 
         let markdown = document_to_markdown(&doc);
         assert_eq!(markdown.trim(), "Hello **world**");
+    }
+
+    #[test]
+    fn test_document_to_html_preserves_underline_and_highlight() {
+        // Underline and highlight cannot be represented in Markdown, so the
+        // HTML flavor is what carries them onto the clipboard.
+        let mut doc = StructuredDocument::new();
+        let mut block = Block::paragraph();
+        block.content.push(InlineContent::Text(TextRun::new(
+            "under",
+            TextStyle {
+                underline: true,
+                ..Default::default()
+            },
+        )));
+        block.content.push(InlineContent::Text(TextRun::new(
+            "mark",
+            TextStyle {
+                highlight: true,
+                ..Default::default()
+            },
+        )));
+        doc.add_block(block);
+
+        let html = document_to_html(&doc);
+        assert!(html.contains("<u>under</u>"), "html was: {html}");
+        assert!(html.contains("<mark>mark</mark>"), "html was: {html}");
+    }
+
+    #[test]
+    fn test_document_to_html_ordered_list() {
+        let mut doc = StructuredDocument::new();
+        for (idx, text) in ["First", "Second"].into_iter().enumerate() {
+            let mut block = Block::new(BlockType::ListItem {
+                ordered: true,
+                number: Some((idx + 1) as u64),
+                checkbox: None,
+            });
+            block
+                .content
+                .push(InlineContent::Text(TextRun::plain(text)));
+            doc.add_block(block);
+        }
+
+        let html = document_to_html(&doc);
+        assert!(html.contains("<ol>"), "html was: {html}");
+        assert!(html.contains("<li>"), "html was: {html}");
+        assert!(html.contains("First"), "html was: {html}");
+        assert!(html.contains("Second"), "html was: {html}");
     }
 
     #[test]

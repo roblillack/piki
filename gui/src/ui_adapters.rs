@@ -21,24 +21,33 @@ impl StructuredRichUI {
         self.0.display.borrow().editor().selection().is_some()
     }
 
-    pub fn cut_selection(&mut self) -> Option<String> {
-        let result = {
-            let mut disp = self.0.display.borrow_mut();
-            disp.editor_mut().cut()
+    /// Cut the current selection to the system clipboard (HTML + Markdown).
+    /// Returns `true` if there was a selection that was cut.
+    pub fn cut_selection(&mut self) -> bool {
+        let doc = self.0.display.borrow().editor().get_selection_document();
+        let Some(doc) = doc else {
+            return false;
         };
-        match result {
-            Ok(text) => {
-                self.0.notify_change();
-                if text.is_empty() { None } else { Some(text) }
-            }
-            Err(_) => None,
+        crate::clipboard::copy_structured_to_system(&doc);
+        {
+            let mut disp = self.0.display.borrow_mut();
+            let _ = disp.editor_mut().delete_selection();
         }
+        self.0.notify_change();
+        true
     }
 
-    pub fn copy_selection(&self) -> Option<String> {
-        let disp = self.0.display.borrow();
-        let text = disp.editor().copy();
-        if text.is_empty() { None } else { Some(text) }
+    /// Copy the current selection to the system clipboard (HTML + Markdown).
+    /// Returns `true` if there was a selection that was copied.
+    pub fn copy_selection(&self) -> bool {
+        let doc = self.0.display.borrow().editor().get_selection_document();
+        match doc {
+            Some(doc) => {
+                crate::clipboard::copy_structured_to_system(&doc);
+                true
+            }
+            None => false,
+        }
     }
 
     pub fn paste_from_clipboard(&mut self) {

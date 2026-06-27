@@ -2,6 +2,10 @@ use std::io::Cursor;
 
 use tdoc::{Document, html, markdown};
 
+use crate::richtext::markdown_converter::{
+    document_to_html, document_to_markdown, markdown_to_document,
+};
+use crate::richtext::structured_document::StructuredDocument;
 use crate::rtf;
 
 #[derive(Debug)]
@@ -124,6 +128,54 @@ fn document_from_html(html_content: &str) -> Result<Document, ClipboardDocumentE
 
     html::parse(Cursor::new(html_content.as_bytes()))
         .map_err(|err| ClipboardDocumentError::Parse(err.to_string()))
+}
+
+/// Copy a structured selection to the system clipboard.
+///
+/// Places HTML on the clipboard for rich-text-aware targets, with the Markdown
+/// serialization as the plain-text alternative so plain-text (and
+/// Markdown-aware) targets get a useful representation too. Falls back to a
+/// plain-text Markdown copy via FLTK when the system clipboard is unavailable.
+pub fn copy_structured_to_system(doc: &StructuredDocument) {
+    let markdown = document_to_markdown(doc);
+    let html = document_to_html(doc);
+    place_on_clipboard(&markdown, &html);
+}
+
+/// Copy raw Markdown text (from the plain Markdown editor) to the system
+/// clipboard, rendering HTML for rich-text targets while keeping the original
+/// Markdown text as the plain-text alternative.
+pub fn copy_markdown_to_system(markdown: &str) {
+    let html = document_to_html(&markdown_to_document(markdown));
+    place_on_clipboard(markdown, &html);
+}
+
+/// Write `html` (with `markdown` as the plain-text alternative) to the system
+/// clipboard, falling back to a plain-text copy through FLTK when arboard is
+/// unavailable or the HTML payload is empty.
+fn place_on_clipboard(markdown: &str, html: &str) {
+    let wrote_html = !html.trim().is_empty() && write_html_with_alt(markdown, html);
+    if !wrote_html {
+        fltk::app::copy(markdown);
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+fn write_html_with_alt(markdown: &str, html: &str) -> bool {
+    use arboard::Clipboard;
+
+    match Clipboard::new().and_then(|mut clipboard| clipboard.set().html(html, Some(markdown))) {
+        Ok(()) => true,
+        Err(err) => {
+            eprintln!("[piki] Failed to copy HTML to clipboard: {err}");
+            false
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+fn write_html_with_alt(_markdown: &str, _html: &str) -> bool {
+    false
 }
 
 fn log_formats(formats: &[String]) {
