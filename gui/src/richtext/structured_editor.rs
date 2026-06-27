@@ -10,14 +10,19 @@
 // links, moves, paste of multi-paragraph content) are stubbed and land in Phase 2/3 — see
 // the `// TODO(phase2)` markers.
 
-use super::inline_convert::inline_to_spans;
+use super::inline_convert::{inline_to_spans, spans_to_inline};
 use super::markdown_converter::markdown_to_document;
-use super::structured_document::{Block, BlockType, InlineContent, TextRun, normalize_plain_text};
+use super::structured_document::{
+    Block, BlockType, InlineContent, TextRun, TextStyle, normalize_plain_text,
+};
+use super::tree_edit;
+use super::tree_path::PathSegment;
 use super::tree_path::{DocumentPosition, TreePath};
 use super::tree_walk::{self, LeafInfo};
 use std::time::{Duration, Instant};
 use tdoc::Document;
-use tdoc::paragraph::Paragraph;
+use tdoc::inline::Span;
+use tdoc::paragraph::{ChecklistItem, Paragraph};
 
 /// Result of an editing operation
 pub type EditResult = Result<(), EditError>;
@@ -151,6 +156,10 @@ impl StructuredEditor {
 
     fn leaf_paths(&self) -> Vec<TreePath> {
         tree_walk::leaf_paths(&self.tdoc)
+    }
+
+    fn leaf_index(&self, path: &TreePath) -> Option<usize> {
+        self.leaf_paths().iter().position(|p| p == path)
     }
 
     fn leaf_count(&self) -> usize {
@@ -469,31 +478,25 @@ impl StructuredEditor {
     /// continues lists / quotes and outdents empty items. Phase 1 handles only the
     /// top-level paragraph case; otherwise it is a no-op.
     pub fn insert_newline(&mut self) -> EditResult {
+        if self.leaf_count() == 0 {
+            self.tdoc.add_paragraph(Paragraph::new_text());
+            self.tdoc.add_paragraph(Paragraph::new_text());
+            self.cursor = DocumentPosition::at(TreePath::root(1), 0);
+            return Ok(());
+        }
         if self.selection.is_some() {
             self.delete_selection()?;
         }
         let path = self.cursor.path.clone();
-        let segs = path.segments();
-        // Only top-level paragraphs are split in Phase 1.
-        if segs.len() == 1
-            && let super::tree_path::PathSegment::Paragraph(idx) = segs[0]
-            && !self.is_table_leaf(&path)
-        {
-            let offset = self.cursor.offset;
-            let right = self.edit_leaf(&path, |content| {
-                let mut block = Block::paragraph();
-                block.content = std::mem::take(content);
-                let right = block.split_content_at(offset);
-                *content = block.content;
-                right
-            });
-            self.tdoc.paragraphs.insert(
-                idx + 1,
-                Paragraph::new_text().with_content(inline_to_spans(&right)),
-            );
-            self.cursor = DocumentPosition::at(TreePath::root(idx + 1), 0);
+        if self.is_table_leaf(&path) {
+            return Ok(());
         }
-        // TODO(phase2): list/quote/checklist splits.
+        // TODO(phase3): Enter on an empty list/checklist item outdents / exits the list.
+        let offset = self.cursor.offset;
+        if let Some(new_path) = tree_edit::split_leaf(&mut self.tdoc, &path, offset) {
+            self.cursor = DocumentPosition::at(new_path, 0);
+        }
+        self.normalize_cursor();
         Ok(())
     }
 
@@ -510,11 +513,16 @@ impl StructuredEditor {
         let path = self.cursor.path.clone();
         let offset = self.cursor.offset;
 
-        if offset == 0 {
-            // TODO(phase2): tree-aware merge with the previous leaf / outdent.
+        if self.is_table_leaf(&path) {
             return Ok(());
         }
-        if self.is_table_leaf(&path) {
+        if offset == 0 {
+            // TODO(phase3): outdent a nested list item before merging.
+            if let Some((pos_path, pos_off)) = tree_edit::merge_with_previous(&mut self.tdoc, &path)
+            {
+                self.cursor = DocumentPosition::at(pos_path, pos_off);
+                self.normalize_cursor();
+            }
             return Ok(());
         }
 
@@ -583,11 +591,18 @@ impl StructuredEditor {
         let offset = self.cursor.offset;
         let len = self.leaf_text_len(&path);
 
-        if offset >= len {
-            // TODO(phase2): tree-aware merge with the next leaf / table removal.
+        if self.is_table_leaf(&path) {
             return Ok(());
         }
-        if self.is_table_leaf(&path) {
+        if offset >= len {
+            // Merge the following leaf into this one (cursor stays at the join point).
+            if let Some(next_path) = tree_walk::next_leaf_path(&self.tdoc, &path)
+                && !self.is_table_leaf(&next_path)
+            {
+                tree_edit::merge_with_previous(&mut self.tdoc, &next_path);
+                self.cursor = DocumentPosition::at(path, len);
+                self.normalize_cursor();
+            }
             return Ok(());
         }
 
@@ -660,10 +675,36 @@ impl StructuredEditor {
 
         if start.path == end.path {
             self.delete_intra_leaf_range(&start.path, start.offset, end.offset);
-            self.cursor = start;
+            self.cursor = start.clone();
+        } else if let (Some(s_idx), Some(e_idx)) =
+            (self.leaf_index(&start.path), self.leaf_index(&end.path))
+        {
+            // Truncate the start leaf to its head, append the end leaf's tail, then remove
+            // every leaf from start+1 through end (re-querying the next leaf each time so
+            // container pruning can't invalidate stale paths).
+            let end_len = self.leaf_text_len(&end.path);
+            let end_runs = tree_walk::leaf_inline(&self.tdoc, &end.path);
+            let end_tail = extract_inline_range(&end_runs, end.offset, end_len);
+            let start_off = start.offset;
+            self.edit_leaf(&start.path, |content| {
+                let mut block = Block::paragraph();
+                block.content = std::mem::take(content);
+                let len = block.text_len();
+                block.delete_text_range(start_off, len);
+                block.content.extend(end_tail);
+                block.normalize_content();
+                *content = block.content;
+            });
+            for _ in 0..(e_idx.saturating_sub(s_idx)) {
+                if let Some(next) = tree_walk::next_leaf_path(&self.tdoc, &start.path) {
+                    tree_edit::remove_node_at(&mut self.tdoc, &next);
+                } else {
+                    break;
+                }
+            }
+            self.cursor = start.clone();
         } else {
-            // TODO(phase2): cross-leaf range deletion + merge.
-            self.cursor = start;
+            self.cursor = start.clone();
         }
         self.selection = None;
         self.normalize_cursor();
@@ -993,100 +1034,466 @@ impl StructuredEditor {
         if normalized.is_empty() {
             return Ok(());
         }
-        // TODO(phase2): multi-paragraph paste splits into sibling blocks. Phase 1 inserts
-        // the text into the current leaf (newlines become hard breaks).
-        let single_line = normalized.replace('\n', " ");
-        self.insert_text(&single_line)
+        if !normalized.contains('\n') {
+            return self.insert_text(&normalized);
+        }
+        // Multi-line plain text: each line becomes its own paragraph.
+        let paragraphs = normalized
+            .split('\n')
+            .map(|line| Paragraph::new_text().with_content(vec![Span::new_text(line)]))
+            .collect();
+        let doc = Document::new().with_paragraphs(paragraphs);
+        self.insert_document(&doc)
     }
 
     // ----- Structural ops (TODO(phase2/3)) -------------------------------------------
 
+    /// Cycle the current line: Paragraph → H1 → H2 → H3 → Paragraph.
     pub fn toggle_heading(&mut self) -> EditResult {
-        Ok(()) // TODO(phase2)
+        let next = match self.current_block_type() {
+            BlockType::Heading { level: 1 } => BlockType::Heading { level: 2 },
+            BlockType::Heading { level: 2 } => BlockType::Heading { level: 3 },
+            BlockType::Heading { .. } => BlockType::Paragraph,
+            _ => BlockType::Heading { level: 1 },
+        };
+        self.set_block_type(next)
     }
 
-    pub fn insert_inline_at_cursor(&mut self, _inline: InlineContent) -> EditResult {
-        Ok(()) // TODO(phase2)
+    /// Insert an arbitrary inline element at the cursor (within the current leaf).
+    pub fn insert_inline_at_cursor(&mut self, inline: InlineContent) -> EditResult {
+        if self.leaf_count() == 0 {
+            let len = inline.text_len();
+            self.tdoc
+                .add_paragraph(Paragraph::new_text().with_content(inline_to_spans(&[inline])));
+            self.cursor = DocumentPosition::at(TreePath::root(0), len);
+            return Ok(());
+        }
+        if self.selection.is_some() {
+            self.delete_selection()?;
+        }
+        let path = self.cursor.path.clone();
+        if self.is_table_leaf(&path) {
+            return Ok(());
+        }
+        let offset = self.cursor.offset;
+        let inserted_len = inline.text_len();
+        self.edit_leaf(&path, |content| {
+            let mut block = Block::paragraph();
+            block.content = std::mem::take(content);
+            let right = block.split_content_at(offset);
+            block.content.push(inline);
+            block.content.extend(right);
+            block.normalize_content();
+            *content = block.content;
+        });
+        self.cursor.offset = offset + inserted_len;
+        self.selection = None;
+        Ok(())
     }
 
-    pub fn replace_selection_with_link(&mut self, _destination: &str, _text: &str) -> EditResult {
-        Ok(()) // TODO(phase2)
+    /// Replace the current selection with a link.
+    pub fn replace_selection_with_link(&mut self, destination: &str, text: &str) -> EditResult {
+        self.delete_selection()?;
+        self.insert_link_at_cursor(destination, text)
     }
 
-    pub fn insert_link_at_cursor(&mut self, _destination: &str, _text: &str) -> EditResult {
-        Ok(()) // TODO(phase2)
+    /// Insert a link at the cursor.
+    pub fn insert_link_at_cursor(&mut self, destination: &str, text: &str) -> EditResult {
+        let link_inline = InlineContent::Link {
+            link: super::structured_document::Link {
+                destination: destination.to_string(),
+                title: None,
+            },
+            content: vec![InlineContent::Text(TextRun::plain(text))],
+        };
+        self.insert_inline_at_cursor(link_inline)
     }
 
+    /// Edit an existing link at the given leaf path + inline index.
     pub fn edit_link_at(
         &mut self,
-        _path: TreePath,
-        _inline_index: usize,
-        _destination: &str,
-        _text: &str,
+        path: TreePath,
+        inline_index: usize,
+        destination: &str,
+        text: &str,
     ) -> EditResult {
-        Ok(()) // TODO(phase2)
+        let dest = destination.to_string();
+        let text = text.to_string();
+        let ok = self.edit_leaf(&path, |content| {
+            if let Some(InlineContent::Link {
+                link,
+                content: inner,
+            }) = content.get_mut(inline_index)
+            {
+                link.destination = dest.clone();
+                *inner = vec![InlineContent::Text(TextRun::plain(text.clone()))];
+                true
+            } else {
+                false
+            }
+        });
+        if ok {
+            Ok(())
+        } else {
+            Err(EditError::InvalidPosition)
+        }
     }
 
-    pub fn remove_link_at(&mut self, _path: TreePath, _inline_index: usize) -> EditResult {
-        Ok(()) // TODO(phase2)
+    /// Remove (unwrap) a link at the given leaf path + inline index, keeping its text.
+    pub fn remove_link_at(&mut self, path: TreePath, inline_index: usize) -> EditResult {
+        let ok = self.edit_leaf(&path, |content| {
+            if inline_index >= content.len() {
+                return false;
+            }
+            if let InlineContent::Link { content: inner, .. } = content.remove(inline_index) {
+                for (i, item) in inner.into_iter().enumerate() {
+                    content.insert(inline_index + i, item);
+                }
+                true
+            } else {
+                false
+            }
+        });
+        if ok {
+            Ok(())
+        } else {
+            Err(EditError::InvalidPosition)
+        }
     }
 
     pub fn toggle_bold(&mut self) -> EditResult {
-        Ok(()) // TODO(phase2)
+        self.apply_style_to_selection(|s| s.bold = !s.bold)
     }
     pub fn toggle_italic(&mut self) -> EditResult {
-        Ok(()) // TODO(phase2)
+        self.apply_style_to_selection(|s| s.italic = !s.italic)
     }
     pub fn toggle_code(&mut self) -> EditResult {
-        Ok(()) // TODO(phase2)
+        self.apply_style_to_selection(|s| s.code = !s.code)
     }
     pub fn toggle_strikethrough(&mut self) -> EditResult {
-        Ok(()) // TODO(phase2)
+        self.apply_style_to_selection(|s| s.strikethrough = !s.strikethrough)
     }
     pub fn toggle_underline(&mut self) -> EditResult {
-        Ok(()) // TODO(phase2)
+        self.apply_style_to_selection(|s| s.underline = !s.underline)
     }
     pub fn toggle_highlight(&mut self) -> EditResult {
-        Ok(()) // TODO(phase2)
+        self.apply_style_to_selection(|s| s.highlight = !s.highlight)
     }
     pub fn clear_formatting(&mut self) -> EditResult {
-        Ok(()) // TODO(phase2)
+        self.apply_style_to_selection(|s| *s = TextStyle::default())
+    }
+
+    /// Apply a style mutation to every run within the current selection, across leaves.
+    fn apply_style_to_selection(&mut self, mut apply: impl FnMut(&mut TextStyle)) -> EditResult {
+        let Some((a, b)) = self.selection.clone() else {
+            return Ok(());
+        };
+        let (start, end) = if a <= b { (a, b) } else { (b, a) };
+        for path in self.leaf_paths() {
+            if path < start.path || path > end.path {
+                continue;
+            }
+            let len = self.leaf_text_len(&path);
+            let from = if path == start.path {
+                start.offset.min(len)
+            } else {
+                0
+            };
+            let to = if path == end.path {
+                end.offset.min(len)
+            } else {
+                len
+            };
+            if from >= to {
+                continue;
+            }
+            self.edit_leaf(&path, |content| {
+                let (before, selected, after) = split_content_for_style(content, from, to);
+                let styled = map_style_on_runs(selected, &mut apply);
+                *content = before.into_iter().chain(styled).chain(after).collect();
+            });
+        }
+        Ok(())
     }
 
     pub fn toggle_list(&mut self) -> EditResult {
-        Ok(()) // TODO(phase2)
+        self.toggle_list_kind(false, false)
     }
     pub fn toggle_checklist(&mut self) -> EditResult {
-        Ok(()) // TODO(phase2)
+        self.toggle_list_kind(false, true)
     }
     pub fn toggle_ordered_list(&mut self) -> EditResult {
-        Ok(()) // TODO(phase2)
+        self.toggle_list_kind(true, false)
     }
+
     pub fn toggle_quote(&mut self) -> EditResult {
-        Ok(()) // TODO(phase2)
+        // In a quote already → unwrap; otherwise wrap the cursor's top-level block.
+        if matches!(self.cursor.path.last(), Some(PathSegment::QuoteChild(_))) {
+            self.unwrap_quote()
+        } else {
+            self.wrap_top_level_in_quote()
+        }
     }
+
     pub fn toggle_code_block(&mut self) -> EditResult {
-        Ok(()) // TODO(phase2)
+        if matches!(self.current_block_type(), BlockType::CodeBlock { .. }) {
+            self.apply_variant_over_selection(|s| Paragraph::new_text().with_content(s))
+        } else {
+            self.apply_variant_over_selection(|s| Paragraph::new_code_block().with_content(s))
+        }
     }
 
-    pub fn set_block_type(&mut self, _block_type: BlockType) -> EditResult {
-        Ok(()) // TODO(phase2)
+    /// Set the paragraph style at the cursor/selection. Heading/CodeBlock/Paragraph are
+    /// in-place leaf-variant changes; BlockQuote/ListItem route to the structural toggles.
+    pub fn set_block_type(&mut self, block_type: BlockType) -> EditResult {
+        match block_type {
+            BlockType::Paragraph => {
+                // "Paragraph" also exits a block quote (mirrors the flat block-type model).
+                if matches!(self.cursor.path.last(), Some(PathSegment::QuoteChild(_))) {
+                    self.unwrap_quote()
+                } else {
+                    self.apply_variant_over_selection(|s| Paragraph::new_text().with_content(s))
+                }
+            }
+            BlockType::Heading { level } => {
+                let level = level.clamp(1, 3);
+                self.apply_variant_over_selection(move |s| make_header(level, s))
+            }
+            BlockType::CodeBlock { .. } => {
+                self.apply_variant_over_selection(|s| Paragraph::new_code_block().with_content(s))
+            }
+            BlockType::BlockQuote => self.wrap_top_level_in_quote(),
+            BlockType::ListItem {
+                ordered, checkbox, ..
+            } => self.toggle_list_kind(ordered, checkbox.is_some()),
+            BlockType::Table { .. } => Ok(()),
+        }
     }
 
-    pub fn toggle_checkmark_at(&mut self, _path: TreePath) -> Result<bool, EditError> {
-        Ok(false) // TODO(phase3)
+    // ----- Structural helpers (top-level focus) --------------------------------------
+
+    /// The normalized (start, end) of the selection, or the collapsed cursor.
+    fn selection_or_cursor_range(&self) -> (DocumentPosition, DocumentPosition) {
+        match self.selection.clone() {
+            Some((a, b)) => {
+                if a <= b {
+                    (a, b)
+                } else {
+                    (b, a)
+                }
+            }
+            None => (self.cursor.clone(), self.cursor.clone()),
+        }
+    }
+
+    /// Apply an in-place leaf-variant change to every leaf in the selection/cursor range.
+    fn apply_variant_over_selection(
+        &mut self,
+        make: impl Fn(Vec<Span>) -> Paragraph,
+    ) -> EditResult {
+        let (start, end) = self.selection_or_cursor_range();
+        for path in self.leaf_paths() {
+            if path < start.path || path > end.path {
+                continue;
+            }
+            tree_edit::replace_leaf_variant(&mut self.tdoc, &path, &make);
+        }
+        self.normalize_cursor();
+        self.trigger_paragraph_change();
+        Ok(())
+    }
+
+    /// The cursor's top-level paragraph index, if the cursor is at the top level.
+    fn cursor_top_index(&self) -> Option<usize> {
+        match self.cursor.path.segments() {
+            [PathSegment::Paragraph(i)] => Some(*i),
+            _ => None,
+        }
+    }
+
+    fn wrap_top_level_in_quote(&mut self) -> EditResult {
+        let Some(i) = self.cursor_top_index() else {
+            return Ok(());
+        };
+        let offset = self.cursor.offset;
+        let para = self.tdoc.paragraphs.remove(i);
+        self.tdoc
+            .paragraphs
+            .insert(i, Paragraph::new_quote().with_children(vec![para]));
+        self.cursor =
+            DocumentPosition::at(TreePath::root(i).child(PathSegment::QuoteChild(0)), offset);
+        self.normalize_cursor();
+        self.trigger_paragraph_change();
+        Ok(())
+    }
+
+    fn unwrap_quote(&mut self) -> EditResult {
+        let segs = self.cursor.path.segments().to_vec();
+        let [PathSegment::Paragraph(i), PathSegment::QuoteChild(c)] = segs.as_slice() else {
+            return Ok(());
+        };
+        let (i, c) = (*i, *c);
+        let offset = self.cursor.offset;
+        let Some(Paragraph::Quote { children }) = self.tdoc.paragraphs.get(i).cloned() else {
+            return Ok(());
+        };
+        self.tdoc.paragraphs.remove(i);
+        let count = children.len();
+        for (k, child) in children.into_iter().enumerate() {
+            self.tdoc.paragraphs.insert(i + k, child);
+        }
+        let target = (i + c.min(count.saturating_sub(1))).min(self.tdoc.paragraphs.len());
+        self.cursor = DocumentPosition::at(TreePath::root(target), offset);
+        self.normalize_cursor();
+        self.trigger_paragraph_change();
+        Ok(())
+    }
+
+    /// Toggle a list of the given kind over the contiguous top-level selection. If the
+    /// cursor is already in a top-level list, unwrap it back to paragraphs.
+    fn toggle_list_kind(&mut self, ordered: bool, checklist: bool) -> EditResult {
+        // Unwrap if the cursor sits in a top-level list/checklist.
+        if let [PathSegment::Paragraph(i), rest @ ..] = self.cursor.path.segments()
+            && !rest.is_empty()
+            && matches!(
+                self.tdoc.paragraphs.get(*i),
+                Some(
+                    Paragraph::OrderedList { .. }
+                        | Paragraph::UnorderedList { .. }
+                        | Paragraph::Checklist { .. }
+                )
+            )
+        {
+            return self.unwrap_list_at(*i);
+        }
+
+        // Otherwise wrap the selected top-level paragraphs into one list.
+        let (start, end) = self.selection_or_cursor_range();
+        let (Some(s), Some(e)) = (top_index(&start.path), top_index(&end.path)) else {
+            return Ok(());
+        };
+        if s > e || e >= self.tdoc.paragraphs.len() {
+            return Ok(());
+        }
+        let cursor_rel = self
+            .cursor_top_index()
+            .map(|ci| ci.saturating_sub(s))
+            .unwrap_or(0);
+        let offset = self.cursor.offset;
+        let drained: Vec<Paragraph> = self.tdoc.paragraphs.drain(s..=e).collect();
+
+        let new_node = if checklist {
+            let items = drained
+                .into_iter()
+                .map(|p| ChecklistItem::new(false).with_content(p.content().to_vec()))
+                .collect();
+            Paragraph::new_checklist().with_checklist_items(items)
+        } else {
+            let entries: Vec<Vec<Paragraph>> = drained
+                .into_iter()
+                .map(|p| vec![Paragraph::new_text().with_content(p.content().to_vec())])
+                .collect();
+            if ordered {
+                Paragraph::new_ordered_list().with_entries(entries)
+            } else {
+                Paragraph::new_unordered_list().with_entries(entries)
+            }
+        };
+        self.tdoc.paragraphs.insert(s, new_node);
+
+        let leaf_seg = if checklist {
+            PathSegment::ChecklistItem(cursor_rel)
+        } else {
+            PathSegment::ListEntry {
+                entry: cursor_rel,
+                para: 0,
+            }
+        };
+        self.cursor = DocumentPosition::at(TreePath::root(s).child(leaf_seg), offset);
+        self.normalize_cursor();
+        self.trigger_paragraph_change();
+        Ok(())
+    }
+
+    /// Replace the top-level list/checklist at index `i` with its items as paragraphs.
+    fn unwrap_list_at(&mut self, i: usize) -> EditResult {
+        let offset = self.cursor.offset;
+        // Which item does the cursor sit in?
+        let cursor_item = match self.cursor.path.segments() {
+            [_, PathSegment::ListEntry { entry, .. }] => *entry,
+            [_, PathSegment::ChecklistItem(c)] => *c,
+            _ => 0,
+        };
+        let Some(node) = self.tdoc.paragraphs.get(i).cloned() else {
+            return Ok(());
+        };
+        let paragraphs: Vec<Paragraph> = match node {
+            Paragraph::OrderedList { entries } | Paragraph::UnorderedList { entries } => entries
+                .into_iter()
+                .map(|entry| {
+                    Paragraph::new_text().with_content(
+                        entry
+                            .first()
+                            .map(|p| p.content().to_vec())
+                            .unwrap_or_default(),
+                    )
+                })
+                .collect(),
+            Paragraph::Checklist { items } => items
+                .into_iter()
+                .map(|item| Paragraph::new_text().with_content(item.content))
+                .collect(),
+            _ => return Ok(()),
+        };
+        self.tdoc.paragraphs.remove(i);
+        let count = paragraphs.len();
+        for (k, p) in paragraphs.into_iter().enumerate() {
+            self.tdoc.paragraphs.insert(i + k, p);
+        }
+        let target = i + cursor_item.min(count.saturating_sub(1));
+        self.cursor = DocumentPosition::at(TreePath::root(target), offset);
+        self.normalize_cursor();
+        self.trigger_paragraph_change();
+        Ok(())
+    }
+
+    pub fn toggle_checkmark_at(&mut self, path: TreePath) -> Result<bool, EditError> {
+        tree_edit::toggle_checkmark(&mut self.tdoc, &path).ok_or(EditError::InvalidPosition)
     }
 
     pub fn toggle_current_checkmark(&mut self) -> Result<bool, EditError> {
-        Ok(false) // TODO(phase3)
+        let path = self.cursor.path.clone();
+        tree_edit::toggle_checkmark(&mut self.tdoc, &path).ok_or(EditError::InvalidPosition)
     }
 
+    /// Swap the cursor's top-level block with the previous one. TODO(phase3): reorder
+    /// within lists/quotes.
     pub fn move_blocks_up(&mut self) -> Result<bool, EditError> {
-        Ok(false) // TODO(phase2)
+        let Some(i) = self.cursor_top_index() else {
+            return Ok(false);
+        };
+        if i == 0 {
+            return Ok(false);
+        }
+        self.tdoc.paragraphs.swap(i - 1, i);
+        self.cursor = DocumentPosition::at(TreePath::root(i - 1), self.cursor.offset);
+        self.normalize_cursor();
+        self.trigger_paragraph_change();
+        Ok(true)
     }
 
     pub fn move_blocks_down(&mut self) -> Result<bool, EditError> {
-        Ok(false) // TODO(phase2)
+        let Some(i) = self.cursor_top_index() else {
+            return Ok(false);
+        };
+        if i + 1 >= self.tdoc.paragraphs.len() {
+            return Ok(false);
+        }
+        self.tdoc.paragraphs.swap(i, i + 1);
+        self.cursor = DocumentPosition::at(TreePath::root(i + 1), self.cursor.offset);
+        self.normalize_cursor();
+        self.trigger_paragraph_change();
+        Ok(true)
     }
 
     pub fn indent_list_item(&mut self) -> EditResult {
@@ -1097,8 +1504,118 @@ impl StructuredEditor {
         Ok(()) // TODO(phase3)
     }
 
-    pub fn insert_document(&mut self, _document: &Document) -> EditResult {
-        Ok(()) // TODO(phase2)
+    /// Insert a document fragment (e.g. from the clipboard) at the cursor. Splits the
+    /// current top-level paragraph and splices the fragment's paragraphs between the
+    /// halves. TODO(phase3): splice within lists/quotes (currently only at top level).
+    pub fn insert_document(&mut self, document: &Document) -> EditResult {
+        if document.paragraphs.is_empty() {
+            return Ok(());
+        }
+        if self.selection.is_some() {
+            self.delete_selection()?;
+        }
+        if self.leaf_count() == 0 {
+            for p in &document.paragraphs {
+                self.tdoc.add_paragraph(p.clone());
+            }
+            let last = self.tdoc.paragraphs.len().saturating_sub(1);
+            let path = TreePath::root(last);
+            let len = self.leaf_text_len(&path);
+            self.cursor = DocumentPosition::at(path, len);
+            self.selection = None;
+            self.trigger_paragraph_change();
+            return Ok(());
+        }
+        let Some(i) = self.cursor_top_index() else {
+            // Fallback for non-top-level cursors: insert as plain text.
+            let mut buf = Vec::new();
+            let _ = tdoc::markdown::write(&mut buf, document);
+            let text = String::from_utf8_lossy(&buf).into_owned();
+            return self.insert_text(text.trim_end_matches('\n'));
+        };
+
+        let offset = self.cursor.offset;
+        let path = TreePath::root(i);
+        let runs = tree_walk::leaf_inline(&self.tdoc, &path);
+        let (left, right) = {
+            let mut block = Block::paragraph();
+            block.content = runs;
+            let r = block.split_content_at(offset);
+            (block.content, r)
+        };
+        tree_walk::set_leaf_inline(&mut self.tdoc, &path, &left);
+
+        let mut frag = document.paragraphs.clone();
+
+        // If the current block and the first fragment paragraph are both plain text, merge
+        // the first fragment into the current block (so "A|B" + paste "X\nY" → "AX", "YB").
+        if matches!(self.tdoc.paragraphs.get(i), Some(Paragraph::Text { .. }))
+            && matches!(frag.first(), Some(Paragraph::Text { .. }))
+        {
+            let first = frag.remove(0);
+            let mut merged = left.clone();
+            merged.extend(spans_to_inline(first.content()));
+            tree_walk::set_leaf_inline(&mut self.tdoc, &path, &merged);
+        }
+
+        // Insert the remaining fragment paragraphs after the current block.
+        let mut last_idx = i;
+        for (k, p) in frag.into_iter().enumerate() {
+            self.tdoc.paragraphs.insert(i + 1 + k, p);
+            last_idx = i + 1 + k;
+        }
+
+        // The cursor lands at the join point: the end of the last block's own content,
+        // before the right-hand remainder is appended.
+        let last_path = TreePath::root(last_idx);
+        let cursor_off = self.leaf_text_len(&last_path);
+
+        // Append the right-hand remainder to the last block (or as a new paragraph if that
+        // block can't hold inline content directly).
+        if right.iter().map(|c| c.text_len()).sum::<usize>() > 0 {
+            if tree_walk::leaf_spans(&self.tdoc, &last_path).is_some()
+                && !matches!(
+                    self.tdoc.paragraphs.get(last_idx),
+                    Some(Paragraph::Table { .. })
+                )
+            {
+                let mut content = tree_walk::leaf_inline(&self.tdoc, &last_path);
+                content.extend(right);
+                let mut block = Block::paragraph();
+                block.content = content;
+                block.normalize_content();
+                tree_walk::set_leaf_inline(&mut self.tdoc, &last_path, &block.content);
+            } else {
+                self.tdoc.paragraphs.insert(
+                    last_idx + 1,
+                    Paragraph::new_text().with_content(inline_to_spans(&right)),
+                );
+            }
+        }
+
+        self.cursor = DocumentPosition::at(last_path, cursor_off);
+        self.selection = None;
+        self.normalize_cursor();
+        self.trigger_paragraph_change();
+        Ok(())
+    }
+}
+
+/// Build a header paragraph of the given level (1-3) carrying `spans`.
+fn make_header(level: u8, spans: Vec<Span>) -> Paragraph {
+    match level {
+        1 => Paragraph::new_header1(),
+        2 => Paragraph::new_header2(),
+        _ => Paragraph::new_header3(),
+    }
+    .with_content(spans)
+}
+
+/// The top-level paragraph index a path addresses, if it is a top-level leaf.
+fn top_index(path: &TreePath) -> Option<usize> {
+    match path.segments() {
+        [PathSegment::Paragraph(i)] => Some(*i),
+        _ => None,
     }
 }
 
@@ -1175,6 +1692,89 @@ fn find_content_at_offset(content: &[InlineContent], offset: usize) -> (usize, u
     (content.len(), 0)
 }
 
+/// Split content into (before, within, after) the `[start, end)` byte range, splitting
+/// the runs that straddle a boundary.
+fn split_content_for_style(
+    content: &[InlineContent],
+    start_offset: usize,
+    end_offset: usize,
+) -> (Vec<InlineContent>, Vec<InlineContent>, Vec<InlineContent>) {
+    let mut before = Vec::new();
+    let mut selected = Vec::new();
+    let mut after = Vec::new();
+    let mut current_offset = 0;
+
+    for item in content {
+        let item_len = item.text_len();
+        let item_start = current_offset;
+        let item_end = current_offset + item_len;
+
+        if item_end <= start_offset {
+            before.push(item.clone());
+        } else if item_start >= end_offset {
+            after.push(item.clone());
+        } else if item_start >= start_offset && item_end <= end_offset {
+            selected.push(item.clone());
+        } else {
+            match item {
+                InlineContent::Text(run) => {
+                    let text = &run.text;
+                    let sel_start_in_run = start_offset.saturating_sub(item_start);
+                    let sel_end_in_run = end_offset.saturating_sub(item_start).min(item_len);
+                    if sel_start_in_run > 0 {
+                        let mut before_run = run.clone();
+                        before_run.text = text[..sel_start_in_run].to_string();
+                        before.push(InlineContent::Text(before_run));
+                    }
+                    if sel_end_in_run > sel_start_in_run {
+                        let mut selected_run = run.clone();
+                        selected_run.text = text[sel_start_in_run..sel_end_in_run].to_string();
+                        selected.push(InlineContent::Text(selected_run));
+                    }
+                    if sel_end_in_run < item_len {
+                        let mut after_run = run.clone();
+                        after_run.text = text[sel_end_in_run..].to_string();
+                        after.push(InlineContent::Text(after_run));
+                    }
+                }
+                _ => {
+                    if item_start < start_offset {
+                        before.push(item.clone());
+                    } else if item_start < end_offset {
+                        selected.push(item.clone());
+                    } else {
+                        after.push(item.clone());
+                    }
+                }
+            }
+        }
+        current_offset += item_len;
+    }
+
+    (before, selected, after)
+}
+
+/// Recursively apply a style mutation to every text run (descending into links).
+fn map_style_on_runs<F>(items: Vec<InlineContent>, apply: &mut F) -> Vec<InlineContent>
+where
+    F: FnMut(&mut TextStyle),
+{
+    items
+        .into_iter()
+        .map(|item| match item {
+            InlineContent::Text(mut run) => {
+                apply(&mut run.style);
+                InlineContent::Text(run)
+            }
+            InlineContent::Link { link, content } => InlineContent::Link {
+                link,
+                content: map_style_on_runs(content, apply),
+            },
+            other => other,
+        })
+        .collect()
+}
+
 /// Extract the inline runs covering `[start, end)` (flattened byte offsets).
 fn extract_inline_range(content: &[InlineContent], start: usize, end: usize) -> Vec<InlineContent> {
     let mut head = Block::paragraph();
@@ -1246,5 +1846,148 @@ mod tests {
         assert_eq!(editor.leaf_count(), 2);
         assert_eq!(editor.leaf_plain_text(&TreePath::root(0)), "Hello");
         assert_eq!(editor.leaf_plain_text(&TreePath::root(1)), "World");
+    }
+
+    fn md(editor: &StructuredEditor) -> String {
+        super::super::markdown_converter::document_to_markdown(editor.tdoc())
+            .trim()
+            .to_string()
+    }
+
+    #[test]
+    fn toggle_bold_over_selection() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("hello world");
+        editor.set_selection(
+            DocumentPosition::at(TreePath::root(0), 0),
+            DocumentPosition::at(TreePath::root(0), 5),
+        );
+        editor.toggle_bold().unwrap();
+        assert_eq!(md(&editor), "**hello** world");
+        // Toggling again removes it.
+        editor.toggle_bold().unwrap();
+        assert_eq!(md(&editor), "hello world");
+    }
+
+    #[test]
+    fn insert_and_remove_link() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("see ").unwrap();
+        editor
+            .insert_link_at_cursor("https://example.test", "here")
+            .unwrap();
+        assert_eq!(md(&editor), "see [here](https://example.test)");
+        editor.remove_link_at(TreePath::root(0), 1).unwrap();
+        assert_eq!(md(&editor), "see here");
+    }
+
+    #[test]
+    fn heading_and_paragraph_conversion() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("Title").unwrap();
+        editor
+            .set_block_type(BlockType::Heading { level: 2 })
+            .unwrap();
+        assert_eq!(md(&editor), "## Title");
+        editor.set_block_type(BlockType::Paragraph).unwrap();
+        assert_eq!(md(&editor), "Title");
+    }
+
+    #[test]
+    fn toggle_list_wraps_and_unwraps() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("item").unwrap();
+        editor.toggle_list().unwrap();
+        assert_eq!(md(&editor), "- item");
+        assert!(matches!(
+            editor.current_block_type(),
+            BlockType::ListItem { ordered: false, .. }
+        ));
+        editor.toggle_list().unwrap();
+        assert_eq!(md(&editor), "item");
+    }
+
+    #[test]
+    fn enter_in_list_creates_new_item() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("- one");
+        let item = TreePath::root(0).child(PathSegment::ListEntry { entry: 0, para: 0 });
+        editor.set_cursor(DocumentPosition::at(item, 3));
+        editor.insert_newline().unwrap();
+        editor.insert_text("two").unwrap();
+        assert_eq!(md(&editor), "- one\n- two");
+    }
+
+    #[test]
+    fn backspace_merges_list_item_into_previous() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("- one\n- two");
+        let second = TreePath::root(0).child(PathSegment::ListEntry { entry: 1, para: 0 });
+        editor.set_cursor(DocumentPosition::at(second, 0));
+        editor.delete_backward().unwrap();
+        assert_eq!(md(&editor), "- onetwo");
+    }
+
+    #[test]
+    fn ordered_list_renumbers_automatically() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("1. one\n2. two\n3. three");
+        // Delete the middle item by merging it into the first.
+        let second = TreePath::root(0).child(PathSegment::ListEntry { entry: 1, para: 0 });
+        editor.set_cursor(DocumentPosition::at(second, 0));
+        editor.delete_backward().unwrap();
+        // "onetwo" then "three" → renumbered 1, 2.
+        assert_eq!(md(&editor), "1. onetwo\n2. three");
+    }
+
+    #[test]
+    fn toggle_quote_wraps_and_unwraps() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("quoted").unwrap();
+        editor.toggle_quote().unwrap();
+        assert_eq!(md(&editor), "> quoted");
+        editor.toggle_quote().unwrap();
+        assert_eq!(md(&editor), "quoted");
+    }
+
+    #[test]
+    fn toggle_checkmark_round_trips() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("- [ ] task");
+        let item = TreePath::root(0).child(PathSegment::ChecklistItem(0));
+        editor.set_cursor(DocumentPosition::at(item, 0));
+        assert_eq!(editor.toggle_current_checkmark(), Ok(true));
+        assert_eq!(md(&editor), "- [x] task");
+    }
+
+    #[test]
+    fn move_block_down_swaps_with_next() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("first\n\nsecond");
+        editor.set_cursor(DocumentPosition::at(TreePath::root(0), 0));
+        assert_eq!(editor.move_blocks_down(), Ok(true));
+        assert_eq!(md(&editor), "second\n\nfirst");
+    }
+
+    #[test]
+    fn multi_paragraph_paste_splits_blocks() {
+        let mut editor = StructuredEditor::new();
+        editor.insert_text("AB").unwrap();
+        editor.set_cursor(DocumentPosition::at(TreePath::root(0), 1));
+        editor.paste("X\nY").unwrap();
+        // "A|B" + "X\nY": first line merges into the current block, last line takes the tail.
+        assert_eq!(md(&editor), "AX\n\nYB");
+    }
+
+    #[test]
+    fn cross_leaf_delete_selection_merges() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("hello\n\nworld");
+        editor.set_selection(
+            DocumentPosition::at(TreePath::root(0), 3),
+            DocumentPosition::at(TreePath::root(1), 2),
+        );
+        editor.delete_selection().unwrap();
+        assert_eq!(md(&editor), "helrld");
     }
 }
