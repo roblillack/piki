@@ -3,7 +3,7 @@ use super::structured_document::{
 };
 use tdoc::Document as TdocDocument;
 use tdoc::inline::{InlineStyle, Span};
-use tdoc::paragraph::{ChecklistItem, Paragraph};
+use tdoc::paragraph::{ChecklistItem, Paragraph, TableRow};
 
 /// Convert a [`StructuredDocument`] into a [`tdoc::Document`].
 pub fn structured_to_tdoc(doc: &StructuredDocument) -> TdocDocument {
@@ -100,6 +100,9 @@ fn append_paragraph(structured: &mut StructuredDocument, paragraph: &Paragraph) 
         Paragraph::Checklist { items } => {
             append_checklist_items(structured, items);
         }
+        Paragraph::Table { rows } => {
+            append_table(structured, rows);
+        }
         Paragraph::Quote { children } => {
             if children.is_empty() {
                 let mut block = Block::new(BlockType::BlockQuote);
@@ -150,7 +153,8 @@ fn paragraph_to_block(paragraph: &Paragraph) -> Block {
         Paragraph::Quote { .. }
         | Paragraph::OrderedList { .. }
         | Paragraph::UnorderedList { .. }
-        | Paragraph::Checklist { .. } => unreachable!("handled earlier"),
+        | Paragraph::Checklist { .. }
+        | Paragraph::Table { .. } => unreachable!("handled earlier"),
     }
 }
 
@@ -202,6 +206,24 @@ fn quote_from_inline(content: &[InlineContent]) -> Paragraph {
     } else {
         let child = Paragraph::new_text().with_content(spans);
         Paragraph::new_quote().with_children(vec![child])
+    }
+}
+
+/// The structured editor has no native table block, so a table is degraded to
+/// one paragraph per row with the cells joined by " | ". This keeps the cell
+/// text (and its inline styling) visible and editable rather than dropping it.
+fn append_table(structured: &mut StructuredDocument, rows: &[TableRow]) {
+    for row in rows {
+        let mut block = Block::paragraph();
+        for (idx, cell) in row.cells.iter().enumerate() {
+            if idx > 0 {
+                block
+                    .content
+                    .push(InlineContent::Text(TextRun::plain(" | ")));
+            }
+            block.content.extend(spans_to_inline(&cell.content));
+        }
+        structured.add_block(block);
     }
 }
 

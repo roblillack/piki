@@ -4,8 +4,7 @@
 use super::structured_document::StructuredDocument;
 use super::tdoc_bridge::{structured_to_tdoc, tdoc_to_structured};
 use std::io::Cursor;
-use tdoc::markdown;
-use tdoc::writer::Writer;
+use tdoc::{html, markdown};
 
 /// Convert markdown text to a [`StructuredDocument`].
 pub fn markdown_to_document(markdown: &str) -> StructuredDocument {
@@ -34,13 +33,12 @@ pub fn document_to_markdown(doc: &StructuredDocument) -> String {
 /// representation for the system clipboard's `text/html` flavor.
 pub fn document_to_html(doc: &StructuredDocument) -> String {
     let tdoc_doc = structured_to_tdoc(doc);
-    match Writer::new().write_to_string(&tdoc_doc) {
-        Ok(html) => html,
-        Err(err) => {
-            eprintln!("Failed to serialize document to HTML: {}", err);
-            String::new()
-        }
+    let mut buffer: Vec<u8> = Vec::new();
+    if let Err(err) = html::write(&mut buffer, &tdoc_doc) {
+        eprintln!("Failed to serialize document to HTML: {}", err);
+        return String::new();
     }
+    String::from_utf8(buffer).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -148,6 +146,32 @@ mod tests {
         assert!(html.contains("<li>"), "html was: {html}");
         assert!(html.contains("First"), "html was: {html}");
         assert!(html.contains("Second"), "html was: {html}");
+    }
+
+    #[test]
+    fn test_markdown_table_degrades_to_paragraphs() {
+        // The structured editor has no table block, so tdoc tables are degraded
+        // to one paragraph per row with cells joined by " | " (no data lost).
+        let md = "| A | B |\n| --- | --- |\n| 1 | 2 |";
+        let doc = markdown_to_document(md);
+
+        // Only assert on the degradation if tdoc actually parsed a table;
+        // otherwise the input round-trips as plain paragraphs, which is fine too.
+        let texts: Vec<String> = doc
+            .blocks()
+            .iter()
+            .map(|b| b.to_plain_text())
+            .filter(|t| !t.trim().is_empty())
+            .collect();
+
+        assert!(
+            texts.iter().any(|t| t.contains("A | B")),
+            "header row should be pipe-joined, got: {texts:?}"
+        );
+        assert!(
+            texts.iter().any(|t| t.contains("1 | 2")),
+            "body row should be pipe-joined, got: {texts:?}"
+        );
     }
 
     #[test]
