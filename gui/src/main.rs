@@ -1,6 +1,8 @@
 mod app_icon;
 mod autosave;
-pub mod draw_context;
+// `draw_context` now lives in the shared `tdoc-editor` crate; re-export it under
+// the original `crate::draw_context` path the binary's modules use.
+pub use tdoc_editor::draw_context;
 pub mod fltk_draw_context;
 mod history;
 mod link_handler;

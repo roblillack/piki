@@ -988,8 +988,18 @@ impl StructuredEditor {
         self.text_in_range(start, end)
     }
 
-    /// The current selection as a standalone document. TODO(phase2): preserve block types
-    /// across a multi-leaf selection; Phase 1 yields plain text paragraphs.
+    /// The current selection as a standalone document.
+    ///
+    /// Block-level *types* are preserved where they have a self-contained
+    /// representation — headings keep their level and code blocks stay code
+    /// blocks — so copying e.g. a heading no longer degrades it to body text
+    /// (this also improves the GUI's markdown/HTML clipboard fidelity).
+    ///
+    /// TODO(phase2): reconstruct list/checklist/quote *grouping* across a
+    /// multi-leaf selection. Such leaves are still emitted as plain paragraphs
+    /// here because faithfully regrouping them into standalone lists/quotes is a
+    /// larger structural operation (this matches the gap with Pure's
+    /// `selection_fragment`, which clones whole root paragraphs).
     pub fn get_selection_document(&self) -> Option<Document> {
         let (a, b) = self.selection.clone()?;
         let (start, end) = if a <= b { (a, b) } else { (b, a) };
@@ -1015,7 +1025,17 @@ impl StructuredEditor {
                 continue;
             }
             let runs = extract_inline_range(&content, from, to);
-            paragraphs.push(Paragraph::new_text().with_content(inline_to_spans(&runs)));
+            let spans = inline_to_spans(&runs);
+            let paragraph = match self.block_type_at(path) {
+                BlockType::Heading { level: 1 } => Paragraph::new_header1(),
+                BlockType::Heading { level: 2 } => Paragraph::new_header2(),
+                BlockType::Heading { .. } => Paragraph::new_header3(),
+                BlockType::CodeBlock { .. } => Paragraph::new_code_block(),
+                // Paragraph, BlockQuote, ListItem, Table: emit as plain text for
+                // now (see phase2 note above).
+                _ => Paragraph::new_text(),
+            };
+            paragraphs.push(paragraph.with_content(spans));
         }
         if paragraphs.is_empty() {
             None

@@ -1,0 +1,19 @@
+[package]
+name = "tdoc-editor"
+description = "Rendering-agnostic structured editor for tdoc::Document (shared by Piki's GUI and Pure's TUI)"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/roblillack/piki"
+
+[dependencies]
+tdoc = { version = "0.11.0", default-features = false }
+unicode-segmentation = "1.10"
+
+[dev-dependencies]
+insta = "1.34"
+rusttype = "0.9"
+
+[[bench]]
+name = "performance"
+harness = false

@@ -413,6 +413,21 @@ impl StructuredRichDisplay {
         &self.editor
     }
 
+    /// Read-only access to the active theme.
+    pub fn theme(&self) -> &Theme {
+        &self.theme
+    }
+
+    /// Replace the active theme (colors, font settings, and layout metrics such
+    /// as `line_height` and padding). Frontends with a different coordinate
+    /// system — e.g. a terminal that measures in character cells rather than
+    /// pixels — install a theme with cell-appropriate metrics here. Invalidates
+    /// the cached layout.
+    pub fn set_theme(&mut self, theme: Theme) {
+        self.theme = theme;
+        self.layout_valid = false;
+    }
+
     /// Get mutable editor
     pub fn editor_mut(&mut self) -> &mut StructuredEditor {
         self.layout_valid = false;
@@ -974,8 +989,7 @@ impl StructuredRichDisplay {
         // paragraphs, code blocks, nested quote text) aligns with the list item's content.
         let interior_x = if list_levels > 0 {
             let pf = self.theme.plain_text;
-            let bullet_w =
-                ctx.text_width("• ", pf.font_type, pf.font_style, pf.font_size) as i32;
+            let bullet_w = ctx.text_width("• ", pf.font_type, pf.font_style, pf.font_size) as i32;
             start_x + pf.font_size as i32 * list_levels as i32 + bullet_w
         } else {
             start_x
@@ -998,9 +1012,14 @@ impl StructuredRichDisplay {
                     2 => self.theme.header_level_2,
                     _ => self.theme.header_level_3,
                 };
-                let height = ((header_font.font_size as f32) * 1.3) as i32;
+                let height =
+                    (((header_font.font_size as f32) * 1.3) as i32).max(default_line_height);
                 // Add top margin for headings (unless it's the first block)
-                let top_margin = if block_idx > 0 { 15 } else { 0 };
+                let top_margin = if block_idx > 0 {
+                    self.theme.heading_top_margin
+                } else {
+                    0
+                };
                 let y_after = self.layout_inline_block(
                     block,
                     block_idx,
@@ -1010,7 +1029,7 @@ impl StructuredRichDisplay {
                     height,
                     ctx,
                 );
-                y_after + 10 // Extra spacing after headings
+                y_after + self.theme.heading_bottom_margin // Extra spacing after headings
             }
             BlockType::CodeBlock { .. } => {
                 let text = block.to_plain_text();
@@ -2203,7 +2222,7 @@ impl StructuredRichDisplay {
     }
 
     /// Determine if a point (widget coordinates) hits a checklist marker
-    pub(crate) fn checklist_marker_hit(&self, x: i32, y: i32) -> Option<TreePath> {
+    pub fn checklist_marker_hit(&self, x: i32, y: i32) -> Option<TreePath> {
         let adjusted_y = y + self.scroll_offset;
 
         for line in &self.layout_lines {
@@ -2793,7 +2812,11 @@ mod tests {
 
         // Every leaf in the quote reports quote_depth 1, so each gets a vertical bar.
         for info in &display.layout_leaves {
-            assert_eq!(info.quote_depth, 1, "leaf {:?} lost its quote depth", info.path);
+            assert_eq!(
+                info.quote_depth, 1,
+                "leaf {:?} lost its quote depth",
+                info.path
+            );
         }
     }
 

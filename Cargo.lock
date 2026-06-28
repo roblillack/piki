@@ -1175,6 +1175,7 @@ dependencies = [
  "rusttype",
  "serde",
  "tdoc",
+ "tdoc-editor",
  "toml",
  "unicode-segmentation",
  "walkdir",
@@ -1580,6 +1581,16 @@ dependencies = [
  "thiserror 1.0.69",
  "unicode-width 0.1.14",
  "url",
+]
+
+[[package]]
+name = "tdoc-editor"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "rusttype",
+ "tdoc",
+ "unicode-segmentation",
 ]
 
 [[package]]

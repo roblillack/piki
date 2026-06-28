@@ -33,6 +33,11 @@ pub struct Theme {
 
     pub line_height: i32,
 
+    /// Extra space above a heading (except the first block) and below every
+    /// heading. Pixel values for the GUI; a cell backend sets these to 0.
+    pub heading_top_margin: i32,
+    pub heading_bottom_margin: i32,
+
     pub header_level_1: FontSettings,
     pub header_level_2: FontSettings,
     pub header_level_3: FontSettings,
@@ -61,6 +66,8 @@ impl Default for Theme {
             padding_vertical: 10,
             padding_horizontal: 25,
             line_height: 17,
+            heading_top_margin: 15,
+            heading_bottom_margin: 10,
             header_level_1: FontSettings {
                 font_type: FontType::Heading,
                 font_style: FontStyle::Bold,
