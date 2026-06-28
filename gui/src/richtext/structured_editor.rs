@@ -1543,28 +1543,81 @@ impl StructuredEditor {
         Ok(true)
     }
 
-    /// Nest the current list item beneath its previous sibling (Tab).
+    /// Nest the current list item — or every list item in the selection — beneath its
+    /// previous sibling (Tab).
     pub fn indent_list_item(&mut self) -> EditResult {
-        let path = self.cursor.path.clone();
-        let offset = self.cursor.offset;
-        if let Some(new_path) = tree_edit::indent_list_item(&mut self.tdoc, &path) {
-            self.cursor = DocumentPosition::at(new_path, offset);
-            self.normalize_cursor();
-            self.trigger_paragraph_change();
-        }
-        Ok(())
+        // Top-down: each selected item nests under the same previous sibling, so they stay
+        // side by side one level deeper rather than stacking into a staircase.
+        self.shift_list_items(tree_edit::indent_list_item, false)
     }
 
-    /// Move the current list item out one nesting level, or out of the list entirely
-    /// (Shift-Tab).
+    /// Move the current list item — or every list item in the selection — out one nesting
+    /// level, or out of the list entirely (Shift-Tab).
     pub fn outdent_list_item(&mut self) -> EditResult {
-        let path = self.cursor.path.clone();
-        let offset = self.cursor.offset;
-        if let Some(new_path) = tree_edit::outdent_list_item(&mut self.tdoc, &path) {
-            self.cursor = DocumentPosition::at(new_path, offset);
-            self.normalize_cursor();
-            self.trigger_paragraph_change();
+        // Bottom-up: each item's selected followers are lifted out before the earlier items
+        // are processed, so they land side by side rather than being re-adopted as children.
+        self.shift_list_items(tree_edit::outdent_list_item, true)
+    }
+
+    /// Apply a single-item list move (`op`, e.g. indent/outdent) to every list item in the
+    /// selection (or just the cursor's item). Items are addressed by their flat leaf index,
+    /// which is stable across these moves (they re-nest without changing document order), so
+    /// each item is re-resolved as the tree mutates and the selection is restored exactly.
+    fn shift_list_items(
+        &mut self,
+        op: impl Fn(&mut Document, &TreePath) -> Option<TreePath>,
+        bottom_up: bool,
+    ) -> EditResult {
+        let (start, end) = self.selection_or_cursor_range();
+        let (Some(start_idx), Some(end_idx)) =
+            (self.leaf_index(&start.path), self.leaf_index(&end.path))
+        else {
+            return Ok(());
+        };
+        let had_selection = self.selection.is_some() && end_idx > start_idx;
+        let cursor_offset = self.cursor.offset;
+
+        let mut order: Vec<usize> = (start_idx..=end_idx).collect();
+        if bottom_up {
+            order.reverse();
         }
+        let mut changed = false;
+        for idx in order {
+            let leaves = self.leaf_paths();
+            let Some(path) = leaves.get(idx).cloned() else {
+                continue;
+            };
+            if matches!(
+                path.last(),
+                Some(PathSegment::ListEntry { .. } | PathSegment::ChecklistItem(_))
+            ) && op(&mut self.tdoc, &path).is_some()
+            {
+                changed = true;
+            }
+        }
+        if !changed {
+            return Ok(());
+        }
+
+        // The moved items keep their flat indices, so the selection (or cursor) maps back
+        // directly to the same range.
+        let leaves = self.leaf_paths();
+        if had_selection {
+            let start_path = leaves.get(start_idx).cloned().unwrap_or_default();
+            let end_path = leaves.get(end_idx).cloned().unwrap_or_default();
+            let end_len = self.leaf_text_len(&end_path);
+            self.selection = Some((
+                DocumentPosition::at(start_path, 0),
+                DocumentPosition::at(end_path.clone(), end_len),
+            ));
+            self.cursor = DocumentPosition::at(end_path, end_len);
+        } else {
+            let path = leaves.get(start_idx).cloned().unwrap_or_default();
+            self.cursor = DocumentPosition::at(path, cursor_offset);
+            self.selection = None;
+        }
+        self.normalize_cursor();
+        self.trigger_paragraph_change();
         Ok(())
     }
 
@@ -2220,6 +2273,118 @@ mod tests {
         // The cursor follows the outdented item.
         assert_eq!(editor.cursor().path, list_item_path(1));
         // Still round-trips through markdown.
+        let reparsed = markdown_to_document(&md(&editor));
+        assert_eq!(*editor.tdoc(), reparsed);
+    }
+
+    fn leaf_texts(editor: &StructuredEditor) -> Vec<String> {
+        tree_walk::leaf_paths(editor.tdoc())
+            .iter()
+            .map(|p| editor.leaf_plain_text(p))
+            .collect()
+    }
+
+    #[test]
+    fn indent_selection_nests_every_selected_item_together() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("- a\n- x\n- y\n- z");
+        // Select x, y, z (leave a, the first item, out).
+        editor.set_selection(
+            DocumentPosition::at(list_item_path(1), 0),
+            DocumentPosition::at(list_item_path(3), 1),
+        );
+        editor.indent_list_item().unwrap();
+        // All three nest under a, side by side (not a staircase).
+        assert_eq!(leaf_depths(&editor), vec![0, 1, 1, 1]);
+        assert_eq!(leaf_texts(&editor), vec!["a", "x", "y", "z"]);
+        // Selection still covers the three items so Tab can be repeated.
+        let (s, e) = editor.selection().expect("selection retained");
+        assert_eq!(tree_walk::leaf_paths(editor.tdoc())[1], s.path);
+        assert_eq!(tree_walk::leaf_paths(editor.tdoc())[3], e.path);
+        // Round-trips through markdown.
+        let reparsed = markdown_to_document(&md(&editor));
+        assert_eq!(*editor.tdoc(), reparsed);
+    }
+
+    #[test]
+    fn indent_selection_cannot_indent_first_item() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("- a\n- b");
+        // Select both; "a" is the first item and has no previous sibling to nest under.
+        editor.set_selection(
+            DocumentPosition::at(list_item_path(0), 0),
+            DocumentPosition::at(list_item_path(1), 1),
+        );
+        editor.indent_list_item().unwrap();
+        // a stays put; b nests under it.
+        assert_eq!(leaf_depths(&editor), vec![0, 1]);
+        assert_eq!(leaf_texts(&editor), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn indent_then_outdent_selection_round_trips() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("- a\n- x\n- y");
+        let before = editor.tdoc().clone();
+        editor.set_selection(
+            DocumentPosition::at(list_item_path(1), 0),
+            DocumentPosition::at(list_item_path(2), 1),
+        );
+        editor.indent_list_item().unwrap();
+        assert_eq!(leaf_depths(&editor), vec![0, 1, 1]);
+        // The retained selection lets the inverse outdent restore the flat list.
+        editor.outdent_list_item().unwrap();
+        assert_eq!(leaf_depths(&editor), vec![0, 0, 0]);
+        assert_eq!(*editor.tdoc(), before);
+    }
+
+    #[test]
+    fn outdent_selection_outdents_every_selected_item() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("- a\n  - x\n  - y\n  - z");
+        let inner = |entry| {
+            TreePath::root(0)
+                .child(PathSegment::ListEntry { entry: 0, para: 1 })
+                .child(PathSegment::ListEntry { entry, para: 0 })
+        };
+        // Select x and y (leave z out).
+        editor.set_selection(
+            DocumentPosition::at(inner(0), 0),
+            DocumentPosition::at(inner(1), 1),
+        );
+        editor.outdent_list_item().unwrap();
+        // x and y move up beside a; z (the trailing unselected follower) nests under y.
+        assert_eq!(leaf_depths(&editor), vec![0, 0, 0, 1]);
+        assert_eq!(leaf_texts(&editor), vec!["a", "x", "y", "z"]);
+        // The selection still covers the two outdented items so a second Shift-Tab repeats.
+        let (s, e) = editor.selection().expect("selection retained");
+        assert_eq!(
+            s.path,
+            TreePath::root(0).child(PathSegment::ListEntry { entry: 1, para: 0 })
+        );
+        assert_eq!(
+            e.path,
+            TreePath::root(0).child(PathSegment::ListEntry { entry: 2, para: 0 })
+        );
+    }
+
+    #[test]
+    fn outdent_selection_of_all_nested_items_flattens_them() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("- a\n  - x\n  - y\n  - z");
+        let inner = |entry| {
+            TreePath::root(0)
+                .child(PathSegment::ListEntry { entry: 0, para: 1 })
+                .child(PathSegment::ListEntry { entry, para: 0 })
+        };
+        editor.set_selection(
+            DocumentPosition::at(inner(0), 0),
+            DocumentPosition::at(inner(2), 1),
+        );
+        editor.outdent_list_item().unwrap();
+        // All three become siblings of a.
+        assert_eq!(leaf_depths(&editor), vec![0, 0, 0, 0]);
+        assert_eq!(leaf_texts(&editor), vec!["a", "x", "y", "z"]);
         let reparsed = markdown_to_document(&md(&editor));
         assert_eq!(*editor.tdoc(), reparsed);
     }
