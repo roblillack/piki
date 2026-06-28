@@ -1357,21 +1357,32 @@ impl StructuredEditor {
     }
 
     /// Toggle a list of the given kind over the contiguous top-level selection. If the
-    /// cursor is already in a top-level list, unwrap it back to paragraphs.
+    /// cursor is already in a list, act on the list that *directly* contains it: requesting
+    /// a different kind converts that list in place (preserving nesting); requesting the
+    /// same kind toggles a top-level list off (unwrapping it to paragraphs) but is a no-op
+    /// for a nested item — re-selecting the kind it already has should not move it.
     fn toggle_list_kind(&mut self, ordered: bool, checklist: bool) -> EditResult {
-        // Unwrap if the cursor sits in a top-level list/checklist.
-        if let [PathSegment::Paragraph(i), rest @ ..] = self.cursor.path.segments()
-            && !rest.is_empty()
-            && matches!(
-                self.tdoc.paragraphs.get(*i),
-                Some(
-                    Paragraph::OrderedList { .. }
-                        | Paragraph::UnorderedList { .. }
-                        | Paragraph::Checklist { .. }
-                )
-            )
-        {
-            return self.unwrap_list_at(*i);
+        let target = tree_edit::ListKind::from_flags(ordered, checklist);
+        if let Some(current) = tree_edit::containing_list_kind(&self.tdoc, &self.cursor.path) {
+            if current == target {
+                // Already this kind. A nested item stays put; a top-level list toggles off.
+                if self.cursor_is_nested_list_item() {
+                    return Ok(());
+                }
+                return match self.cursor_top_level_list_index() {
+                    Some(i) => self.unwrap_list_at(i),
+                    None => self.outdent_list_item(),
+                };
+            }
+            // Different kind → convert just the containing list, keeping the nesting intact.
+            let path = self.cursor.path.clone();
+            let offset = self.cursor.offset;
+            if let Some(new_path) = tree_edit::change_list_kind(&mut self.tdoc, &path, target) {
+                self.cursor = DocumentPosition::at(new_path, offset);
+                self.normalize_cursor();
+                self.trigger_paragraph_change();
+            }
+            return Ok(());
         }
 
         // Otherwise wrap the selected top-level paragraphs into one list.
@@ -1422,7 +1433,28 @@ impl StructuredEditor {
         Ok(())
     }
 
-    /// Replace the top-level list/checklist at index `i` with its items as paragraphs.
+    /// If the cursor's *immediate* containing list is a top-level Document list, its index.
+    fn cursor_top_level_list_index(&self) -> Option<usize> {
+        match self.cursor.path.segments() {
+            [
+                PathSegment::Paragraph(i),
+                PathSegment::ListEntry { .. } | PathSegment::ChecklistItem(_),
+            ] => matches!(
+                self.tdoc.paragraphs.get(*i),
+                Some(
+                    Paragraph::OrderedList { .. }
+                        | Paragraph::UnorderedList { .. }
+                        | Paragraph::Checklist { .. }
+                )
+            )
+            .then_some(*i),
+            _ => None,
+        }
+    }
+
+    /// Replace the top-level list/checklist at index `i` with its items as paragraphs. Each
+    /// entry's first paragraph becomes a plain paragraph (losing the bullet); continuation
+    /// paragraphs and nested sublists are lifted out alongside it rather than discarded.
     fn unwrap_list_at(&mut self, i: usize) -> EditResult {
         let offset = self.cursor.offset;
         // Which item does the cursor sit in?
@@ -1434,31 +1466,39 @@ impl StructuredEditor {
         let Some(node) = self.tdoc.paragraphs.get(i).cloned() else {
             return Ok(());
         };
-        let paragraphs: Vec<Paragraph> = match node {
-            Paragraph::OrderedList { entries } | Paragraph::UnorderedList { entries } => entries
-                .into_iter()
-                .map(|entry| {
-                    Paragraph::new_text().with_content(
-                        entry
-                            .first()
-                            .map(|p| p.content().to_vec())
-                            .unwrap_or_default(),
-                    )
-                })
-                .collect(),
-            Paragraph::Checklist { items } => items
-                .into_iter()
-                .map(|item| Paragraph::new_text().with_content(item.content))
-                .collect(),
+        let mut paragraphs: Vec<Paragraph> = Vec::new();
+        // The top-level index of the paragraph the cursor's item maps to.
+        let mut cursor_target = i;
+        match node {
+            Paragraph::OrderedList { entries } | Paragraph::UnorderedList { entries } => {
+                for (e, entry) in entries.into_iter().enumerate() {
+                    if e == cursor_item {
+                        cursor_target = i + paragraphs.len();
+                    }
+                    let mut paras = entry.into_iter();
+                    if let Some(first) = paras.next() {
+                        paragraphs
+                            .push(Paragraph::new_text().with_content(first.content().to_vec()));
+                    }
+                    paragraphs.extend(paras);
+                }
+            }
+            Paragraph::Checklist { items } => {
+                for (c, item) in items.into_iter().enumerate() {
+                    if c == cursor_item {
+                        cursor_target = i + paragraphs.len();
+                    }
+                    paragraphs.push(Paragraph::new_text().with_content(item.content));
+                    if !item.children.is_empty() {
+                        paragraphs
+                            .push(Paragraph::new_checklist().with_checklist_items(item.children));
+                    }
+                }
+            }
             _ => return Ok(()),
-        };
-        self.tdoc.paragraphs.remove(i);
-        let count = paragraphs.len();
-        for (k, p) in paragraphs.into_iter().enumerate() {
-            self.tdoc.paragraphs.insert(i + k, p);
         }
-        let target = i + cursor_item.min(count.saturating_sub(1));
-        self.cursor = DocumentPosition::at(TreePath::root(target), offset);
+        self.tdoc.paragraphs.splice(i..=i, paragraphs);
+        self.cursor = DocumentPosition::at(TreePath::root(cursor_target), offset);
         self.normalize_cursor();
         self.trigger_paragraph_change();
         Ok(())
@@ -1534,6 +1574,18 @@ impl StructuredEditor {
             self.cursor.path.last(),
             Some(PathSegment::ListEntry { .. } | PathSegment::ChecklistItem(_))
         )
+    }
+
+    /// Whether the cursor's list/checklist item is nested inside a parent list item (i.e.
+    /// its containing list sits within an outer list entry / checklist item), as opposed to
+    /// a top-level item of a list in a document or quote.
+    fn cursor_is_nested_list_item(&self) -> bool {
+        let segs = self.cursor.path.segments();
+        segs.len() >= 2
+            && matches!(
+                segs[segs.len() - 2],
+                PathSegment::ListEntry { .. } | PathSegment::ChecklistItem(_)
+            )
     }
 
     /// The list/checklist nesting depth of the cursor's leaf (0 = top-level item).
@@ -1949,6 +2001,86 @@ mod tests {
     }
 
     #[test]
+    fn enter_at_end_of_heading_starts_plain_paragraph() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("# Title");
+        editor.set_cursor(DocumentPosition::at(TreePath::root(0), 5));
+        editor.insert_newline().unwrap();
+        // The heading stays; Enter at its end opens a normal paragraph below.
+        assert!(matches!(
+            editor.tdoc().paragraphs[0],
+            Paragraph::Header1 { .. }
+        ));
+        assert!(matches!(
+            editor.tdoc().paragraphs[1],
+            Paragraph::Text { .. }
+        ));
+        assert_eq!(editor.cursor().path, TreePath::root(1));
+        assert!(matches!(editor.current_block_type(), BlockType::Paragraph));
+    }
+
+    #[test]
+    fn enter_at_start_of_heading_keeps_heading_style() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("# Title");
+        editor.set_cursor(DocumentPosition::at(TreePath::root(0), 0));
+        editor.insert_newline().unwrap();
+        assert_eq!(editor.leaf_count(), 2);
+        // Both halves keep the heading block type — the content is not demoted to a plain
+        // paragraph. The cursor stays with the text below.
+        assert!(matches!(
+            editor.tdoc().paragraphs[0],
+            Paragraph::Header1 { .. }
+        ));
+        assert_eq!(editor.leaf_plain_text(&TreePath::root(0)), "");
+        assert!(matches!(
+            editor.tdoc().paragraphs[1],
+            Paragraph::Header1 { .. }
+        ));
+        assert_eq!(editor.leaf_plain_text(&TreePath::root(1)), "Title");
+        assert_eq!(editor.cursor().path, TreePath::root(1));
+        assert_eq!(editor.cursor().offset, 0);
+    }
+
+    #[test]
+    fn same_kind_toggle_on_nested_item_is_noop() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("1. one\n2. two");
+        editor.set_cursor(DocumentPosition::at(list_item_path(1), 0));
+        editor.indent_list_item().unwrap(); // "two" nested under "one" (ordered)
+        let doc_before = editor.tdoc().clone();
+        let cursor_before = editor.cursor();
+        // Already an ordered nested item → toggling ordered list does nothing.
+        editor.toggle_ordered_list().unwrap();
+        assert_eq!(*editor.tdoc(), doc_before);
+        assert_eq!(editor.cursor(), cursor_before);
+    }
+
+    #[test]
+    fn changing_nested_list_kind_preserves_nesting() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("1. one\n2. two");
+        editor.set_cursor(DocumentPosition::at(list_item_path(1), 0));
+        editor.indent_list_item().unwrap(); // "two" nested under "one" (ordered)
+        assert_eq!(leaf_depths(&editor), vec![0, 1]);
+        // Cursor is on the nested item; switch it to a bullet list.
+        editor.toggle_list().unwrap();
+        // Nesting is intact and the outer level is untouched.
+        assert_eq!(leaf_depths(&editor), vec![0, 1]);
+        assert!(matches!(
+            editor.tdoc().paragraphs[0],
+            Paragraph::OrderedList { .. }
+        ));
+        assert!(matches!(
+            editor.current_block_type(),
+            BlockType::ListItem { ordered: false, .. }
+        ));
+        // The tree still round-trips through markdown.
+        let reparsed = markdown_to_document(&md(&editor));
+        assert_eq!(*editor.tdoc(), reparsed);
+    }
+
+    #[test]
     fn enter_in_list_creates_new_item() {
         let mut editor = StructuredEditor::new();
         editor.load_markdown("- one");
@@ -2065,6 +2197,31 @@ mod tests {
         editor.outdent_list_item().unwrap();
         assert_eq!(leaf_depths(&editor), vec![0, 0]);
         assert_eq!(md(&editor), "- a\n- b");
+    }
+
+    #[test]
+    fn outdent_nested_item_adopts_following_siblings() {
+        let mut editor = StructuredEditor::new();
+        editor.load_markdown("- a\n  - x\n  - y\n  - z");
+        assert_eq!(leaf_depths(&editor), vec![0, 1, 1, 1]);
+        // Outdent the first nested item (x).
+        let x = TreePath::root(0)
+            .child(PathSegment::ListEntry { entry: 0, para: 1 })
+            .child(PathSegment::ListEntry { entry: 0, para: 0 });
+        editor.set_cursor(DocumentPosition::at(x, 0));
+        editor.outdent_list_item().unwrap();
+        // x sits beside a; y and z are now nested under x.
+        assert_eq!(leaf_depths(&editor), vec![0, 0, 1, 1]);
+        let texts: Vec<String> = tree_walk::leaf_paths(editor.tdoc())
+            .iter()
+            .map(|p| editor.leaf_plain_text(p))
+            .collect();
+        assert_eq!(texts, vec!["a", "x", "y", "z"]);
+        // The cursor follows the outdented item.
+        assert_eq!(editor.cursor().path, list_item_path(1));
+        // Still round-trips through markdown.
+        let reparsed = markdown_to_document(&md(&editor));
+        assert_eq!(*editor.tdoc(), reparsed);
     }
 
     #[test]
