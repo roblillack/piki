@@ -11,6 +11,11 @@ use crate::draw_context::FontStyle;
 use crate::draw_context::FontType;
 use crate::theme::{FontSettings, Theme};
 
+/// Horizontal indent (px) added per enclosing block quote level.
+const QUOTE_INDENT: i32 = 20;
+/// Horizontal offset (px) of a quote's vertical bar from its level's left edge.
+const QUOTE_BAR_X_OFFSET: i32 = 12;
+
 /// A search match in the document
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchMatch {
@@ -536,6 +541,8 @@ impl StructuredRichDisplay {
                 &blocks[block_idx],
                 &blocks,
                 block_idx,
+                leaves[block_idx].quote_depth,
+                leaves[block_idx].list_levels,
                 current_y,
                 content_width,
                 ctx,
@@ -941,26 +948,47 @@ impl StructuredRichDisplay {
     }
 
     /// Layout a single block. `blocks` is the full frame slice (for sibling scans such as
-    /// ordered-list run detection); `block_idx` indexes it.
+    /// ordered-list run detection); `block_idx` indexes it. `quote_depth`/`list_levels` come
+    /// from the leaf and drive indentation independently of the (flat) block type.
+    #[allow(clippy::too_many_arguments)]
     fn layout_block(
         &mut self,
         block: &Block,
         blocks: &[Block],
         block_idx: usize,
+        quote_depth: usize,
+        list_levels: usize,
         y: i32,
         width: i32,
         ctx: &mut dyn DrawContext,
     ) -> i32 {
-        let start_x = self.theme.padding_horizontal;
+        // Indentation is driven by the leaf's tree depths, not its (flat) block type: a
+        // continuation paragraph, code block, or list item nested inside a quote keeps both
+        // its quote indent and its list indent even though its `BlockType` records only one.
+        let quote_indent = quote_depth as i32 * QUOTE_INDENT;
+        let start_x = self.theme.padding_horizontal + quote_indent;
+        let width = width - quote_indent;
         let default_line_height = self.theme.line_height;
+
+        // Content that lives inside a list but is not itself a marker line (continuation
+        // paragraphs, code blocks, nested quote text) aligns with the list item's content.
+        let interior_x = if list_levels > 0 {
+            let pf = self.theme.plain_text;
+            let bullet_w =
+                ctx.text_width("• ", pf.font_type, pf.font_style, pf.font_size) as i32;
+            start_x + pf.font_size as i32 * list_levels as i32 + bullet_w
+        } else {
+            start_x
+        };
+        let interior_width = width - (interior_x - start_x);
 
         match &block.block_type {
             BlockType::Paragraph => self.layout_inline_block(
                 block,
                 block_idx,
                 y,
-                start_x,
-                width,
+                interior_x,
+                interior_width,
                 default_line_height,
                 ctx,
             ),
@@ -977,8 +1005,8 @@ impl StructuredRichDisplay {
                     block,
                     block_idx,
                     y + top_margin,
-                    start_x,
-                    width,
+                    interior_x,
+                    interior_width,
                     height,
                     ctx,
                 );
@@ -989,7 +1017,7 @@ impl StructuredRichDisplay {
                 let lines: Vec<&str> = text.lines().collect();
                 let f = self.theme.code_text;
                 let mut current_y = y + 5;
-                let code_start_x = start_x + 10;
+                let code_start_x = interior_x + 10;
                 let is_empty = lines.is_empty();
 
                 for line in &lines {
@@ -1043,14 +1071,14 @@ impl StructuredRichDisplay {
                 current_y + 10
             }
             BlockType::BlockQuote => {
-                // Layout quote content with left padding; drawing of the vertical bar
-                // happens during draw() per line based on block type.
+                // The quote indent is already folded into `start_x`/`interior_x`; the
+                // vertical bar(s) are drawn per line in draw() from the leaf's quote depth.
                 self.layout_inline_block(
                     block,
                     block_idx,
                     y + 5,
-                    start_x + 20,
-                    width - 20,
+                    interior_x,
+                    interior_width,
                     default_line_height,
                     ctx,
                 ) + 5
@@ -1903,17 +1931,20 @@ impl StructuredRichDisplay {
                 continue;
             }
 
-            // If this line belongs to a BlockQuote, draw a vertical bar to the left.
-            // We draw a short segment per line to keep implementation simple.
-            if let Some(block) = self.layout_blocks.get(line.block_index)
-                && let BlockType::BlockQuote = block.block_type
-            {
-                // Position the bar slightly left of the quote text indent (start_x + 20)
-                let bar_x = self.x + self.theme.padding_horizontal + 12;
+            // Draw a vertical bar per enclosing quote level for any line inside a quote —
+            // including list items, code blocks, and continuation paragraphs, whose flat
+            // block type no longer records the quote. A short segment is drawn per line.
+            if let Some(info) = self.layout_leaves.get(line.block_index) {
+                ctx.set_color(self.theme.quote_bar_color);
                 let bar_y1 = self.y + line.y - self.scroll_offset;
                 let bar_y2 = bar_y1 + line.height;
-                ctx.set_color(self.theme.quote_bar_color);
-                ctx.draw_line(bar_x, bar_y1, bar_x, bar_y2);
+                for level in 0..info.quote_depth as i32 {
+                    let bar_x = self.x
+                        + self.theme.padding_horizontal
+                        + level * QUOTE_INDENT
+                        + QUOTE_BAR_X_OFFSET;
+                    ctx.draw_line(bar_x, bar_y1, bar_x, bar_y2);
+                }
             }
 
             // Resolve the hovered link (if any) to this frame's leaf index for comparison.
@@ -2727,6 +2758,43 @@ mod tests {
             })
             .collect();
         Block::table(rows)
+    }
+
+    #[test]
+    fn quote_nested_content_keeps_quote_and_list_indent() {
+        // A quote containing a numbered list, a nested bullet, and a continuation
+        // paragraph: every line must carry the quote indent/bar *and* its list indent.
+        let md = "> Plain in quote\n>\n> 1. Numbered in quote\n>\n>    - Bullet in quote\n>\n>      Continuation in bullet";
+        let doc = crate::richtext::markdown_converter::markdown_to_document(md);
+        let mut display = StructuredRichDisplay::new(0, 0, 600, 400);
+        display.editor_mut().set_tdoc(doc);
+        let mut ctx = TestDrawContext::new_with_focus();
+        display.layout(&mut ctx);
+
+        // Text is split into word runs; match each line by a unique first word.
+        let x_of = |needle: &str| -> i32 {
+            display
+                .layout_lines
+                .iter()
+                .flat_map(|l| &l.runs)
+                .find(|r| r.text.starts_with(needle))
+                .map(|r| r.x)
+                .unwrap_or_else(|| panic!("no run starting with {needle:?}"))
+        };
+
+        let pad = display.theme.padding_horizontal;
+        // The plain quote paragraph sits at exactly the quote indent.
+        assert_eq!(x_of("Plain"), pad + QUOTE_INDENT);
+        // Deeper list nesting indents further; each is still past the quote indent.
+        assert!(x_of("Numbered") > pad + QUOTE_INDENT);
+        assert!(x_of("Bullet") > x_of("Numbered"));
+        // The continuation paragraph aligns with its bullet item's content (not far left).
+        assert_eq!(x_of("Continuation"), x_of("Bullet"));
+
+        // Every leaf in the quote reports quote_depth 1, so each gets a vertical bar.
+        for info in &display.layout_leaves {
+            assert_eq!(info.quote_depth, 1, "leaf {:?} lost its quote depth", info.path);
+        }
     }
 
     #[test]

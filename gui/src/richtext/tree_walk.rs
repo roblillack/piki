@@ -45,6 +45,10 @@ pub struct LeafInfo {
     pub marker: Option<ListMarker>,
     /// List/checklist indentation depth (0 = top-level item or not in a list).
     pub depth: usize,
+    /// Number of enclosing lists/checklists (0 = not in any list). Unlike `depth`, this
+    /// distinguishes a top-level paragraph (0) from a continuation paragraph or code block
+    /// nested inside a top-level list item (1), which both have `depth == 0`.
+    pub list_levels: usize,
     /// Number of enclosing block quotes (0 = not quoted).
     pub quote_depth: usize,
 }
@@ -210,6 +214,7 @@ fn push_leaf(
         kind,
         marker,
         depth: list_depth.saturating_sub(1),
+        list_levels: list_depth,
         quote_depth,
     });
 }
