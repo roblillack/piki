@@ -30,4 +30,41 @@ pub trait DrawContext {
     fn color_inactive(&self, c: u32) -> u32;
     fn has_focus(&self) -> bool;
     fn is_active(&self) -> bool;
+
+    /// Pen state for text decorations, consulted by the next [`draw_text`]. The
+    /// default ignores them — pixel backends draw underline/strikethrough as
+    /// separate lines. A cell backend overrides these to fold the decoration
+    /// into the glyph's attributes (see [`crate::theme::Theme::text_decoration_lines`]).
+    fn set_underline(&mut self, _on: bool) {}
+    fn set_strikethrough(&mut self, _on: bool) {}
+
+    /// Draw a checklist checkbox of `size` at (x, y) in the active color.
+    ///
+    /// The default draws a square outline (and a check mark when `checked`) from
+    /// line primitives — right for a pixel canvas. A character-cell backend can
+    /// override this to stamp a single glyph instead, since a multi-line square
+    /// collapses badly into one cell.
+    fn draw_checkbox(&mut self, x: i32, y: i32, size: i32, checked: bool) {
+        let box_right = x + size;
+        let box_bottom = y + size;
+        self.draw_line(x, y, box_right, y);
+        self.draw_line(x, y, x, box_bottom);
+        self.draw_line(x, box_bottom, box_right, box_bottom);
+        self.draw_line(box_right, y, box_right, box_bottom);
+        if checked {
+            let mut inset = ((size as f32) * 0.2).round() as i32;
+            if inset < 2 {
+                inset = 2;
+            }
+            if inset * 2 >= size {
+                inset = size / 2;
+            }
+            let x1 = x + inset;
+            let y1 = y + inset;
+            let x2 = box_right - inset;
+            let y2 = box_bottom - inset;
+            self.draw_line(x1, y1, x2, y2);
+            self.draw_line(x1, y2, x2, y1);
+        }
+    }
 }

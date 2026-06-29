@@ -38,6 +38,29 @@ pub struct Theme {
     pub heading_top_margin: i32,
     pub heading_bottom_margin: i32,
 
+    /// Trailing space after blocks, by kind. Pixel values for the GUI; a cell
+    /// backend sets these small (or 0) so the document isn't sparse in a
+    /// character grid. `code_block_padding` is the inset above/below code text.
+    pub paragraph_spacing: i32,
+    pub list_item_spacing: i32,
+    pub quote_spacing: i32,
+    pub code_block_padding: i32,
+
+    /// Horizontal indent per quote nesting level, and the x-offset of the quote
+    /// bar within that indent. Pixel values for the GUI; small for a cell grid.
+    pub quote_indent: i32,
+    pub quote_bar_offset: i32,
+
+    /// Padding inside table cells (horizontal and vertical). Pixel values for
+    /// the GUI; a cell backend uses tight values so rows/columns aren't huge.
+    pub table_cell_padding_h: i32,
+    pub table_cell_padding_v: i32,
+
+    /// Whether underline/strikethrough are drawn as separate lines (pixel
+    /// backends) or folded into the glyph attributes by the backend (cell
+    /// backends set this `false` so decorations don't land on the wrong row).
+    pub text_decoration_lines: bool,
+
     pub header_level_1: FontSettings,
     pub header_level_2: FontSettings,
     pub header_level_3: FontSettings,
@@ -68,6 +91,15 @@ impl Default for Theme {
             line_height: 17,
             heading_top_margin: 15,
             heading_bottom_margin: 10,
+            paragraph_spacing: 5,
+            list_item_spacing: 2,
+            quote_spacing: 5,
+            code_block_padding: 5,
+            quote_indent: 20,
+            quote_bar_offset: 12,
+            table_cell_padding_h: 6,
+            table_cell_padding_v: 3,
+            text_decoration_lines: true,
             header_level_1: FontSettings {
                 font_type: FontType::Heading,
                 font_style: FontStyle::Bold,

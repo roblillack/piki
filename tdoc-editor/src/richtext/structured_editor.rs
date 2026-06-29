@@ -1693,7 +1693,19 @@ impl StructuredEditor {
             return Ok(());
         }
         let Some(i) = self.cursor_top_index() else {
-            // Fallback for non-top-level cursors: insert as plain text.
+            // Non-top-level cursor (inside a quote child or list item). Splicing a
+            // multi-paragraph fragment into nested structure isn't supported yet, but
+            // a single-paragraph fragment can be inserted run-by-run so its inline
+            // styling (bold/italic/links/…) survives. Only multi-paragraph fragments
+            // fall back to plain markdown text.
+            if document.paragraphs.len() == 1 {
+                let runs = spans_to_inline(document.paragraphs[0].content());
+                for run in runs {
+                    self.insert_inline_at_cursor(run)?;
+                }
+                self.trigger_paragraph_change();
+                return Ok(());
+            }
             let mut buf = Vec::new();
             let _ = tdoc::markdown::write(&mut buf, document);
             let text = String::from_utf8_lossy(&buf).into_owned();

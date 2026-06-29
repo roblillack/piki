@@ -11,10 +11,6 @@ use crate::draw_context::FontStyle;
 use crate::draw_context::FontType;
 use crate::theme::{FontSettings, Theme};
 
-/// Horizontal indent (px) added per enclosing block quote level.
-const QUOTE_INDENT: i32 = 20;
-/// Horizontal offset (px) of a quote's vertical bar from its level's left edge.
-const QUOTE_BAR_X_OFFSET: i32 = 12;
 
 /// A search match in the document
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -980,7 +976,7 @@ impl StructuredRichDisplay {
         // Indentation is driven by the leaf's tree depths, not its (flat) block type: a
         // continuation paragraph, code block, or list item nested inside a quote keeps both
         // its quote indent and its list indent even though its `BlockType` records only one.
-        let quote_indent = quote_depth as i32 * QUOTE_INDENT;
+        let quote_indent = quote_depth as i32 * self.theme.quote_indent;
         let start_x = self.theme.padding_horizontal + quote_indent;
         let width = width - quote_indent;
         let default_line_height = self.theme.line_height;
@@ -1035,7 +1031,7 @@ impl StructuredRichDisplay {
                 let text = block.to_plain_text();
                 let lines: Vec<&str> = text.lines().collect();
                 let f = self.theme.code_text;
-                let mut current_y = y + 5;
+                let mut current_y = y + self.theme.code_block_padding;
                 let code_start_x = interior_x + 10;
                 let is_empty = lines.is_empty();
 
@@ -1087,7 +1083,7 @@ impl StructuredRichDisplay {
                     current_y += default_line_height;
                 }
 
-                current_y + 10
+                current_y + self.theme.code_block_padding * 2
             }
             BlockType::BlockQuote => {
                 // The quote indent is already folded into `start_x`/`interior_x`; the
@@ -1095,12 +1091,12 @@ impl StructuredRichDisplay {
                 self.layout_inline_block(
                     block,
                     block_idx,
-                    y + 5,
+                    y + self.theme.quote_spacing,
                     interior_x,
                     interior_width,
                     default_line_height,
                     ctx,
-                ) + 5
+                ) + self.theme.quote_spacing
             }
             BlockType::ListItem {
                 ordered,
@@ -1334,7 +1330,7 @@ impl StructuredRichDisplay {
                     current_y += default_line_height;
                 }
 
-                current_y + 2
+                current_y + self.theme.list_item_spacing
             }
             BlockType::Table { rows } => self.layout_table(block_idx, rows, y, start_x, width, ctx),
         }
@@ -1353,8 +1349,8 @@ impl StructuredRichDisplay {
         ctx: &mut dyn DrawContext,
     ) -> i32 {
         const BORDER: i32 = 1;
-        const PAD_H: i32 = 6; // horizontal padding inside each cell
-        const PAD_V: i32 = 3; // vertical padding inside each row
+        let pad_h = self.theme.table_cell_padding_h; // horizontal padding inside each cell
+        let pad_v = self.theme.table_cell_padding_v; // vertical padding inside each row
         let line_height = self.theme.line_height;
 
         let column_count = rows.iter().map(|r| r.cells.len()).max().unwrap_or(0);
@@ -1382,7 +1378,7 @@ impl StructuredRichDisplay {
         // Fit the columns into the available width. Each column needs PAD_H on
         // both sides; vertical borders add BORDER around/between columns.
         let cols = column_count as i32;
-        let structural = (cols + 1) * BORDER + cols * 2 * PAD_H;
+        let structural = (cols + 1) * BORDER + cols * 2 * pad_h;
         let min_col = (plain.font_size as i32).max(8); // keep ~1 char visible
         let budget = (width - structural).max(cols * min_col);
         let total_natural: i32 = natural.iter().sum();
@@ -1403,7 +1399,7 @@ impl StructuredRichDisplay {
         let mut col_x = vec![0i32; column_count + 1];
         col_x[0] = start_x;
         for c in 0..column_count {
-            col_x[c + 1] = col_x[c] + BORDER + PAD_H + col_width[c] + PAD_H;
+            col_x[c + 1] = col_x[c] + BORDER + pad_h + col_width[c] + pad_h;
         }
 
         let mut row_y = Vec::with_capacity(rows.len() + 1);
@@ -1422,7 +1418,7 @@ impl StructuredRichDisplay {
                         } else {
                             cell.content.clone()
                         };
-                        let cell_x = col_x[col] + BORDER + PAD_H;
+                        let cell_x = col_x[col] + BORDER + pad_h;
                         self.layout_inline_content(
                             &content,
                             &BlockType::Paragraph,
@@ -1447,7 +1443,7 @@ impl StructuredRichDisplay {
 
             // One LayoutLine per physical text line, gathering the matching
             // wrapped line from every cell so the shared draw loop renders them.
-            let content_top = current_y + BORDER + PAD_V;
+            let content_top = current_y + BORDER + pad_v;
             for li in 0..row_line_count {
                 let mut runs: Vec<VisualRun> = Vec::new();
                 for cell in &cell_lines {
@@ -1467,7 +1463,7 @@ impl StructuredRichDisplay {
                 });
             }
 
-            current_y = content_top + row_line_count as i32 * line_height + PAD_V;
+            current_y = content_top + row_line_count as i32 * line_height + pad_v;
         }
 
         row_y.push(current_y); // bottom border
@@ -1554,7 +1550,7 @@ impl StructuredRichDisplay {
             }
         }
 
-        current_y + 5
+        current_y + self.theme.paragraph_spacing
     }
 
     fn resolve_text_run_style(
@@ -1960,8 +1956,8 @@ impl StructuredRichDisplay {
                 for level in 0..info.quote_depth as i32 {
                     let bar_x = self.x
                         + self.theme.padding_horizontal
-                        + level * QUOTE_INDENT
-                        + QUOTE_BAR_X_OFFSET;
+                        + level * self.theme.quote_indent
+                        + self.theme.quote_bar_offset;
                     ctx.draw_line(bar_x, bar_y1, bar_x, bar_y2);
                 }
             }
@@ -1995,29 +1991,7 @@ impl StructuredRichDisplay {
                     }
 
                     let box_y = line_top + (line.height - box_size) / 2 + descent / 2;
-                    let box_right = draw_x + box_size;
-                    let box_bottom = box_y + box_size;
-
-                    ctx.draw_line(draw_x, box_y, box_right, box_y);
-                    ctx.draw_line(draw_x, box_y, draw_x, box_bottom);
-                    ctx.draw_line(draw_x, box_bottom, box_right, box_bottom);
-                    ctx.draw_line(box_right, box_y, box_right, box_bottom);
-
-                    if checklist.checked {
-                        let mut inset = ((box_size as f32) * 0.2).round() as i32;
-                        if inset < 2 {
-                            inset = 2;
-                        }
-                        if inset * 2 >= box_size {
-                            inset = box_size / 2;
-                        }
-                        let x1 = draw_x + inset;
-                        let y1 = box_y + inset;
-                        let x2 = box_right - inset;
-                        let y2 = box_bottom - inset;
-                        ctx.draw_line(x1, y1, x2, y2);
-                        ctx.draw_line(x1, y2, x2, y1);
-                    }
+                    ctx.draw_checkbox(draw_x, box_y, box_size, checklist.checked);
 
                     continue;
                 }
@@ -2117,23 +2091,29 @@ impl StructuredRichDisplay {
                     ctx.set_color(run.font_color); // Restore text color
                 }
 
+                ctx.set_underline(run.underline);
+                ctx.set_strikethrough(run.strikethrough);
                 ctx.draw_text(&run.text, draw_x, draw_y);
+                ctx.set_underline(false);
+                ctx.set_strikethrough(false);
 
                 let text_width =
                     ctx.text_width(&run.text, run.font_type, run.font_style, run.font_size) as i32;
 
-                // Draw underline if needed
-                if run.underline {
-                    ctx.draw_line(draw_x, draw_y + 2, draw_x + text_width, draw_y + 2);
-                }
-
-                // Draw strikethrough if needed
-                if run.strikethrough {
-                    // Draw line through middle of text (roughly at half the font size)
-                    let descent = ctx.text_descent(run.font_type, run.font_style, run.font_size);
-                    let strike_y = draw_y - (run.font_size as i32) / 2 + descent / 2 + 1;
-                    ctx.set_color(0xaaaaaaff);
-                    ctx.draw_rect_filled(draw_x, strike_y, text_width, 1);
+                // Pixel backends draw decorations as separate lines; cell backends
+                // fold them into the glyph attributes above instead.
+                if self.theme.text_decoration_lines {
+                    if run.underline {
+                        ctx.draw_line(draw_x, draw_y + 2, draw_x + text_width, draw_y + 2);
+                    }
+                    if run.strikethrough {
+                        // Line through the middle of the text (~half the font size).
+                        let descent =
+                            ctx.text_descent(run.font_type, run.font_style, run.font_size);
+                        let strike_y = draw_y - (run.font_size as i32) / 2 + descent / 2 + 1;
+                        ctx.set_color(0xaaaaaaff);
+                        ctx.draw_rect_filled(draw_x, strike_y, text_width, 1);
+                    }
                 }
             }
         }
@@ -2157,6 +2137,26 @@ impl StructuredRichDisplay {
         }
 
         ctx.pop_clip();
+    }
+
+    /// The cursor's on-screen position in widget coordinates, scroll-adjusted:
+    /// `(x, y)` where `y` is already offset by the scroll position. Returns
+    /// `None` if the cursor isn't on a laid-out line or is scrolled out of view.
+    ///
+    /// Intended for frontends that drive a hardware caret (e.g. a terminal's
+    /// real cursor) instead of the engine-drawn one — pair with
+    /// [`Self::set_cursor_visible(false)`](Self::set_cursor_visible) so the two
+    /// don't both render. Call after [`draw`](Self::draw) (or
+    /// [`ensure_cursor_visible`](Self::ensure_cursor_visible)) so the layout is
+    /// current.
+    pub fn cursor_screen_position(&self, ctx: &mut dyn DrawContext) -> Option<(i32, i32)> {
+        let (cx, cy, _h) = self.get_cursor_visual_position(ctx)?;
+        let screen_x = self.x + cx;
+        let screen_y = self.y + cy - self.scroll_offset;
+        if screen_y < self.y || screen_y >= self.y + self.h {
+            return None;
+        }
+        Some((screen_x, screen_y))
     }
 
     /// Get visual position of cursor (x, y, height) relative to widget
@@ -2802,10 +2802,11 @@ mod tests {
         };
 
         let pad = display.theme.padding_horizontal;
+        let quote_indent = display.theme.quote_indent;
         // The plain quote paragraph sits at exactly the quote indent.
-        assert_eq!(x_of("Plain"), pad + QUOTE_INDENT);
+        assert_eq!(x_of("Plain"), pad + quote_indent);
         // Deeper list nesting indents further; each is still past the quote indent.
-        assert!(x_of("Numbered") > pad + QUOTE_INDENT);
+        assert!(x_of("Numbered") > pad + quote_indent);
         assert!(x_of("Bullet") > x_of("Numbered"));
         // The continuation paragraph aligns with its bullet item's content (not far left).
         assert_eq!(x_of("Continuation"), x_of("Bullet"));
