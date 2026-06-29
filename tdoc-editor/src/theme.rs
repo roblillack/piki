@@ -86,12 +86,6 @@ pub struct Theme {
     /// its solid bar; a cell backend turns this on.
     pub quote_bar_as_text: bool,
 
-    /// Columns to trim from the content width before wrapping, beyond the
-    /// horizontal padding. Classic Pure wrapped text at `wrap_width - 1`; a cell
-    /// backend sets this to 1 to reproduce that exact line breaking. Defaults to
-    /// 0 so the GUI is unaffected.
-    pub wrap_width_reduction: i32,
-
     /// Color used for decorative rules drawn by the engine — heading underlines
     /// and code-block fences. Only consulted when `heading_underline` /
     /// `code_block_fence` are on (i.e. cell backends); defaults to the plain
@@ -157,7 +151,6 @@ impl Default for Theme {
             checkbox_text: false,
             heading_underline: false,
             quote_bar_as_text: false,
-            wrap_width_reduction: 0,
             structural_color: 0x000000FF,
             code_block_fence: false,
             classic_block_spacing: false,

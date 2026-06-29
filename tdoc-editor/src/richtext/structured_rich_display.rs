@@ -552,8 +552,7 @@ impl StructuredRichDisplay {
         self.layout_lines.clear();
         self.table_layouts.clear();
 
-        let content_width =
-            self.w - 2 * self.theme.padding_horizontal - self.theme.wrap_width_reduction;
+        let content_width = self.w - 2 * self.theme.padding_horizontal;
         let mut current_y = self.theme.padding_vertical;
 
         // Project the authoritative tdoc tree into a flat list of leaves (in document
