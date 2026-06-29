@@ -24,6 +24,54 @@ use tdoc::Document;
 use tdoc::inline::Span;
 use tdoc::paragraph::{ChecklistItem, Paragraph};
 
+/// Inline-style labels active at byte `offset` within a leaf's flat runs,
+/// outermost first. Left-biased at a run boundary (the cursor inherits the run
+/// ending there), so a cursor resting at the end of a bold word still reads as
+/// bold — matching classic Pure.
+fn inline_labels_at(runs: &[InlineContent], offset: usize) -> Vec<&'static str> {
+    let mut pos = 0usize;
+    for item in runs {
+        let len = item.to_plain_text().len();
+        if offset > pos && offset <= pos + len {
+            return match item {
+                InlineContent::Text(run) => style_labels(run.style),
+                InlineContent::Link { content, .. } => {
+                    let mut labels = vec!["Link"];
+                    labels.extend(inline_labels_at(content, offset - pos));
+                    labels
+                }
+                InlineContent::HardBreak => Vec::new(),
+            };
+        }
+        pos += len;
+    }
+    Vec::new()
+}
+
+/// Style labels for a run, in classic Pure's outer-to-inner nesting order.
+fn style_labels(style: TextStyle) -> Vec<&'static str> {
+    let mut labels = Vec::new();
+    if style.highlight {
+        labels.push("Highlight");
+    }
+    if style.underline {
+        labels.push("Underline");
+    }
+    if style.strikethrough {
+        labels.push("Strikethrough");
+    }
+    if style.bold {
+        labels.push("Bold");
+    }
+    if style.italic {
+        labels.push("Italic");
+    }
+    if style.code {
+        labels.push("Code");
+    }
+    labels
+}
+
 /// Result of an editing operation
 pub type EditResult = Result<(), EditError>;
 
@@ -177,6 +225,15 @@ impl StructuredEditor {
     /// The presentation block type at the cursor (for menus / paragraph-style UI).
     pub fn current_block_type(&self) -> BlockType {
         self.block_type_at(&self.cursor.path)
+    }
+
+    /// Inline-style breadcrumb labels at the cursor — e.g. `["Bold"]`, `["Link"]`,
+    /// or `["Link", "Bold"]` for a bold link — outermost first. Empty when the
+    /// cursor sits on unstyled text. Used by a status-bar breadcrumb; mirrors the
+    /// inline portion of classic Pure's cursor breadcrumb.
+    pub fn cursor_inline_labels(&self) -> Vec<&'static str> {
+        let runs = tree_walk::leaf_inline(&self.tdoc, &self.cursor.path);
+        inline_labels_at(&runs, self.cursor.offset)
     }
 
     /// The presentation block type at a path (`Paragraph` when the path is invalid).
