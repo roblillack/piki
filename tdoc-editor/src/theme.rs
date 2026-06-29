@@ -71,6 +71,20 @@ pub struct Theme {
     /// 10 whole columns in a terminal).
     pub code_block_indent: i32,
 
+    /// Color of the check glyph (`✓`) in a text-rendered checked checkbox (see
+    /// `checkbox_text`). Classic Pure drew the tick in green while the brackets
+    /// stayed structural-gray. Only consulted when `checkbox_text` is on; the
+    /// GUI draws a box instead, so this defaults to the plain text color and is
+    /// harmless there.
+    pub checkmark_color: u32,
+
+    /// Derive a link's weight/slant from its own content (so a bold link renders
+    /// bold) instead of always drawing link text in a plain style. Off by
+    /// default so pixel backends keep their current flat link styling; a cell
+    /// backend turns it on to match classic Pure, which merged the link color
+    /// onto the span's existing style.
+    pub link_uses_content_style: bool,
+
     /// Render checklist markers as text (`[x] ` / `[ ] `) instead of a drawn
     /// square. Off by default (GUI draws the box); a cell backend turns this on
     /// so checkboxes read as the classic bracketed markers in one column run.
@@ -176,6 +190,8 @@ impl Default for Theme {
             quote_bar_as_text: false,
             structural_color: 0x000000FF,
             code_block_fence: false,
+            checkmark_color: 0x000000FF,
+            link_uses_content_style: false,
             wrap_defer_trailing_space: false,
             wrap_width_reduction: 0,
             cursor_scroll_margin: 8,

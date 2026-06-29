@@ -265,6 +265,123 @@ fn push_token_wrapped(
     }
 }
 
+/// Word-wrap one styled text run onto the running line(s): emit any leading
+/// whitespace as its own run, then place each word (with its trailing
+/// whitespace) via [`push_token_wrapped`]. Shared by the plain-text path and the
+/// per-span link path so links keep each span's own weight/slant while the
+/// wrapping stays identical. `char_base` is the byte offset of `text` within the
+/// leaf; `inline_index` is the owning inline element's index in the block.
+#[allow(clippy::too_many_arguments)]
+fn layout_styled_text(
+    ctx: &mut dyn DrawContext,
+    lines: &mut Vec<Vec<VisualRun>>,
+    line_ranges: &mut Vec<(usize, usize)>,
+    line_wraps: &mut Vec<bool>,
+    current_line: &mut Vec<VisualRun>,
+    current_x: &mut i32,
+    current_y: &mut i32,
+    start_x: i32,
+    width: i32,
+    line_height: i32,
+    break_long_words: bool,
+    defer_trailing_space: bool,
+    text: &str,
+    char_base: usize,
+    inline_index: usize,
+    block_idx: usize,
+    style: ResolvedRunStyle,
+) {
+    let font = style.font_type;
+    let fstyle = style.font_style;
+    let size = style.font_size;
+
+    let mut word_start = 0;
+    let mut in_word = false;
+    let mut leading_space_handled = false;
+
+    for (i, ch) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {
+        let is_whitespace = ch.is_whitespace();
+
+        // Handle leading whitespace at the start of the run
+        if !leading_space_handled && is_whitespace && i == 0 {
+            // Find all leading whitespace
+            let mut space_end = 0;
+            for (idx, c) in text.char_indices() {
+                if c.is_whitespace() {
+                    space_end = idx + c.len_utf8();
+                } else {
+                    break;
+                }
+            }
+
+            if space_end > 0 {
+                let space_text = &text[..space_end];
+                let space_width = ctx.text_width(space_text, font, fstyle, size) as i32;
+
+                current_line.push(VisualRun {
+                    text: space_text.to_string(),
+                    x: *current_x,
+                    width: space_width,
+                    font_type: style.font_type,
+                    font_style: style.font_style,
+                    font_size: style.font_size,
+                    font_color: style.font_color,
+                    background_color: style.background_color,
+                    underline: style.underline,
+                    strikethrough: style.strikethrough,
+                    block_index: block_idx,
+                    char_range: (char_base, char_base + space_end),
+                    inline_index: Some(inline_index),
+                    checklist: None,
+                });
+
+                *current_x += space_width;
+            }
+            leading_space_handled = true;
+        }
+
+        if in_word && (is_whitespace || i == text.len()) {
+            // End of word - extract word with trailing whitespace
+            let mut word_end = i;
+            // Include trailing whitespace in the word
+            while word_end < text.len()
+                && text[word_end..]
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_whitespace() && c != '\n')
+            {
+                word_end += text[word_end..].chars().next().unwrap().len_utf8();
+            }
+
+            let word_text = &text[word_start..word_end];
+            push_token_wrapped(
+                ctx,
+                lines,
+                line_ranges,
+                line_wraps,
+                current_line,
+                current_x,
+                current_y,
+                start_x,
+                width,
+                line_height,
+                break_long_words,
+                defer_trailing_space,
+                word_text,
+                char_base + word_start,
+                inline_index,
+                block_idx,
+                style,
+            );
+            in_word = false;
+        } else if !in_word && !is_whitespace {
+            // Start of new word
+            word_start = i;
+            in_word = true;
+        }
+    }
+}
+
 /// Return a copy of inline content with every text run forced to bold. Used for
 /// table header cells, which the renderer draws in bold like the tdoc CLI.
 fn bolden_inline(content: &[InlineContent]) -> Vec<InlineContent> {
@@ -1320,27 +1437,63 @@ impl StructuredRichDisplay {
                     (bullet_text, bullet_width, content_start_x)
                 };
 
-                // Assemble label run
-                let mut runs = vec![VisualRun {
-                    text: label_text,
-                    x: start_x + label_left_pad,
-                    width: label_pad_width,
-                    font_type: self.theme.plain_text.font_type,
-                    font_style: self.theme.plain_text.font_style,
-                    font_size: self.theme.plain_text.font_size,
-                    // List markers (bullet, number, `[ ]`/`[✓]`) are structural,
-                    // so they take the structural color. It defaults to the plain
-                    // text color, so this is a no-op for the GUI; a cell backend
-                    // tints it gray to match classic Pure's faint markers.
-                    font_color: self.theme.structural_color,
-                    background_color: self.theme.plain_text.background_color,
-                    underline: false,
-                    strikethrough: false,
-                    block_index: block_idx,
-                    char_range: (0, 0),
-                    inline_index: None,
-                    checklist: checklist_visual,
-                }];
+                // Assemble label run(s). List markers (bullet, number, `[ ]`/
+                // `[✓]`) are structural, so they take the structural color — a
+                // no-op for the GUI (defaults to plain text) but tinted gray by a
+                // cell backend to match classic Pure's faint markers.
+                let plain = self.theme.plain_text;
+                let label_x = start_x + label_left_pad;
+                let marker_run = |text: String, x: i32, width: i32, color: u32, style: FontStyle| {
+                    VisualRun {
+                        text,
+                        x,
+                        width,
+                        font_type: plain.font_type,
+                        font_style: style,
+                        font_size: plain.font_size,
+                        font_color: color,
+                        background_color: plain.background_color,
+                        underline: false,
+                        strikethrough: false,
+                        block_index: block_idx,
+                        char_range: (0, 0),
+                        inline_index: None,
+                        checklist: None,
+                    }
+                };
+                let mut runs = if self.theme.checkbox_text
+                    && matches!(checkbox, Some(true))
+                    && label_text == "[✓] "
+                {
+                    // Split the checked marker so the tick can take the checkmark
+                    // color (and bold) while the brackets stay structural — the
+                    // way classic Pure styled it.
+                    let lb = ctx.text_width("[", plain.font_type, plain.font_style, plain.font_size)
+                        as i32;
+                    let ck = ctx.text_width("✓", plain.font_type, plain.font_style, plain.font_size)
+                        as i32;
+                    vec![
+                        marker_run("[".to_string(), label_x, lb, self.theme.structural_color, plain.font_style),
+                        marker_run("✓".to_string(), label_x + lb, ck, self.theme.checkmark_color, FontStyle::Bold),
+                        marker_run(
+                            "] ".to_string(),
+                            label_x + lb + ck,
+                            label_pad_width - lb - ck,
+                            self.theme.structural_color,
+                            plain.font_style,
+                        ),
+                    ]
+                } else {
+                    let mut run = marker_run(
+                        label_text,
+                        label_x,
+                        label_pad_width,
+                        self.theme.structural_color,
+                        plain.font_style,
+                    );
+                    run.checklist = checklist_visual;
+                    vec![run]
+                };
 
                 // Layout the content with proper text indentation
                 let layout = self.layout_inline_content(
@@ -1778,117 +1931,7 @@ impl StructuredRichDisplay {
                 InlineContent::Text(run) => {
                     pending_empty_line = false;
                     let style = self.resolve_text_run_style(base_font, &run.style);
-                    let font = style.font_type;
-                    let fstyle = style.font_style;
-                    let size = style.font_size;
-
-                    // Word wrap - track actual positions in original text
-                    let text = &run.text;
-                    let mut word_start = 0;
-                    let mut in_word = false;
-                    let mut leading_space_handled = false;
-
-                    for (i, ch) in text
-                        .char_indices()
-                        .chain(std::iter::once((text.len(), ' ')))
-                    {
-                        let is_whitespace = ch.is_whitespace();
-
-                        // Handle leading whitespace at the start of the run
-                        if !leading_space_handled && is_whitespace && i == 0 {
-                            // Find all leading whitespace
-                            let mut space_end = 0;
-                            for (idx, c) in text.char_indices() {
-                                if c.is_whitespace() {
-                                    space_end = idx + c.len_utf8();
-                                } else {
-                                    break;
-                                }
-                            }
-
-                            if space_end > 0 {
-                                let space_text = &text[..space_end];
-                                let space_width =
-                                    ctx.text_width(space_text, font, fstyle, size) as i32;
-
-                                current_line.push(VisualRun {
-                                    text: space_text.to_string(),
-                                    x: current_x,
-                                    width: space_width,
-                                    font_type: style.font_type,
-                                    font_style: style.font_style,
-                                    font_size: style.font_size,
-                                    font_color: style.font_color,
-                                    background_color: style.background_color,
-                                    underline: style.underline,
-                                    strikethrough: style.strikethrough,
-                                    block_index: block_idx,
-                                    char_range: (char_offset, char_offset + space_end),
-                                    inline_index: Some(inline_idx),
-                                    checklist: None,
-                                });
-
-                                current_x += space_width;
-                            }
-                            leading_space_handled = true;
-                        }
-
-                        if in_word && (is_whitespace || i == text.len()) {
-                            // End of word - extract word with trailing whitespace
-                            let mut word_end = i;
-                            // Include trailing whitespace in the word
-                            while word_end < text.len()
-                                && text[word_end..]
-                                    .chars()
-                                    .next()
-                                    .is_some_and(|c| c.is_whitespace() && c != '\n')
-                            {
-                                word_end += text[word_end..].chars().next().unwrap().len_utf8();
-                            }
-
-                            let word_text = &text[word_start..word_end];
-                            push_token_wrapped(
-                                ctx,
-                                &mut lines,
-                                &mut line_ranges,
-                                &mut line_wraps,
-                                &mut current_line,
-                                &mut current_x,
-                                &mut current_y,
-                                start_x,
-                                width,
-                                line_height,
-                                break_long_words,
-                                self.theme.wrap_defer_trailing_space,
-                                word_text,
-                                char_offset + word_start,
-                                inline_idx,
-                                block_idx,
-                                style,
-                            );
-                            in_word = false;
-                        } else if !in_word && !is_whitespace {
-                            // Start of new word
-                            word_start = i;
-                            in_word = true;
-                        }
-                    }
-
-                    char_offset += text.len();
-                }
-                InlineContent::Link {
-                    link: _,
-                    content: link_content,
-                } => {
-                    pending_empty_line = false;
-                    // Render link content using link styling
-                    let style = self.resolve_link_run_style(base_font);
-                    let text = link_content
-                        .iter()
-                        .map(|c| c.to_plain_text())
-                        .collect::<String>();
-
-                    push_token_wrapped(
+                    layout_styled_text(
                         ctx,
                         &mut lines,
                         &mut line_ranges,
@@ -1901,13 +1944,84 @@ impl StructuredRichDisplay {
                         line_height,
                         break_long_words,
                         self.theme.wrap_defer_trailing_space,
-                        &text,
+                        &run.text,
                         char_offset,
                         inline_idx,
                         block_idx,
                         style,
                     );
-                    char_offset += text.len();
+                    char_offset += run.text.len();
+                }
+                InlineContent::Link {
+                    link: _,
+                    content: link_content,
+                } => {
+                    pending_empty_line = false;
+                    if self.theme.link_uses_content_style {
+                        // Lay out each inner span with its own weight/slant and
+                        // paint the link color + underline over it — per-span,
+                        // the way classic Pure merged the link style onto each
+                        // span. Wrapping matches plain text (word by word).
+                        for inner in link_content {
+                            let inner_text = inner.to_plain_text();
+                            let mut style = match inner {
+                                InlineContent::Text(run) => {
+                                    self.resolve_text_run_style(base_font, &run.style)
+                                }
+                                _ => self.resolve_text_run_style(base_font, &TextStyle::plain()),
+                            };
+                            style.font_color = self.theme.link_color;
+                            style.underline = true;
+                            layout_styled_text(
+                                ctx,
+                                &mut lines,
+                                &mut line_ranges,
+                                &mut line_wraps,
+                                &mut current_line,
+                                &mut current_x,
+                                &mut current_y,
+                                start_x,
+                                width,
+                                line_height,
+                                break_long_words,
+                                self.theme.wrap_defer_trailing_space,
+                                &inner_text,
+                                char_offset,
+                                inline_idx,
+                                block_idx,
+                                style,
+                            );
+                            char_offset += inner_text.len();
+                        }
+                    } else {
+                        // Flat link style (pixel backends): one run, plain weight.
+                        let style = self.resolve_link_run_style(base_font);
+                        let text = link_content
+                            .iter()
+                            .map(|c| c.to_plain_text())
+                            .collect::<String>();
+
+                        push_token_wrapped(
+                            ctx,
+                            &mut lines,
+                            &mut line_ranges,
+                            &mut line_wraps,
+                            &mut current_line,
+                            &mut current_x,
+                            &mut current_y,
+                            start_x,
+                            width,
+                            line_height,
+                            break_long_words,
+                            self.theme.wrap_defer_trailing_space,
+                            &text,
+                            char_offset,
+                            inline_idx,
+                            block_idx,
+                            style,
+                        );
+                        char_offset += text.len();
+                    }
                 }
                 InlineContent::HardBreak => {
                     push_line(
