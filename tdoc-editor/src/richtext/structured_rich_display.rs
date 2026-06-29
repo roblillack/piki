@@ -2588,8 +2588,24 @@ impl StructuredRichDisplay {
                 });
             break;
         }
+        // A table emits LayoutLines only for its text rows; its horizontal grid
+        // lines (top/separator/bottom — `row_y.len()` of them) are drawn from the
+        // TableLayout and aren't LayoutLines. Classic Pure counted those border
+        // rows as content lines, so fold them in: into the total, and into the
+        // cursor's ordinal for any table that sits entirely above the cursor.
+        let table_border_lines: usize = self.table_layouts.iter().map(|t| t.row_y.len()).sum();
+        let cursor_line_ordinal = cursor_line_ordinal.map(|idx| {
+            let borders_above: usize = self
+                .table_layouts
+                .iter()
+                .filter(|t| cur_idx.is_some_and(|c| t.block_index < c))
+                .map(|t| t.row_y.len())
+                .sum();
+            idx + borders_above
+        });
+
         ContentLineMetrics {
-            total_lines: self.layout_lines.len(),
+            total_lines: self.layout_lines.len() + table_border_lines,
             cursor_line_ordinal,
             cursor_root_paragraph,
         }
@@ -2856,6 +2872,27 @@ impl StructuredRichDisplay {
     /// before) or exactly at the end (directly after) of the link.
     ///
     /// Returns ((block_index, inline_index), destination) if a link is found.
+    /// Plain-text label (the text the link wraps) of the inline link at or
+    /// adjacent to the cursor — for pre-filling an edit dialog's text field.
+    /// `None` when the cursor is not on a link.
+    pub fn link_label_near_cursor(&self) -> Option<String> {
+        let cursor = self.editor.cursor();
+        let cur_idx = self.index_for_path(&cursor.path)?;
+        let block = self.layout_blocks.get(cur_idx)?;
+        let mut pos = 0usize;
+        for item in &block.content {
+            let len = item.text_len();
+            if matches!(item, InlineContent::Link { .. })
+                && cursor.offset >= pos
+                && cursor.offset <= pos + len
+            {
+                return Some(item.to_plain_text());
+            }
+            pos += len;
+        }
+        None
+    }
+
     pub fn find_link_near_cursor(&self) -> Option<((TreePath, usize), String)> {
         let cursor = self.editor.cursor();
         let cur_idx = self.index_for_path(&cursor.path)?;
