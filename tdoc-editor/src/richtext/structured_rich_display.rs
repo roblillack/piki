@@ -4,7 +4,7 @@
 
 use super::structured_document::*;
 use super::structured_editor::*;
-use super::tree_path::{DocumentPosition, TreePath};
+use super::tree_path::{DocumentPosition, PathSegment, TreePath};
 use super::tree_walk::{self, LeafInfo};
 use crate::draw_context::DrawContext;
 use crate::draw_context::FontStyle;
@@ -265,6 +265,30 @@ fn bolden_inline(content: &[InlineContent]) -> Vec<InlineContent> {
             InlineContent::HardBreak => InlineContent::HardBreak,
         })
         .collect()
+}
+
+/// Result of [`StructuredRichDisplay::content_line_metrics`]: the data a cell
+/// backend needs to report a classic-Pure "content line" number in its status
+/// bar without baking layout internals into the app.
+pub struct ContentLineMetrics {
+    /// Total laid-out content rows (block spacing and decorations excluded).
+    pub total_lines: usize,
+    /// Zero-based index of the cursor's layout line among all layout lines.
+    pub cursor_line_ordinal: Option<usize>,
+    /// Index into `Document.paragraphs` of the top-level block holding the cursor.
+    pub cursor_root_paragraph: Option<usize>,
+}
+
+/// Classic-Pure (top, bottom) block margins, in line-height units, used when
+/// `Theme::classic_block_spacing` is on. Only headings carry margins; every
+/// other block relies on the base inter-block gap.
+fn classic_margins(block_type: &BlockType) -> (i32, i32) {
+    match block_type {
+        BlockType::Heading { level: 1 } => (3, 3),
+        BlockType::Heading { level: 2 } => (3, 2),
+        BlockType::Heading { .. } => (2, 1),
+        _ => (0, 0),
+    }
 }
 
 struct InlineContentLayout {
@@ -528,7 +552,8 @@ impl StructuredRichDisplay {
         self.layout_lines.clear();
         self.table_layouts.clear();
 
-        let content_width = self.w - 2 * self.theme.padding_horizontal;
+        let content_width =
+            self.w - 2 * self.theme.padding_horizontal - self.theme.wrap_width_reduction;
         let mut current_y = self.theme.padding_vertical;
 
         // Project the authoritative tdoc tree into a flat list of leaves (in document
@@ -547,7 +572,18 @@ impl StructuredRichDisplay {
             (leaves, blocks)
         };
 
+        let mut prev_bottom = 0;
         for block_idx in 0..blocks.len() {
+            if self.theme.classic_block_spacing {
+                // Classic Pure spacing: the gap before a block is the max of the
+                // base inter-block gap, the previous block's bottom margin and
+                // this block's top margin (margins collapse, they don't add).
+                let lh = self.theme.line_height;
+                let (top, bottom) = classic_margins(&blocks[block_idx].block_type);
+                let base_gap = if block_idx > 0 { lh } else { 0 };
+                current_y += base_gap.max(prev_bottom).max(top * lh);
+                prev_bottom = bottom * lh;
+            }
             current_y = self.layout_block(
                 &blocks[block_idx],
                 &blocks,
@@ -1016,6 +1052,7 @@ impl StructuredRichDisplay {
                 } else {
                     0
                 };
+                let line_start = self.layout_lines.len();
                 let y_after = self.layout_inline_block(
                     block,
                     block_idx,
@@ -1025,20 +1062,39 @@ impl StructuredRichDisplay {
                     height,
                     ctx,
                 );
-                y_after + self.theme.heading_bottom_margin // Extra spacing after headings
+                if *level == 1 && self.theme.center_level1_headings {
+                    self.center_layout_lines(line_start, interior_width);
+                }
+                // When an underline rule is drawn (H2/H3), reserve its own row so
+                // it sits directly under the heading text instead of borrowing a
+                // row from the following margin.
+                let underline_row = if self.theme.heading_underline && (*level == 2 || *level == 3)
+                {
+                    default_line_height
+                } else {
+                    0
+                };
+                y_after + self.theme.heading_bottom_margin + underline_row
             }
             BlockType::CodeBlock { .. } => {
                 let text = block.to_plain_text();
                 let lines: Vec<&str> = text.lines().collect();
                 let f = self.theme.code_text;
                 let mut current_y = y + self.theme.code_block_padding;
-                let code_start_x = interior_x + 10;
+                let code_start_x = interior_x + self.theme.code_block_indent;
                 let is_empty = lines.is_empty();
 
+                // The code block is a single leaf whose plain text is the lines
+                // joined by '\n'. Each visual line must carry its *cumulative*
+                // byte range within that text (not 0..line_len), or vertical
+                // cursor navigation can't tell the lines apart and gets stuck.
+                let mut offset = 0usize;
                 for line in &lines {
                     let line_width =
                         ctx.text_width(line, f.font_type, f.font_style, f.font_size) as i32;
                     let line_len = line.len();
+                    let char_start = offset;
+                    let char_end = offset + line_len;
                     let runs = vec![VisualRun {
                         text: (*line).to_string(),
                         x: code_start_x,
@@ -1051,22 +1107,24 @@ impl StructuredRichDisplay {
                         underline: false,
                         strikethrough: false,
                         block_index: block_idx,
-                        char_range: (0, line_len),
+                        char_range: (char_start, char_end),
                         inline_index: None,
                         checklist: None,
                     }];
-                    let visual_char_end = self.compute_visual_char_end(&runs, line_len, false);
+                    let visual_char_end = self.compute_visual_char_end(&runs, char_end, false);
                     self.layout_lines.push(LayoutLine {
                         y: current_y,
                         height: default_line_height,
                         base_x: code_start_x,
                         block_index: block_idx,
-                        char_start: 0,
-                        char_end: line_len,
+                        char_start,
+                        char_end,
                         visual_char_end,
                         runs,
                     });
                     current_y += default_line_height;
+                    // Advance past this line's text and the '\n' that follows it.
+                    offset = char_end + 1;
                 }
 
                 if is_empty {
@@ -1083,7 +1141,14 @@ impl StructuredRichDisplay {
                     current_y += default_line_height;
                 }
 
-                current_y + self.theme.code_block_padding * 2
+                // With fences, the top fence lives in the leading `code_block_padding`
+                // row and the bottom fence needs a single trailing row; without
+                // fences the GUI keeps padding above and below.
+                if self.theme.code_block_fence {
+                    current_y + self.theme.code_block_padding
+                } else {
+                    current_y + self.theme.code_block_padding * 2
+                }
             }
             BlockType::BlockQuote => {
                 // The quote indent is already folded into `start_x`/`interior_x`; the
@@ -1115,33 +1180,47 @@ impl StructuredRichDisplay {
                 // Determine label text and padding width
                 let (label_text, label_pad_width, content_start_x) = if let Some(checked) = checkbox
                 {
-                    let mut marker_box_size = (plain_font.font_size as i32).saturating_sub(4);
-                    if marker_box_size < 8 {
-                        marker_box_size = 8;
+                    if self.theme.checkbox_text {
+                        // Cell backend: render the marker as bracketed text in the
+                        // run itself (no drawn square), so it reads as `[✓] `/`[ ] `.
+                        let marker = if *checked { "[✓] " } else { "[ ] " };
+                        let w = ctx.text_width(
+                            marker,
+                            plain_font.font_type,
+                            plain_font.font_style,
+                            plain_font.font_size,
+                        ) as i32;
+                        let content_start_x = start_x + label_left_pad + w;
+                        (marker.to_string(), w, content_start_x)
+                    } else {
+                        let mut marker_box_size = (plain_font.font_size as i32).saturating_sub(4);
+                        if marker_box_size < 8 {
+                            marker_box_size = 8;
+                        }
+                        if marker_box_size > default_line_height {
+                            marker_box_size = default_line_height;
+                        }
+
+                        let mut space_width = ctx.text_width(
+                            " ",
+                            plain_font.font_type,
+                            plain_font.font_style,
+                            plain_font.font_size,
+                        ) as i32;
+                        if space_width < 4 {
+                            space_width = 4;
+                        }
+
+                        let label_pad_width = marker_box_size + space_width;
+                        let content_start_x = start_x + label_left_pad + label_pad_width;
+
+                        checklist_visual = Some(ChecklistVisual {
+                            checked: *checked,
+                            box_size: marker_box_size,
+                        });
+
+                        (String::new(), label_pad_width, content_start_x)
                     }
-                    if marker_box_size > default_line_height {
-                        marker_box_size = default_line_height;
-                    }
-
-                    let mut space_width = ctx.text_width(
-                        " ",
-                        plain_font.font_type,
-                        plain_font.font_style,
-                        plain_font.font_size,
-                    ) as i32;
-                    if space_width < 4 {
-                        space_width = 4;
-                    }
-
-                    let label_pad_width = marker_box_size + space_width;
-                    let content_start_x = start_x + label_left_pad + label_pad_width;
-
-                    checklist_visual = Some(ChecklistVisual {
-                        checked: *checked,
-                        box_size: marker_box_size,
-                    });
-
-                    (String::new(), label_pad_width, content_start_x)
                 } else if *ordered {
                     // Find contiguous ordered list run (adjacent siblings)
 
@@ -1231,7 +1310,11 @@ impl StructuredRichDisplay {
                     font_type: self.theme.plain_text.font_type,
                     font_style: self.theme.plain_text.font_style,
                     font_size: self.theme.plain_text.font_size,
-                    font_color: self.theme.plain_text.font_color,
+                    // List markers (bullet, number, `[ ]`/`[✓]`) are structural,
+                    // so they take the structural color. It defaults to the plain
+                    // text color, so this is a no-op for the GUI; a cell backend
+                    // tints it gray to match classic Pure's faint markers.
+                    font_color: self.theme.structural_color,
                     background_color: self.theme.plain_text.background_color,
                     underline: false,
                     strikethrough: false,
@@ -1553,6 +1636,38 @@ impl StructuredRichDisplay {
         current_y + self.theme.paragraph_spacing
     }
 
+    /// Horizontally center the layout lines `from..` within a column of `width`
+    /// (the runs already begin at the column's left edge). Used for centered
+    /// headings; shifts each line's runs (and `base_x`) by half its slack so
+    /// cursor hit-testing follows the visible text.
+    fn center_layout_lines(&mut self, from: usize, width: i32) {
+        for line in self.layout_lines[from..].iter_mut() {
+            // Visual span of the line: leftmost run start to rightmost run end,
+            // ignoring empty placeholder runs.
+            let mut min_x = i32::MAX;
+            let mut max_x = i32::MIN;
+            for run in &line.runs {
+                if run.char_range.0 == run.char_range.1 && run.inline_index.is_none() {
+                    continue;
+                }
+                min_x = min_x.min(run.x);
+                max_x = max_x.max(run.x + run.width);
+            }
+            if min_x == i32::MAX {
+                continue; // nothing to center
+            }
+            let span = max_x - min_x;
+            let offset = ((width - span) / 2).max(0);
+            if offset == 0 {
+                continue;
+            }
+            for run in &mut line.runs {
+                run.x += offset;
+            }
+            line.base_x += offset;
+        }
+    }
+
     fn resolve_text_run_style(
         &self,
         base_font: FontSettings,
@@ -1871,6 +1986,108 @@ impl StructuredRichDisplay {
     /// Draw the grid lines and header-cell backgrounds for every table block.
     /// Cell text itself is drawn by the normal `LayoutLine` run loop; this only
     /// paints the structural decoration around it.
+    /// Draw a rule under each level-2/3 heading (`=` for H2, `-` for H3) when
+    /// `theme.heading_underline` is set. The rule lands in the blank row directly
+    /// below the heading — purely decorative, so it never enters the cursor model.
+    fn draw_heading_underlines(&self, ctx: &mut dyn DrawContext) {
+        if !self.theme.heading_underline {
+            return;
+        }
+        let viewport_top = self.scroll_offset;
+        let viewport_bottom = self.scroll_offset + self.h;
+        for i in 0..self.layout_lines.len() {
+            let line = &self.layout_lines[i];
+            let ch = match self.layout_blocks.get(line.block_index).map(|b| &b.block_type) {
+                Some(BlockType::Heading { level: 2 }) => '=',
+                Some(BlockType::Heading { level: 3 }) => '-',
+                _ => continue,
+            };
+            if !self.is_last_visual_line_in_block(i) {
+                continue;
+            }
+            // Span of the heading text on this line.
+            let mut min_x = i32::MAX;
+            let mut max_x = i32::MIN;
+            for run in &line.runs {
+                if run.char_range.0 == run.char_range.1 && run.inline_index.is_none() {
+                    continue;
+                }
+                min_x = min_x.min(run.x);
+                max_x = max_x.max(run.x + run.width);
+            }
+            if min_x == i32::MAX {
+                continue;
+            }
+            let rule_y = line.y + line.height;
+            if rule_y < viewport_top || rule_y > viewport_bottom {
+                continue;
+            }
+            let count = (max_x - min_x).max(1) as usize;
+            let rule: String = ch.to_string().repeat(count);
+            let f = self.theme.plain_text;
+            ctx.set_font(f.font_type, FontStyle::Regular, f.font_size);
+            ctx.set_color(self.theme.structural_color);
+            ctx.draw_text(&rule, self.x + min_x, self.y + rule_y - self.scroll_offset);
+        }
+    }
+
+    /// Draw classic-Pure code fences: a full-content-width rule above the first
+    /// and below the last line of every code block. The rule rows live in the
+    /// block's `code_block_padding`, so they neither count as content lines nor
+    /// collide with the code text.
+    fn draw_code_fences(&self, ctx: &mut dyn DrawContext) {
+        if !self.theme.code_block_fence {
+            return;
+        }
+        let viewport_top = self.scroll_offset;
+        let viewport_bottom = self.scroll_offset + self.h;
+        let content_left = self.theme.padding_horizontal;
+        let content_right = self.w - self.theme.padding_horizontal;
+        let f = self.theme.code_text;
+        // Fence width is measured in cells via the code font's space width.
+        let cell = (ctx.text_width("-", f.font_type, f.font_style, f.font_size) as i32).max(1);
+        let count = ((content_right - content_left) / cell).max(1) as usize;
+        let rule: String = "-".repeat(count);
+
+        let mut block = usize::MAX;
+        let mut first_y = 0;
+        let mut last_y = 0;
+        let flush = |display: &Self, top: i32, bottom: i32, ctx: &mut dyn DrawContext| {
+            for rule_y in [top, bottom] {
+                if rule_y < viewport_top || rule_y > viewport_bottom {
+                    continue;
+                }
+                ctx.set_font(f.font_type, FontStyle::Regular, f.font_size);
+                ctx.set_color(display.theme.structural_color);
+                ctx.draw_text(
+                    &rule,
+                    display.x + content_left,
+                    display.y + rule_y - display.scroll_offset,
+                );
+            }
+        };
+        for line in &self.layout_lines {
+            let is_code = matches!(
+                self.layout_blocks.get(line.block_index).map(|b| &b.block_type),
+                Some(BlockType::CodeBlock { .. })
+            );
+            if !is_code {
+                continue;
+            }
+            if line.block_index != block {
+                if block != usize::MAX {
+                    flush(self, first_y - self.theme.line_height, last_y + self.theme.line_height, ctx);
+                }
+                block = line.block_index;
+                first_y = line.y;
+            }
+            last_y = line.y;
+        }
+        if block != usize::MAX {
+            flush(self, first_y - self.theme.line_height, last_y + self.theme.line_height, ctx);
+        }
+    }
+
     fn draw_tables(&self, ctx: &mut dyn DrawContext) {
         let viewport_top = self.scroll_offset;
         let viewport_bottom = self.scroll_offset + self.h;
@@ -1941,6 +2158,11 @@ impl StructuredRichDisplay {
         // Table grid lines and header fills sit behind the cell text.
         self.draw_tables(ctx);
 
+        // Heading rules (`===`/`---` under H2/H3) and code fences when the
+        // backend asks for them.
+        self.draw_heading_underlines(ctx);
+        self.draw_code_fences(ctx);
+
         for line in &self.layout_lines {
             if line.y + line.height < viewport_top || line.y > viewport_bottom {
                 continue;
@@ -1958,7 +2180,11 @@ impl StructuredRichDisplay {
                         + self.theme.padding_horizontal
                         + level * self.theme.quote_indent
                         + self.theme.quote_bar_offset;
-                    ctx.draw_line(bar_x, bar_y1, bar_x, bar_y2);
+                    if self.theme.quote_bar_as_text {
+                        ctx.draw_text("|", bar_x, bar_y1);
+                    } else {
+                        ctx.draw_line(bar_x, bar_y1, bar_x, bar_y2);
+                    }
                 }
             }
 
@@ -2157,6 +2383,71 @@ impl StructuredRichDisplay {
             return None;
         }
         Some((screen_x, screen_y))
+    }
+
+    /// 1-based column of the cursor, measured from the start of its visual
+    /// line's text. Unlike a column derived from the raw screen x, this stays
+    /// natural when the line is centered or indented (the offset is relative to
+    /// the line's leftmost content run, not the page origin).
+    pub fn cursor_column(&self, ctx: &mut dyn DrawContext) -> Option<usize> {
+        let (cx, _cy, _h) = self.get_cursor_visual_position(ctx)?;
+        let cursor = self.editor.cursor();
+        let cur_idx = self.index_for_path(&cursor.path);
+        for (idx, line) in self.layout_lines.iter().enumerate() {
+            if Some(line.block_index) != cur_idx {
+                continue;
+            }
+            if !self.offset_belongs_to_line(idx, cursor.offset) {
+                continue;
+            }
+            let left = line
+                .runs
+                .iter()
+                .filter(|r| !(r.char_range.0 == r.char_range.1 && r.inline_index.is_none()))
+                .map(|r| r.x)
+                .min()
+                .unwrap_or(line.base_x);
+            return Some(((cx - left).max(0) + 1) as usize);
+        }
+        None
+    }
+
+    /// Layout-line accounting for a status bar that reports "content lines" the
+    /// way classic Pure did. Every laid-out visual line is a content row (block
+    /// spacing is empty space, decorations like underlines/fences are overlays),
+    /// so `total_lines` is just the layout-line count. `cursor_line_ordinal` is
+    /// the zero-based index of the cursor's layout line among all lines, and
+    /// `cursor_root_paragraph` is the index of the top-level `Document.paragraphs`
+    /// entry the cursor sits in (needed to add the right number of inter-block
+    /// margins). The margin arithmetic itself lives in the caller.
+    pub fn content_line_metrics(&self) -> ContentLineMetrics {
+        let cursor = self.editor.cursor();
+        let cur_idx = self.index_for_path(&cursor.path);
+        let mut cursor_line_ordinal = None;
+        let mut cursor_root_paragraph = None;
+        for (idx, line) in self.layout_lines.iter().enumerate() {
+            if Some(line.block_index) != cur_idx {
+                continue;
+            }
+            if !self.offset_belongs_to_line(idx, cursor.offset) {
+                continue;
+            }
+            cursor_line_ordinal = Some(idx);
+            cursor_root_paragraph = self
+                .layout_leaves
+                .get(line.block_index)
+                .and_then(|info| info.path.segments().first())
+                .map(|seg| match seg {
+                    PathSegment::Paragraph(p) => *p,
+                    _ => 0,
+                });
+            break;
+        }
+        ContentLineMetrics {
+            total_lines: self.layout_lines.len(),
+            cursor_line_ordinal,
+            cursor_root_paragraph,
+        }
     }
 
     /// Get visual position of cursor (x, y, height) relative to widget

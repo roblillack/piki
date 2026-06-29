@@ -61,6 +61,58 @@ pub struct Theme {
     /// backends set this `false` so decorations don't land on the wrong row).
     pub text_decoration_lines: bool,
 
+    /// Center level-1 headings within the content column (classic Pure styled
+    /// its document title this way). Off by default so other backends keep
+    /// left-aligned headings.
+    pub center_level1_headings: bool,
+
+    /// Horizontal inset of code-block text past the block's left edge. Pixel
+    /// value for the GUI; a cell backend uses a small value (a 10-pixel inset is
+    /// 10 whole columns in a terminal).
+    pub code_block_indent: i32,
+
+    /// Render checklist markers as text (`[x] ` / `[ ] `) instead of a drawn
+    /// square. Off by default (GUI draws the box); a cell backend turns this on
+    /// so checkboxes read as the classic bracketed markers in one column run.
+    pub checkbox_text: bool,
+
+    /// Draw a rule (`=` for H2, `-` for H3) under level-2/3 headings. Off by
+    /// default (GUI distinguishes headings by font size); a cell backend, which
+    /// has no font sizes, turns this on so heading levels stay distinguishable.
+    pub heading_underline: bool,
+
+    /// Draw the quote bar as a literal `|` glyph (classic Pure used the ASCII
+    /// pipe) instead of a drawn vertical line. Off by default so the GUI keeps
+    /// its solid bar; a cell backend turns this on.
+    pub quote_bar_as_text: bool,
+
+    /// Columns to trim from the content width before wrapping, beyond the
+    /// horizontal padding. Classic Pure wrapped text at `wrap_width - 1`; a cell
+    /// backend sets this to 1 to reproduce that exact line breaking. Defaults to
+    /// 0 so the GUI is unaffected.
+    pub wrap_width_reduction: i32,
+
+    /// Color used for decorative rules drawn by the engine — heading underlines
+    /// and code-block fences. Only consulted when `heading_underline` /
+    /// `code_block_fence` are on (i.e. cell backends); defaults to the plain
+    /// text color so it is harmless for the GUI.
+    pub structural_color: u32,
+
+    /// Draw a horizontal rule above and below code blocks (classic Pure fenced
+    /// code this way in the terminal). Off by default; the GUI tints code text
+    /// instead. The fence rows live in `code_block_padding`, so a backend that
+    /// turns this on must keep that padding >= 1.
+    pub code_block_fence: bool,
+
+    /// Use classic-Pure block spacing: instead of each block adding its own
+    /// trailing space (the additive GUI model), the gap before a block is
+    /// `max(1, previous block's bottom margin, this block's top margin)` with
+    /// heading margins H1=(3,3) H2=(3,2) H3=(2,1) and every other block (0,0).
+    /// Off by default so the GUI keeps its additive pixel spacing. A cell
+    /// backend turns this on and zeroes the per-block spacing fields so the two
+    /// models don't both apply.
+    pub classic_block_spacing: bool,
+
     pub header_level_1: FontSettings,
     pub header_level_2: FontSettings,
     pub header_level_3: FontSettings,
@@ -100,6 +152,15 @@ impl Default for Theme {
             table_cell_padding_h: 6,
             table_cell_padding_v: 3,
             text_decoration_lines: true,
+            center_level1_headings: false,
+            code_block_indent: 10,
+            checkbox_text: false,
+            heading_underline: false,
+            quote_bar_as_text: false,
+            wrap_width_reduction: 0,
+            structural_color: 0x000000FF,
+            code_block_fence: false,
+            classic_block_spacing: false,
             header_level_1: FontSettings {
                 font_type: FontType::Heading,
                 font_style: FontStyle::Bold,
