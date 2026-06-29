@@ -130,6 +130,7 @@ fn push_token_wrapped(
     width: i32,
     line_height: i32,
     break_long_words: bool,
+    defer_trailing_space: bool,
     text: &str,
     char_base: usize,
     inline_index: usize,
@@ -141,9 +142,26 @@ fn push_token_wrapped(
 
     let must_break = break_long_words && width > 0 && token_width > width;
     if !must_break {
+        // A token carries its trailing whitespace. When `defer_trailing_space` is
+        // set, that space must not push the wrap decision: a word whose glyphs fit
+        // belongs on this line even when its trailing space would spill past the
+        // edge (the space is then invisible at the line end). Testing the trimmed
+        // width mirrors classic Pure, which held the inter-word space pending and
+        // dropped it at the break. Off by default so pixel backends keep wrapping
+        // on the full token width.
+        let fit_width = if defer_trailing_space {
+            let trimmed = text.trim_end_matches(|c: char| c.is_whitespace());
+            if trimmed.len() == text.len() {
+                token_width
+            } else {
+                ctx.text_width(trimmed, font, fstyle, size) as i32
+            }
+        } else {
+            token_width
+        };
         // Wrap to the next line if it doesn't fit and we're not already at the
         // line start, then place the whole token (original behavior).
-        if *current_x + token_width > start_x + width && *current_x > start_x {
+        if *current_x + fit_width > start_x + width && *current_x > start_x {
             push_line(
                 lines,
                 line_ranges,
@@ -476,8 +494,8 @@ impl StructuredRichDisplay {
             let viewport_bottom = self.scroll_offset + self.h;
 
             // Provide a small comfort margin around the cursor line
-            let margin_top = 8;
-            let margin_bottom = 8;
+            let margin_top = self.theme.cursor_scroll_margin;
+            let margin_bottom = self.theme.cursor_scroll_margin;
 
             let mut new_scroll = self.scroll_offset;
 
@@ -552,7 +570,8 @@ impl StructuredRichDisplay {
         self.layout_lines.clear();
         self.table_layouts.clear();
 
-        let content_width = self.w - 2 * self.theme.padding_horizontal;
+        let content_width =
+            self.w - 2 * self.theme.padding_horizontal - self.theme.wrap_width_reduction;
         let mut current_y = self.theme.padding_vertical;
 
         // Project the authoritative tdoc tree into a flat list of leaves (in document
@@ -1840,6 +1859,7 @@ impl StructuredRichDisplay {
                                 width,
                                 line_height,
                                 break_long_words,
+                                self.theme.wrap_defer_trailing_space,
                                 word_text,
                                 char_offset + word_start,
                                 inline_idx,
@@ -1880,6 +1900,7 @@ impl StructuredRichDisplay {
                         width,
                         line_height,
                         break_long_words,
+                        self.theme.wrap_defer_trailing_space,
                         &text,
                         char_offset,
                         inline_idx,
@@ -2382,6 +2403,17 @@ impl StructuredRichDisplay {
             return None;
         }
         Some((screen_x, screen_y))
+    }
+
+    /// The cursor's content-space `y` (top of its visual line, before scroll is
+    /// applied) and the line height, or `None` when there is no resolvable
+    /// cursor. Unlike [`cursor_screen_position`](Self::cursor_screen_position)
+    /// this is defined even when the cursor is scrolled out of view, so callers
+    /// can measure how far the cursor moves across visual rows (e.g. paging by a
+    /// fixed number of rows, counting the blank gaps between blocks).
+    pub fn cursor_content_y(&self, ctx: &mut dyn DrawContext) -> Option<(i32, i32)> {
+        let (_cx, cy, ch) = self.get_cursor_visual_position(ctx)?;
+        Some((cy, ch))
     }
 
     /// 1-based column of the cursor, measured from the start of its visual

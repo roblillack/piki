@@ -98,6 +98,29 @@ pub struct Theme {
     /// turns this on must keep that padding >= 1.
     pub code_block_fence: bool,
 
+    /// When wrapping, ignore a word's trailing whitespace in the fit decision:
+    /// a word whose glyphs fit stays on the line even if its trailing space
+    /// would spill past the edge (the space is invisible there). Classic Pure
+    /// did this — it held the inter-word space pending and dropped it at the
+    /// break. Off by default so pixel backends wrap on the full token width.
+    pub wrap_defer_trailing_space: bool,
+
+    /// Columns to subtract from the wrappable content width, beyond the
+    /// horizontal padding. Classic Pure reserved one trailing column so the
+    /// end-of-line cursor stays inside the text area (its `wrap_limit` was
+    /// `wrap_width - 1`); a cell backend sets this to 1 to wrap at the same
+    /// point. The GUI's caret needs no such column, so this defaults to 0 and
+    /// leaves pixel layout unchanged.
+    pub wrap_width_reduction: i32,
+
+    /// Comfort margin, in `line_height` units, kept between the cursor and the
+    /// top/bottom edge of the viewport when auto-scrolling to follow the cursor
+    /// (see [`StructuredRichDisplay::ensure_cursor_visible`]). The GUI uses a
+    /// small pixel value; a cell backend sets this to 1 line so the document
+    /// scrolls only once the cursor reaches the very edge, the way classic Pure
+    /// did.
+    pub cursor_scroll_margin: i32,
+
     /// Use classic-Pure block spacing: instead of each block adding its own
     /// trailing space (the additive GUI model), the gap before a block is
     /// `max(1, previous block's bottom margin, this block's top margin)` with
@@ -153,6 +176,9 @@ impl Default for Theme {
             quote_bar_as_text: false,
             structural_color: 0x000000FF,
             code_block_fence: false,
+            wrap_defer_trailing_space: false,
+            wrap_width_reduction: 0,
+            cursor_scroll_margin: 8,
             classic_block_spacing: false,
             header_level_1: FontSettings {
                 font_type: FontType::Heading,
