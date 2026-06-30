@@ -2826,4 +2826,29 @@ mod tests {
         assert_eq!(md(&e), "[a b c](u)");
     }
 
+    #[test]
+    fn image_in_link_flattens_and_is_stylable() {
+        let mut e = StructuredEditor::new();
+        e.load_markdown("[![Build Status](https://x/badge.svg)](https://x/actions)");
+        let runs = super::super::tree_walk::leaf_inline(e.tdoc(), &TreePath::root(0));
+        assert_eq!(runs.len(), 1, "one flat link: {:?}", runs);
+        match &runs[0] {
+            InlineContent::Link { link, content } => {
+                assert_eq!(link.destination, "https://x/actions", "outer link target kept");
+                assert!(
+                    content.iter().all(|c| matches!(c, InlineContent::Text(_))),
+                    "link content must be plain runs, no nested link: {:?}", content
+                );
+            }
+            other => panic!("expected a single link, got {:?}", other),
+        }
+        // Highlight "Status" (6..12) inside the link — applies cleanly, link intact.
+        e.set_selection(
+            DocumentPosition::at(TreePath::root(0), 6),
+            DocumentPosition::at(TreePath::root(0), 12),
+        );
+        e.toggle_highlight().unwrap();
+        assert_eq!(md(&e), "[Build <mark>Status</mark>](https://x/actions)");
+    }
+
 }

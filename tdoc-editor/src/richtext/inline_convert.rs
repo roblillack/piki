@@ -119,6 +119,13 @@ fn span_to_inline_internal(span: &Span, active: TextStyle, out: &mut Vec<InlineC
         for child in &span.children {
             span_to_inline_internal(child, style, &mut inner);
         }
+        // A link nested inside a link is degenerate — markdown's
+        // `[![alt](img)](url)` (an image inside a link) parses to exactly this,
+        // since tdoc has no image type. Flatten the inner link(s) so the outer
+        // link wraps plain styled runs: the content stays editable/stylable and
+        // renders (and reveals) as a single link instead of an opaque, unstylable
+        // blob. The outer link's destination (the clickable target) is kept.
+        let inner = flatten_nested_links(inner);
         let link = Link {
             destination: span.link_target.clone().unwrap_or_default(),
             title: None,
@@ -136,6 +143,19 @@ fn span_to_inline_internal(span: &Span, active: TextStyle, out: &mut Vec<InlineC
     for child in &span.children {
         span_to_inline_internal(child, style, out);
     }
+}
+
+/// Replace any link nested within `items` with its content (recursively), so the
+/// flat inline model never contains a link inside a link.
+fn flatten_nested_links(items: Vec<InlineContent>) -> Vec<InlineContent> {
+    let mut out = Vec::new();
+    for item in items {
+        match item {
+            InlineContent::Link { content, .. } => out.extend(flatten_nested_links(content)),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 fn push_text(out: &mut Vec<InlineContent>, text: &str, style: TextStyle) {
