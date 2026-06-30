@@ -1001,10 +1001,17 @@ impl StructuredRichDisplay {
 
     fn current_line_index_for_cursor(&self) -> Option<usize> {
         let cursor = self.editor.cursor();
-        let cidx = self.index_for_path(&cursor.path)?;
+        self.line_index_for_pos(&cursor.path, cursor.offset)
+    }
+
+    /// The index of the visual line that owns `(path, offset)`. Prefers the line
+    /// whose char range contains the offset; falls back to the closest line in
+    /// the same block by char-range proximity, otherwise `None`.
+    fn line_index_for_pos(&self, path: &TreePath, offset: usize) -> Option<usize> {
+        let cidx = self.index_for_path(path)?;
         // First, look for a line in the same block whose char range contains the offset
         for (i, line) in self.layout_lines.iter().enumerate() {
-            if line.block_index == cidx && self.offset_belongs_to_line(i, cursor.offset) {
+            if line.block_index == cidx && self.offset_belongs_to_line(i, offset) {
                 return Some(i);
             }
         }
@@ -1012,10 +1019,10 @@ impl StructuredRichDisplay {
         let mut candidate: Option<(usize, usize)> = None; // (index, distance)
         for (i, line) in self.layout_lines.iter().enumerate() {
             if line.block_index == cidx {
-                let dist = if cursor.offset < line.char_start {
-                    line.char_start - cursor.offset
+                let dist = if offset < line.char_start {
+                    line.char_start - offset
                 } else {
-                    cursor.offset.saturating_sub(line.char_end)
+                    offset.saturating_sub(line.char_end)
                 };
                 candidate = match candidate {
                     Some((_, best_dist)) if best_dist <= dist => candidate,
@@ -1145,7 +1152,7 @@ impl StructuredRichDisplay {
         // Treat a table as a single stop: skip down over all of its lines to the
         // first line below it.
         let cur_block = self.layout_lines[cur_idx].block_index;
-        let target_idx = if self.block_is_table(cur_block) {
+        let mut target_idx = if self.block_is_table(cur_block) {
             let mut t = cur_idx + 1;
             while t < len && self.layout_lines[t].block_index == cur_block {
                 t += 1;
@@ -1155,12 +1162,24 @@ impl StructuredRichDisplay {
             cur_idx + 1
         };
 
-        if target_idx >= len {
-            // Already at (or past) the last line
-            return;
-        }
-
-        let new_pos = self.vertical_target_pos(target_idx);
+        // Skip "phantom" target lines whose resolved caret position maps back to
+        // the current line. In reveal-codes mode a block's trailing inline tags
+        // (e.g. a closing `<Bold]`) can wrap onto a line of their own; that line
+        // has zero document width, so its sole offset is shared with the end of
+        // the previous content line. Landing on it would leave the caret visually
+        // put — and, because the offset always resolves back to the content line,
+        // would trap Down forever (see the ARCHITECTURE.md reveal-mode stall).
+        let new_pos = loop {
+            if target_idx >= len {
+                // Only phantom (or no) lines remain below: already at the bottom.
+                return;
+            }
+            let candidate = self.vertical_target_pos(target_idx);
+            if self.line_index_for_pos(&candidate.path, candidate.offset) != Some(cur_idx) {
+                break candidate;
+            }
+            target_idx += 1;
+        };
         if extend {
             self.editor.extend_selection_to(new_pos);
         } else {
@@ -3634,6 +3653,68 @@ mod tests {
         // Up again: skip the entire table to the first paragraph.
         display.move_cursor_visual_up(false, &mut ctx);
         assert_eq!(display.editor().cursor().path, TreePath::root(0));
+    }
+
+    #[test]
+    fn reveal_codes_wrapped_inline_tag_does_not_trap_down() {
+        // Regression: in reveal-codes mode a block's trailing inline tag (e.g. a
+        // closing `<Bold]`) can wrap onto a line of its own. That line carries
+        // zero document width, so its only offset coincides with the end of the
+        // preceding content line — and `move_cursor_visual_down` used to keep
+        // landing on it, freezing the caret partway through the document. (Found
+        // via the ARCHITECTURE.md reveal-mode cursor-down benchmark, which stalled
+        // at a bold list item ~94 paragraphs before the end.)
+        let md = "- **bold words that should wrap across several lines in this one list item**\n\nAFTER\n";
+        let doc = crate::richtext::markdown_converter::markdown_to_document(md);
+
+        // The wrap window is only a few pixels wide and depends on font metrics,
+        // so search narrow→wide for a width at which the trailing reveal tag wraps
+        // onto its own zero-width line (the phantom) rather than hardcoding it.
+        let is_phantom = |d: &StructuredRichDisplay| {
+            d.layout_lines.iter().any(|l| {
+                l.char_start == l.char_end
+                    && !l.runs.is_empty()
+                    && l.runs.iter().all(|r| r.reveal_tag)
+            })
+        };
+        let phantom_width = (60..=400).step_by(2).find(|&w| {
+            let mut d = StructuredRichDisplay::new(0, 0, w, 300);
+            d.editor_mut().set_tdoc(doc.clone());
+            d.set_reveal_codes(true);
+            let mut ctx = TestDrawContext::new_with_focus();
+            d.layout(&mut ctx);
+            is_phantom(&d)
+        });
+        let w = phantom_width.expect("no width wrapped a reveal tag onto its own line");
+
+        let mut display = StructuredRichDisplay::new(0, 0, w, 300);
+        display.editor_mut().set_tdoc(doc.clone());
+        display.set_reveal_codes(true);
+        display.editor_mut().set_cursor(DocumentPosition::new(0, 0));
+        let mut ctx = TestDrawContext::new_with_focus();
+
+        // Press Down repeatedly: the caret must reach the trailing "AFTER"
+        // paragraph (the last leaf), not freeze on the bold list item.
+        let last_path = TreePath::root(1);
+        let mut prev = display.editor().cursor();
+        let mut reached = false;
+        for _ in 0..50 {
+            display.move_cursor_visual_down(false, &mut ctx);
+            let cur = display.editor().cursor();
+            if cur.path == last_path {
+                reached = true;
+                break;
+            }
+            if cur == prev {
+                break; // stuck before the end
+            }
+            prev = cur;
+        }
+        assert!(
+            reached,
+            "Down stalled before the trailing paragraph at {:?} (phantom width {w})",
+            display.editor().cursor(),
+        );
     }
 
     #[test]
