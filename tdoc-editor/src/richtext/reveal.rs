@@ -144,31 +144,90 @@ impl RevealReconciler {
         let (closes, _) = self.reconcile(&[]);
         closes
     }
+
+    /// The currently-open styles, outermost first.
+    fn stack(&self) -> &[RevealStyle] {
+        &self.stack
+    }
 }
 
-/// Per-run reveal styles with the run's byte range in the leaf's flattened text.
-fn run_style_ranges(content: &[InlineContent]) -> Vec<(Vec<RevealStyle>, usize, usize)> {
-    let mut out = Vec::new();
+/// The reveal-tag model for a leaf: the tag boundaries (in render order) and the
+/// active styles over each text run. It walks the content **the same way the
+/// display does** — recursing into links so their `[Link>` scope and their inner
+/// runs' style tags (`[Bold>`…) are modeled too — so cursor stops, tag counts and
+/// tag removal stay consistent with what's drawn.
+struct RevealModel {
+    /// `(offset, closes, opens)` at each boundary, in order. An offset can repeat
+    /// (e.g. a link's `[Link>` and its first inner `[Bold>` are both at the link
+    /// start); the tags there are the boundaries concatenated in this order.
+    boundaries: Vec<(usize, Vec<RevealStyle>, Vec<RevealStyle>)>,
+    /// `(start, end, active styles)` per non-empty text run.
+    runs: Vec<(usize, usize, Vec<RevealStyle>)>,
+}
+
+fn build_reveal_model(content: &[InlineContent]) -> RevealModel {
+    let mut recon = RevealReconciler::new();
     let mut offset = 0usize;
-    for item in content {
-        let len = item.text_len();
-        if let Some(styles) = item_reveal_styles(item) {
-            out.push((styles, offset, offset + len));
-        }
-        offset += len;
+    let mut boundaries = Vec::new();
+    let mut runs = Vec::new();
+    walk_reveal(content, &[], &mut recon, &mut offset, &mut boundaries, &mut runs);
+    let closes = recon.finish();
+    if !closes.is_empty() {
+        boundaries.push((offset, closes, Vec::new()));
     }
-    out
+    RevealModel { boundaries, runs }
+}
+
+fn walk_reveal(
+    content: &[InlineContent],
+    base: &[RevealStyle],
+    recon: &mut RevealReconciler,
+    offset: &mut usize,
+    boundaries: &mut Vec<(usize, Vec<RevealStyle>, Vec<RevealStyle>)>,
+    runs: &mut Vec<(usize, usize, Vec<RevealStyle>)>,
+) {
+    for item in content {
+        match item {
+            InlineContent::Text(run) => {
+                let mut target = base.to_vec();
+                target.extend(reveal_styles(&run.style));
+                let (closes, opens) = recon.reconcile(&target);
+                if !closes.is_empty() || !opens.is_empty() {
+                    boundaries.push((*offset, closes, opens));
+                }
+                let len = run.text.len();
+                if len > 0 {
+                    runs.push((*offset, *offset + len, recon.stack().to_vec()));
+                }
+                *offset += len;
+            }
+            InlineContent::Link { content: inner, .. } => {
+                // Open the link as its own scope (closing any prior styles), then
+                // recurse so inner runs carry `Link` + their own styles.
+                let mut link_base = base.to_vec();
+                link_base.push(RevealStyle::Link);
+                let (closes, opens) = recon.reconcile(&link_base);
+                if !closes.is_empty() || !opens.is_empty() {
+                    boundaries.push((*offset, closes, opens));
+                }
+                walk_reveal(inner, &link_base, recon, offset, boundaries, runs);
+            }
+            InlineContent::HardBreak => {
+                *offset += 1;
+            }
+        }
+    }
 }
 
 /// Forward extent `[offset, end)` of the contiguous runs (starting at `offset`)
 /// that all carry `style`.
 fn extent_forward(
-    runs: &[(Vec<RevealStyle>, usize, usize)],
+    runs: &[(usize, usize, Vec<RevealStyle>)],
     offset: usize,
     style: RevealStyle,
 ) -> (usize, usize) {
     let mut end = offset;
-    for (styles, start, run_end) in runs {
+    for (start, run_end, styles) in runs {
         if *start < offset {
             continue;
         }
@@ -184,12 +243,12 @@ fn extent_forward(
 /// Backward extent `[start, offset)` of the contiguous runs (ending at `offset`)
 /// that all carry `style`.
 fn extent_backward(
-    runs: &[(Vec<RevealStyle>, usize, usize)],
+    runs: &[(usize, usize, Vec<RevealStyle>)],
     offset: usize,
     style: RevealStyle,
 ) -> (usize, usize) {
     let mut start = offset;
-    for (styles, run_start, run_end) in runs.iter().rev() {
+    for (run_start, run_end, styles) in runs.iter().rev() {
         if *run_end > offset {
             continue;
         }
@@ -203,38 +262,24 @@ fn extent_backward(
 }
 
 /// Number of reveal tags rendered at byte `offset` — the count of intermediate
-/// cursor stops there (closes + opens at that boundary). Zero when `offset` is
-/// not a style boundary, so the caret steps a plain character.
+/// cursor stops there. Zero when `offset` is not a style boundary, so the caret
+/// steps a plain character.
 pub(crate) fn reveal_tag_count_at(content: &[InlineContent], offset: usize) -> usize {
-    let runs = run_style_ranges(content);
-    let mut recon = RevealReconciler::new();
-    for (styles, start, _end) in &runs {
-        let (closes, opens) = recon.reconcile(styles);
-        if *start == offset {
-            return closes.len() + opens.len();
-        }
-    }
-    let total = runs.last().map(|r| r.2).unwrap_or(0);
-    if total == offset {
-        return recon.finish().len();
-    }
-    0
+    build_reveal_model(content)
+        .boundaries
+        .iter()
+        .filter(|(o, _, _)| *o == offset)
+        .map(|(_, closes, opens)| closes.len() + opens.len())
+        .sum()
 }
 
 /// Every byte offset that carries reveal tags (a style boundary), in order.
 fn tag_boundaries(content: &[InlineContent]) -> Vec<usize> {
-    let runs = run_style_ranges(content);
-    let mut recon = RevealReconciler::new();
-    let mut out = Vec::new();
-    for (styles, start, _end) in &runs {
-        let (closes, opens) = recon.reconcile(styles);
-        if !closes.is_empty() || !opens.is_empty() {
-            out.push(*start);
+    let mut out: Vec<usize> = Vec::new();
+    for (offset, closes, opens) in &build_reveal_model(content).boundaries {
+        if (!closes.is_empty() || !opens.is_empty()) && out.last() != Some(offset) {
+            out.push(*offset);
         }
-    }
-    let total = runs.last().map(|r| r.2).unwrap_or(0);
-    if !recon.finish().is_empty() {
-        out.push(total);
     }
     out
 }
@@ -251,59 +296,57 @@ pub(crate) fn prev_tag_boundary(content: &[InlineContent], offset: usize) -> Opt
     tag_boundaries(content).into_iter().rev().find(|&b| b < offset)
 }
 
-/// The reveal tag rendered immediately to one side of `offset`, if any, plus the
-/// byte range of the span whose style it represents. `backward` picks the tag to
-/// the left of the caret (the last one printed at the boundary); otherwise the
-/// tag to the right (the first one printed). Returns the style and the
-/// `[start, end)` range over which to clear it.
-pub(crate) fn reveal_tag_at(
+/// Replace each link in `items` with its inner content — used to delete a link
+/// by removing its reveal tag (a link is a structural element, not a style flag,
+/// so it's unwrapped rather than cleared).
+pub(crate) fn unwrap_links(items: Vec<InlineContent>) -> Vec<InlineContent> {
+    let mut out = Vec::new();
+    for item in items {
+        match item {
+            InlineContent::Link { content, .. } => out.extend(content),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// The reveal tag the caret sits *immediately beside*, given its reveal-stop, plus
+/// the `[start, end)` byte range of the span the tag represents.
+///
+/// The tags rendered at `offset` are, in print order, the closing tags followed by
+/// the opening tags (concatenated across every boundary at that offset — a link's
+/// `[Link>` and its inner `[Bold>` share the link-start offset). The caret at
+/// reveal-stop `s` sits just after the `s`-th of them. `backward` (backspace)
+/// targets the tag just left — the `s`-th tag, so a stop of 0 targets nothing;
+/// `forward` (delete) targets the one just right — the `(s+1)`-th. Returns `None`
+/// when there is no such tag.
+pub(crate) fn reveal_tag_to_remove(
     content: &[InlineContent],
     offset: usize,
+    reveal_stop: usize,
     backward: bool,
 ) -> Option<(RevealStyle, usize, usize)> {
-    let runs = run_style_ranges(content);
+    let model = build_reveal_model(content);
 
-    // Find the boundary at `offset` and the tags emitted there.
-    let mut recon = RevealReconciler::new();
-    let mut boundary: Option<(Vec<RevealStyle>, Vec<RevealStyle>)> = None;
-    for (styles, start, _end) in &runs {
-        let (closes, opens) = recon.reconcile(styles);
-        if *start == offset {
-            boundary = Some((closes, opens));
-            break;
+    let mut tags: Vec<(RevealStyle, bool)> = Vec::new();
+    for (o, closes, opens) in &model.boundaries {
+        if *o == offset {
+            tags.extend(closes.iter().map(|s| (*s, false)));
+            tags.extend(opens.iter().map(|s| (*s, true)));
         }
     }
-    if boundary.is_none() {
-        let total = runs.last().map(|r| r.2).unwrap_or(0);
-        if total == offset {
-            boundary = Some((recon.finish(), Vec::new()));
-        }
-    }
-    let (closes, opens) = boundary?;
 
-    // The tag adjacent to the caret: backspace removes the last-printed tag at
-    // the boundary (`<Bold]` over `<Highlight]`, or the lone `[Italic>`); delete
-    // removes the first-printed one.
-    let (style, is_open) = if backward {
-        if let Some(&s) = opens.last() {
-            (s, true)
-        } else if let Some(&s) = closes.last() {
-            (s, false)
-        } else {
-            return None;
-        }
-    } else if let Some(&s) = closes.first() {
-        (s, false)
-    } else if let Some(&s) = opens.first() {
-        (s, true)
+    let idx = if backward {
+        reveal_stop.checked_sub(1)?
     } else {
-        return None;
+        reveal_stop
     };
+    let (style, is_open) = *tags.get(idx)?;
 
     let (start, end) = if is_open {
-        extent_forward(&runs, offset, style)
+        extent_forward(&model.runs, offset, style)
     } else {
-        extent_backward(&runs, offset, style)
+        extent_backward(&model.runs, offset, style)
     };
     Some((style, start, end))
 }

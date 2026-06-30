@@ -13,7 +13,8 @@
 use super::inline_convert::{inline_to_spans, spans_to_inline};
 use super::markdown_converter::markdown_to_document;
 use super::reveal::{
-    clear_reveal_style, next_tag_boundary, prev_tag_boundary, reveal_tag_at, reveal_tag_count_at,
+    RevealStyle, clear_reveal_style, next_tag_boundary, prev_tag_boundary, reveal_tag_count_at,
+    reveal_tag_to_remove, unwrap_links,
 };
 use super::structured_document::{
     Block, BlockType, InlineContent, TextRun, TextStyle, normalize_plain_text,
@@ -40,7 +41,15 @@ fn inline_labels_at(runs: &[InlineContent], offset: usize) -> Vec<&'static str> 
                 InlineContent::Text(run) => style_labels(run.style),
                 InlineContent::Link { content, .. } => {
                     let mut labels = vec!["Link"];
-                    labels.extend(inline_labels_at(content, offset - pos));
+                    let inner = inline_labels_at(content, offset - pos);
+                    // A link nested directly inside a link is degenerate; show a
+                    // single "Link" rather than "Link > Link".
+                    let inner = if inner.first() == Some(&"Link") {
+                        &inner[1..]
+                    } else {
+                        &inner[..]
+                    };
+                    labels.extend_from_slice(inner);
                     labels
                 }
                 InlineContent::HardBreak => Vec::new(),
@@ -352,11 +361,12 @@ impl StructuredEditor {
         (word, stops)
     }
 
-    /// When reveal codes is on, delete the inline-style tag rendered immediately
-    /// to one side of the cursor (`backward` = the `[Bold>`/`<Bold]` just left of
-    /// the caret, mirrored for forward), removing that style from its span without
-    /// touching the text. Returns `true` when a tag was removed, so the caller can
-    /// skip the normal character deletion. The caret stays put.
+    /// When reveal codes is on, delete the inline-style tag the caret sits beside
+    /// (`backward` = the `[Bold>`/`<Bold]` just left of the caret, mirrored for
+    /// forward), removing that style — or, for a `[Link>`/`<Link]` tag, unwrapping
+    /// the link — from its span without touching the text. Which tag is targeted
+    /// depends on the caret's reveal-stop. Returns `true` when a tag was removed,
+    /// so the caller skips the normal character deletion. The caret stays put.
     fn remove_reveal_tag(&mut self, backward: bool) -> bool {
         if !self.reveal_codes {
             return false;
@@ -367,7 +377,7 @@ impl StructuredEditor {
         }
         let runs = tree_walk::leaf_inline(&self.tdoc, &path);
         let Some((style, range_start, range_end)) =
-            reveal_tag_at(&runs, self.cursor.offset, backward)
+            reveal_tag_to_remove(&runs, self.cursor.offset, self.cursor_reveal_stop, backward)
         else {
             return false;
         };
@@ -378,9 +388,14 @@ impl StructuredEditor {
         self.edit_leaf(&path, |content| {
             let (before, selected, after) =
                 split_content_for_style(content, range_start, range_end);
-            let cleared = map_style_on_runs(selected, &mut |s: &mut TextStyle| {
-                clear_reveal_style(s, style)
-            });
+            let cleared = if style == RevealStyle::Link {
+                // A link isn't a text-style flag; remove it by unwrapping.
+                unwrap_links(selected)
+            } else {
+                map_style_on_runs(selected, &mut |s: &mut TextStyle| {
+                    clear_reveal_style(s, style)
+                })
+            };
             *content = before.into_iter().chain(cleared).chain(after).collect();
         });
         self.cursor = DocumentPosition::at(path, offset);
@@ -1376,6 +1391,48 @@ impl StructuredEditor {
         self.insert_inline_at_cursor(link_inline)
     }
 
+    /// Wrap the current selection in a link, **preserving** the selected runs'
+    /// inline styling (a bold selection stays bold inside the link). Any links
+    /// already inside the selection are flattened so links never nest. Falls back
+    /// to a plain-text link for a cross-leaf selection (rare) or no selection.
+    pub fn wrap_selection_in_link(&mut self, destination: &str) -> EditResult {
+        let Some((a, b)) = self.selection.clone() else {
+            return self.insert_link_at_cursor(destination, destination);
+        };
+        let (start, end) = if a <= b { (a, b) } else { (b, a) };
+        if start.path != end.path {
+            let text = self.get_selection_text();
+            return self.replace_selection_with_link(destination, &text);
+        }
+        let path = start.path.clone();
+        if self.is_table_leaf(&path) {
+            return Ok(());
+        }
+        let (from, to) = (start.offset, end.offset);
+        let dest = destination.to_string();
+        self.edit_leaf(&path, |content| {
+            let (before, selected, after) = split_content_for_style(content, from, to);
+            // Flatten any links already in the range so the new link can't nest.
+            let inner = unwrap_links(selected);
+            let mut out = before;
+            if !inner.is_empty() {
+                out.push(InlineContent::Link {
+                    link: super::structured_document::Link {
+                        destination: dest.clone(),
+                        title: None,
+                    },
+                    content: inner,
+                });
+            }
+            out.extend(after);
+            *content = out;
+        });
+        self.cursor = DocumentPosition::at(path, to);
+        self.selection = None;
+        self.normalize_cursor();
+        Ok(())
+    }
+
     /// Edit an existing link at the given leaf path + inline index.
     pub fn edit_link_at(
         &mut self,
@@ -1477,7 +1534,13 @@ impl StructuredEditor {
             self.edit_leaf(&path, |content| {
                 let (before, selected, after) = split_content_for_style(content, from, to);
                 let styled = map_style_on_runs(selected, &mut apply);
-                *content = before.into_iter().chain(styled).chain(after).collect();
+                let combined: Vec<InlineContent> =
+                    before.into_iter().chain(styled).chain(after).collect();
+                // Re-merge runs (and link pieces) the split produced.
+                let mut block = Block::paragraph();
+                block.content = combined;
+                block.normalize_content();
+                *content = block.content;
             });
         }
         Ok(())
@@ -2155,7 +2218,37 @@ fn split_content_for_style(
                         after.push(InlineContent::Text(after_run));
                     }
                 }
-                _ => {
+                InlineContent::Link {
+                    link,
+                    content: inner,
+                } => {
+                    // Recurse so a selection that lands *inside* a link styles the
+                    // link's own runs (rather than the whole link being dropped
+                    // wholesale into one region). Each non-empty region keeps the
+                    // link wrapper with the matching slice of its content.
+                    let sel_start_in_run = start_offset.saturating_sub(item_start);
+                    let sel_end_in_run = end_offset.saturating_sub(item_start).min(item_len);
+                    let (b, s, a) = split_content_for_style(inner, sel_start_in_run, sel_end_in_run);
+                    if !b.is_empty() {
+                        before.push(InlineContent::Link {
+                            link: link.clone(),
+                            content: b,
+                        });
+                    }
+                    if !s.is_empty() {
+                        selected.push(InlineContent::Link {
+                            link: link.clone(),
+                            content: s,
+                        });
+                    }
+                    if !a.is_empty() {
+                        after.push(InlineContent::Link {
+                            link: link.clone(),
+                            content: a,
+                        });
+                    }
+                }
+                InlineContent::HardBreak => {
                     if item_start < start_offset {
                         before.push(item.clone());
                     } else if item_start < end_offset {
@@ -2692,4 +2785,45 @@ mod tests {
         editor.insert_newline().unwrap(); // empty item + Enter → exit to paragraph
         assert!(matches!(editor.current_block_type(), BlockType::Paragraph));
     }
+
+    #[test]
+    fn bold_inside_link_styles_link_content() {
+        let mut e = StructuredEditor::new();
+        e.load_markdown("a [manual](u) b");
+        // select "anu" inside the link ("a " = 0..2, "manual" = 2..8)
+        e.set_selection(DocumentPosition::at(TreePath::root(0), 3), DocumentPosition::at(TreePath::root(0), 6));
+        e.toggle_bold().unwrap();
+        assert_eq!(md(&e), "a [m**anu**al](u) b");
+    }
+
+    #[test]
+    fn wrap_selection_in_link_preserves_styles() {
+        let mut e = StructuredEditor::new();
+        e.load_markdown("hello world");
+        e.set_selection(DocumentPosition::at(TreePath::root(0), 0), DocumentPosition::at(TreePath::root(0), 5));
+        e.toggle_bold().unwrap(); // **hello** world
+        e.set_selection(DocumentPosition::at(TreePath::root(0), 0), DocumentPosition::at(TreePath::root(0), 5));
+        e.wrap_selection_in_link("u").unwrap();
+        assert_eq!(md(&e), "[**hello**](u) world");
+    }
+
+    #[test]
+    fn wrap_selection_in_link_flattens_inner_links() {
+        let mut e = StructuredEditor::new();
+        e.load_markdown("a [b](v) c");
+        // select the whole paragraph and wrap in a new link
+        e.set_selection(DocumentPosition::at(TreePath::root(0), 0), DocumentPosition::at(TreePath::root(0), 5));
+        e.wrap_selection_in_link("u").unwrap();
+        // No nested links: the inner link is flattened, one outer link.
+        let runs = super::super::tree_walk::leaf_inline(e.tdoc(), &TreePath::root(0));
+        fn has_nested(items: &[InlineContent]) -> bool {
+            items.iter().any(|it| match it {
+                InlineContent::Link { content, .. } => content.iter().any(|c| matches!(c, InlineContent::Link { .. })),
+                _ => false,
+            })
+        }
+        assert!(!has_nested(&runs), "links must not nest: {:?}", runs);
+        assert_eq!(md(&e), "[a b c](u)");
+    }
+
 }

@@ -464,10 +464,22 @@ impl Block {
                     if normalized_inner.is_empty() {
                         continue;
                     }
-                    normalized.push(InlineContent::Link {
-                        link,
-                        content: normalized_inner,
-                    });
+                    // Coalesce with a preceding link to the same destination so a
+                    // link split by a partial-range style edit reads as one link.
+                    match normalized.last_mut() {
+                        Some(InlineContent::Link {
+                            link: prev_link,
+                            content: prev_content,
+                        }) if *prev_link == link => {
+                            prev_content.extend(normalized_inner);
+                            let merged = std::mem::take(prev_content);
+                            *prev_content = Self::normalize_inline_vec(merged);
+                        }
+                        _ => normalized.push(InlineContent::Link {
+                            link,
+                            content: normalized_inner,
+                        }),
+                    }
                 }
                 InlineContent::HardBreak => {
                     normalized.push(InlineContent::HardBreak);

@@ -2,7 +2,7 @@
 // A rendering and interaction widget for StructuredDocument
 // Completely decoupled from markdown syntax
 
-use super::reveal::{RevealReconciler, RevealStyle, item_reveal_styles};
+use super::reveal::{RevealReconciler, RevealStyle, item_reveal_styles, reveal_styles};
 use super::structured_document::*;
 use super::structured_editor::*;
 use super::tree_path::{DocumentPosition, PathSegment, TreePath};
@@ -2155,6 +2155,35 @@ impl StructuredRichDisplay {
                             };
                             style.font_color = self.theme.link_color;
                             style.underline = true;
+                            // Reveal codes: show the inner runs' style tags nested
+                            // inside the link's `[Link>`…`<Link]`. The reconciler
+                            // already holds `Link`; reconcile each inner run to
+                            // `Link` + its own styles so e.g. a bold link shows
+                            // `[Link>[Bold>…<Bold]<Link]`.
+                            if reveal {
+                                let mut target = vec![RevealStyle::Link];
+                                if let InlineContent::Text(run) = inner {
+                                    target.extend(reveal_styles(&run.style));
+                                }
+                                let (closes, opens) = reconciler.reconcile(&target);
+                                emit_reveal_tags(
+                                    ctx,
+                                    &mut lines,
+                                    &mut line_ranges,
+                                    &mut line_wraps,
+                                    &mut current_line,
+                                    &mut current_x,
+                                    &mut current_y,
+                                    start_x,
+                                    width,
+                                    line_height,
+                                    char_offset,
+                                    block_idx,
+                                    reveal_style,
+                                    &closes,
+                                    &opens,
+                                );
+                            }
                             layout_styled_text(
                                 ctx,
                                 &mut lines,
