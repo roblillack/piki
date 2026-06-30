@@ -626,6 +626,11 @@ pub struct StructuredRichDisplay {
     // The renderable block for each leaf, parallel to `layout_leaves`.
     layout_blocks: Vec<Block>,
     layout_valid: bool,
+    // Monotonic counter bumped every time mutable access to the editor is handed
+    // out (i.e. on every potential document mutation). Consumers key derived,
+    // document-wide caches (word counts, outlines, …) off this so they only
+    // recompute after an actual edit — not on every cursor move or redraw.
+    edit_revision: u64,
 
     // Scrolling
     scroll_offset: i32,
@@ -669,6 +674,7 @@ impl StructuredRichDisplay {
             layout_leaves: Vec::new(),
             layout_blocks: Vec::new(),
             layout_valid: false,
+            edit_revision: 0,
             scroll_offset: 0,
             cursor_visible: true,
             blink_on: true,
@@ -704,10 +710,21 @@ impl StructuredRichDisplay {
         self.layout_valid = false;
     }
 
-    /// Get mutable editor
+    /// Get mutable editor. Invalidates the cached layout and bumps the edit
+    /// revision, since the caller may mutate the document through the returned
+    /// reference.
     pub fn editor_mut(&mut self) -> &mut StructuredEditor {
         self.layout_valid = false;
+        self.edit_revision += 1;
         &mut self.editor
+    }
+
+    /// A monotonic counter that increments on every [`editor_mut`](Self::editor_mut)
+    /// call (every potential document mutation). Cheap to read; use it to guard
+    /// expensive document-wide derived state so it is recomputed only after an
+    /// edit rather than on every cursor move or frame.
+    pub fn edit_revision(&self) -> u64 {
+        self.edit_revision
     }
 
     /// Whether reveal-codes mode is active (inline-style tags shown inline).
@@ -777,17 +794,30 @@ impl StructuredRichDisplay {
         }
     }
 
-    /// Resize the widget
+    /// Resize the widget.
+    ///
+    /// Only the width affects layout (it drives wrapping); `x`/`y` merely
+    /// translate the drawing origin and `h` only bounds the viewport. The
+    /// layout cache is therefore invalidated solely when the width changes —
+    /// callers that re-issue the same geometry every frame (the editor redraw
+    /// loop does) keep their cached layout and pay nothing.
     pub fn resize(&mut self, x: i32, y: i32, w: i32, h: i32) {
+        if self.w != w {
+            self.layout_valid = false;
+        }
         self.x = x;
         self.y = y;
         self.w = w;
         self.h = h;
-        self.layout_valid = false;
     }
 
-    /// Set horizontal padding (for write room mode)
+    /// Set horizontal padding (for write room mode). Idempotent: re-setting the
+    /// current padding is a no-op and preserves the cached layout, so the redraw
+    /// loop can call this unconditionally without forcing a re-layout.
     pub fn set_horizontal_padding(&mut self, padding: i32) {
+        if self.theme.padding_horizontal == padding {
+            return;
+        }
         self.theme.padding_horizontal = padding;
         self.layout_valid = false;
     }
