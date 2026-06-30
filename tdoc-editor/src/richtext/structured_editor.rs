@@ -2228,7 +2228,8 @@ fn split_content_for_style(
                     // link wrapper with the matching slice of its content.
                     let sel_start_in_run = start_offset.saturating_sub(item_start);
                     let sel_end_in_run = end_offset.saturating_sub(item_start).min(item_len);
-                    let (b, s, a) = split_content_for_style(inner, sel_start_in_run, sel_end_in_run);
+                    let (b, s, a) =
+                        split_content_for_style(inner, sel_start_in_run, sel_end_in_run);
                     if !b.is_empty() {
                         before.push(InlineContent::Link {
                             link: link.clone(),
@@ -2791,7 +2792,10 @@ mod tests {
         let mut e = StructuredEditor::new();
         e.load_markdown("a [manual](u) b");
         // select "anu" inside the link ("a " = 0..2, "manual" = 2..8)
-        e.set_selection(DocumentPosition::at(TreePath::root(0), 3), DocumentPosition::at(TreePath::root(0), 6));
+        e.set_selection(
+            DocumentPosition::at(TreePath::root(0), 3),
+            DocumentPosition::at(TreePath::root(0), 6),
+        );
         e.toggle_bold().unwrap();
         assert_eq!(md(&e), "a [m**anu**al](u) b");
     }
@@ -2800,9 +2804,15 @@ mod tests {
     fn wrap_selection_in_link_preserves_styles() {
         let mut e = StructuredEditor::new();
         e.load_markdown("hello world");
-        e.set_selection(DocumentPosition::at(TreePath::root(0), 0), DocumentPosition::at(TreePath::root(0), 5));
+        e.set_selection(
+            DocumentPosition::at(TreePath::root(0), 0),
+            DocumentPosition::at(TreePath::root(0), 5),
+        );
         e.toggle_bold().unwrap(); // **hello** world
-        e.set_selection(DocumentPosition::at(TreePath::root(0), 0), DocumentPosition::at(TreePath::root(0), 5));
+        e.set_selection(
+            DocumentPosition::at(TreePath::root(0), 0),
+            DocumentPosition::at(TreePath::root(0), 5),
+        );
         e.wrap_selection_in_link("u").unwrap();
         assert_eq!(md(&e), "[**hello**](u) world");
     }
@@ -2812,13 +2822,18 @@ mod tests {
         let mut e = StructuredEditor::new();
         e.load_markdown("a [b](v) c");
         // select the whole paragraph and wrap in a new link
-        e.set_selection(DocumentPosition::at(TreePath::root(0), 0), DocumentPosition::at(TreePath::root(0), 5));
+        e.set_selection(
+            DocumentPosition::at(TreePath::root(0), 0),
+            DocumentPosition::at(TreePath::root(0), 5),
+        );
         e.wrap_selection_in_link("u").unwrap();
         // No nested links: the inner link is flattened, one outer link.
         let runs = super::super::tree_walk::leaf_inline(e.tdoc(), &TreePath::root(0));
         fn has_nested(items: &[InlineContent]) -> bool {
             items.iter().any(|it| match it {
-                InlineContent::Link { content, .. } => content.iter().any(|c| matches!(c, InlineContent::Link { .. })),
+                InlineContent::Link { content, .. } => content
+                    .iter()
+                    .any(|c| matches!(c, InlineContent::Link { .. })),
                 _ => false,
             })
         }
@@ -2834,10 +2849,14 @@ mod tests {
         assert_eq!(runs.len(), 1, "one flat link: {:?}", runs);
         match &runs[0] {
             InlineContent::Link { link, content } => {
-                assert_eq!(link.destination, "https://x/actions", "outer link target kept");
+                assert_eq!(
+                    link.destination, "https://x/actions",
+                    "outer link target kept"
+                );
                 assert!(
                     content.iter().all(|c| matches!(c, InlineContent::Text(_))),
-                    "link content must be plain runs, no nested link: {:?}", content
+                    "link content must be plain runs, no nested link: {:?}",
+                    content
                 );
             }
             other => panic!("expected a single link, got {:?}", other),
@@ -2850,5 +2869,4 @@ mod tests {
         e.toggle_highlight().unwrap();
         assert_eq!(md(&e), "[Build <mark>Status</mark>](https://x/actions)");
     }
-
 }

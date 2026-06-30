@@ -1,0 +1,6 @@
+---
+source: tdoc-editor/tests/layout_snapshots.rs
+expression: "common::selection_across_blocks(MODE)"
+extension: svg
+snapshot_kind: binary
+---

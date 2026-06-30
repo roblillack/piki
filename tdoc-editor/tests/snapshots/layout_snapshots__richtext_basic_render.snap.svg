@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="220" viewBox="0 0 600 220">
+<style>
+            @font-face { font-family: 'SnapshotSans'; font-weight: 500; font-style: normal; src: url('../NotoSans-Medium.ttf') format('truetype'); }
+            @font-face { font-family: 'SnapshotSans'; font-weight: 700; font-style: normal; src: url('../NotoSans-Bold.ttf') format('truetype'); }
+            @font-face { font-family: 'SnapshotSans'; font-weight: 500; font-style: italic; src: url('../NotoSans-MediumItalic.ttf') format('truetype'); }
+            @font-face { font-family: 'SnapshotSans'; font-weight: 700; font-style: italic; src: url('../NotoSans-BoldItalic.ttf') format('truetype'); }
+            </style>
+  <rect width="600" height="220" fill="#ffffff"/>
+  <rect x="0" y="0" width="600" height="220" fill="#fffff5"/>
+  <defs>
+    <clipPath id="clip-0-0-600-220">
+      <rect x="0" y="0" width="600" height="220"/>
+    </clipPath>
+  </defs>
+  <text x="25" y="34" fill="#000000" font-family="SnapshotSans" font-size="24" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-600-220)">Heading </text>
+  <text x="134" y="34" fill="#000000" font-family="SnapshotSans" font-size="24" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-600-220)">1</text>
+  <text x="25" y="70" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-600-220)">This </text>
+  <text x="56" y="70" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-600-220)">is </text>
+  <text x="70" y="70" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-600-220)">a </text>
+  <text x="81" y="70" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-600-220)">paragraph </text>
+  <text x="157" y="70" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-600-220)">with </text>
+  <text x="190" y="70" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-600-220)">a </text>
+  <text x="201" y="70" fill="#0000ee" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-600-220)">link</text>
+  <line x1="201" y1="72" x2="225" y2="72" stroke="#0000ee" stroke-width="1"/>
+  <text x="225" y="70" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-600-220)">.</text>
+  <rect x="25" y="10" width="2" height="31" fill="#000000" clip-path="url(#clip-0-0-600-220)"/>
+</svg>

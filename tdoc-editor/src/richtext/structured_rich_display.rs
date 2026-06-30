@@ -12,7 +12,6 @@ use crate::draw_context::FontStyle;
 use crate::draw_context::FontType;
 use crate::theme::{FontSettings, Theme};
 
-
 /// A search match in the document
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchMatch {
@@ -301,7 +300,10 @@ fn layout_styled_text(
     let mut in_word = false;
     let mut leading_space_handled = false;
 
-    for (i, ch) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {
+    for (i, ch) in text
+        .char_indices()
+        .chain(std::iter::once((text.len(), ' ')))
+    {
         let is_whitespace = ch.is_whitespace();
 
         // Handle leading whitespace at the start of the run
@@ -1626,8 +1628,8 @@ impl StructuredRichDisplay {
                 // cell backend to match classic Pure's faint markers.
                 let plain = self.theme.plain_text;
                 let label_x = start_x + label_left_pad;
-                let marker_run = |text: String, x: i32, width: i32, color: u32, style: FontStyle| {
-                    VisualRun {
+                let marker_run =
+                    |text: String, x: i32, width: i32, color: u32, style: FontStyle| VisualRun {
                         text,
                         x,
                         width,
@@ -1643,8 +1645,7 @@ impl StructuredRichDisplay {
                         inline_index: None,
                         checklist: None,
                         reveal_tag: false,
-                    }
-                };
+                    };
                 let mut runs = if self.theme.checkbox_text
                     && matches!(checkbox, Some(true))
                     && label_text == "[✓] "
@@ -1657,8 +1658,20 @@ impl StructuredRichDisplay {
                     let ck = ctx.text_width("✓", plain.font_type, plain.font_style, plain.font_size)
                         as i32;
                     vec![
-                        marker_run("[".to_string(), label_x, lb, self.theme.structural_color, plain.font_style),
-                        marker_run("✓".to_string(), label_x + lb, ck, self.theme.checkmark_color, FontStyle::Bold),
+                        marker_run(
+                            "[".to_string(),
+                            label_x,
+                            lb,
+                            self.theme.structural_color,
+                            plain.font_style,
+                        ),
+                        marker_run(
+                            "✓".to_string(),
+                            label_x + lb,
+                            ck,
+                            self.theme.checkmark_color,
+                            FontStyle::Bold,
+                        ),
                         marker_run(
                             "] ".to_string(),
                             label_x + lb + ck,
@@ -2414,7 +2427,11 @@ impl StructuredRichDisplay {
         let viewport_bottom = self.scroll_offset + self.h;
         for i in 0..self.layout_lines.len() {
             let line = &self.layout_lines[i];
-            let ch = match self.layout_blocks.get(line.block_index).map(|b| &b.block_type) {
+            let ch = match self
+                .layout_blocks
+                .get(line.block_index)
+                .map(|b| &b.block_type)
+            {
                 Some(BlockType::Heading { level: 2 }) => '=',
                 Some(BlockType::Heading { level: 3 }) => '-',
                 _ => continue,
@@ -2485,7 +2502,9 @@ impl StructuredRichDisplay {
         };
         for line in &self.layout_lines {
             let is_code = matches!(
-                self.layout_blocks.get(line.block_index).map(|b| &b.block_type),
+                self.layout_blocks
+                    .get(line.block_index)
+                    .map(|b| &b.block_type),
                 Some(BlockType::CodeBlock { .. })
             );
             if !is_code {
@@ -2493,7 +2512,12 @@ impl StructuredRichDisplay {
             }
             if line.block_index != block {
                 if block != usize::MAX {
-                    flush(self, first_y - self.theme.line_height, last_y + self.theme.line_height, ctx);
+                    flush(
+                        self,
+                        first_y - self.theme.line_height,
+                        last_y + self.theme.line_height,
+                        ctx,
+                    );
                 }
                 block = line.block_index;
                 first_y = line.y;
@@ -2501,7 +2525,12 @@ impl StructuredRichDisplay {
             last_y = line.y;
         }
         if block != usize::MAX {
-            flush(self, first_y - self.theme.line_height, last_y + self.theme.line_height, ctx);
+            flush(
+                self,
+                first_y - self.theme.line_height,
+                last_y + self.theme.line_height,
+                ctx,
+            );
         }
     }
 

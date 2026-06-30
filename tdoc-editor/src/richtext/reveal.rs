@@ -170,7 +170,14 @@ fn build_reveal_model(content: &[InlineContent]) -> RevealModel {
     let mut offset = 0usize;
     let mut boundaries = Vec::new();
     let mut runs = Vec::new();
-    walk_reveal(content, &[], &mut recon, &mut offset, &mut boundaries, &mut runs);
+    walk_reveal(
+        content,
+        &[],
+        &mut recon,
+        &mut offset,
+        &mut boundaries,
+        &mut runs,
+    );
     let closes = recon.finish();
     if !closes.is_empty() {
         boundaries.push((offset, closes, Vec::new()));
@@ -293,7 +300,10 @@ pub(crate) fn next_tag_boundary(content: &[InlineContent], offset: usize) -> Opt
 
 /// The nearest style boundary strictly before `offset`.
 pub(crate) fn prev_tag_boundary(content: &[InlineContent], offset: usize) -> Option<usize> {
-    tag_boundaries(content).into_iter().rev().find(|&b| b < offset)
+    tag_boundaries(content)
+        .into_iter()
+        .rev()
+        .find(|&b| b < offset)
 }
 
 /// Replace each link in `items` with its inner content — used to delete a link

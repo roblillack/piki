@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="360" viewBox="0 0 520 360">
+<style>
+            @font-face { font-family: 'SnapshotSans'; font-weight: 500; font-style: normal; src: url('../NotoSans-Medium.ttf') format('truetype'); }
+            @font-face { font-family: 'SnapshotSans'; font-weight: 700; font-style: normal; src: url('../NotoSans-Bold.ttf') format('truetype'); }
+            @font-face { font-family: 'SnapshotSans'; font-weight: 500; font-style: italic; src: url('../NotoSans-MediumItalic.ttf') format('truetype'); }
+            @font-face { font-family: 'SnapshotSans'; font-weight: 700; font-style: italic; src: url('../NotoSans-BoldItalic.ttf') format('truetype'); }
+            </style>
+  <rect width="520" height="360" fill="#ffffff"/>
+  <rect x="0" y="0" width="520" height="360" fill="#fffff5"/>
+  <defs>
+    <clipPath id="clip-0-0-520-360">
+      <rect x="0" y="0" width="520" height="360"/>
+    </clipPath>
+  </defs>
+  <rect x="25" y="10" width="42" height="58" fill="#eeeee5" clip-path="url(#clip-0-0-520-360)"/>
+  <rect x="67" y="10" width="169" height="58" fill="#eeeee5" clip-path="url(#clip-0-0-520-360)"/>
+  <rect x="236" y="10" width="156" height="58" fill="#eeeee5" clip-path="url(#clip-0-0-520-360)"/>
+  <rect x="392" y="10" width="100" height="58" fill="#eeeee5" clip-path="url(#clip-0-0-520-360)"/>
+  <line x1="25" y1="10" x2="25" y2="184" stroke="#bbbbbb" stroke-width="1"/>
+  <line x1="67" y1="10" x2="67" y2="184" stroke="#bbbbbb" stroke-width="1"/>
+  <line x1="236" y1="10" x2="236" y2="184" stroke="#bbbbbb" stroke-width="1"/>
+  <line x1="392" y1="10" x2="392" y2="184" stroke="#bbbbbb" stroke-width="1"/>
+  <line x1="492" y1="10" x2="492" y2="184" stroke="#bbbbbb" stroke-width="1"/>
+  <line x1="25" y1="10" x2="492" y2="10" stroke="#bbbbbb" stroke-width="1"/>
+  <line x1="25" y1="68" x2="492" y2="68" stroke="#bbbbbb" stroke-width="1"/>
+  <line x1="25" y1="126" x2="492" y2="126" stroke="#bbbbbb" stroke-width="1"/>
+  <line x1="25" y1="184" x2="492" y2="184" stroke="#bbbbbb" stroke-width="1"/>
+  <text x="32" y="28" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-520-360)">Too</text>
+  <text x="74" y="28" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-520-360)">Default </text>
+  <text x="130" y="28" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-520-360)">embed </text>
+  <text x="183" y="28" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-520-360)">syntax</text>
+  <text x="243" y="28" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-520-360)">Where </text>
+  <text x="293" y="28" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-520-360)">files </text>
+  <text x="326" y="28" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-520-360)">go</text>
+  <text x="399" y="28" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-520-360)">How </text>
+  <text x="435" y="28" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-520-360)">the </text>
+  <text x="32" y="45" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-520-360)">l</text>
+  <text x="399" y="45" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-520-360)">path </text>
+  <text x="399" y="62" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-520-360)">resolves</text>
+  <text x="32" y="86" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">Obs</text>
+  <text x="74" y="86" fill="#0064c8" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">![[image.png]]</text>
+  <text x="170" y="86" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)"> </text>
+  <text x="243" y="86" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">Configurable: </text>
+  <text x="339" y="86" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">vault </text>
+  <text x="399" y="86" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">&quot;Shortest </text>
+  <text x="32" y="103" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">idia</text>
+  <text x="74" y="103" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">(wikilink-embed)</text>
+  <text x="243" y="103" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">root </text>
+  <text x="275" y="103" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">or </text>
+  <text x="293" y="103" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">a </text>
+  <text x="304" y="103" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">named </text>
+  <text x="399" y="103" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">path&quot; </text>
+  <text x="440" y="103" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">by </text>
+  <text x="32" y="120" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">n</text>
+  <text x="243" y="120" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">folder</text>
+  <text x="399" y="120" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">default</text>
+  <text x="32" y="144" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">Log</text>
+  <text x="74" y="144" fill="#0064c8" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">![alt](../assets/image.p</text>
+  <text x="243" y="144" fill="#0064c8" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">assets/</text>
+  <text x="291" y="144" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)"> </text>
+  <text x="294" y="144" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">folder </text>
+  <text x="338" y="144" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">at </text>
+  <text x="399" y="144" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">Relative </text>
+  <text x="32" y="161" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">seq</text>
+  <text x="74" y="161" fill="#0064c8" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">ng)</text>
+  <text x="96" y="161" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)"> </text>
+  <text x="99" y="161" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">standard </text>
+  <text x="243" y="161" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">graph </text>
+  <text x="287" y="161" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">root</text>
+  <text x="399" y="161" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">path</text>
+  <text x="74" y="178" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-360)">Markdown</text>
+  <rect x="32" y="14" width="2" height="17" fill="#000000" clip-path="url(#clip-0-0-520-360)"/>
+</svg>

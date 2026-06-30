@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="260" viewBox="0 0 520 260">
+<style>
+            @font-face { font-family: 'SnapshotSans'; font-weight: 500; font-style: normal; src: url('../NotoSans-Medium.ttf') format('truetype'); }
+            @font-face { font-family: 'SnapshotSans'; font-weight: 700; font-style: normal; src: url('../NotoSans-Bold.ttf') format('truetype'); }
+            @font-face { font-family: 'SnapshotSans'; font-weight: 500; font-style: italic; src: url('../NotoSans-MediumItalic.ttf') format('truetype'); }
+            @font-face { font-family: 'SnapshotSans'; font-weight: 700; font-style: italic; src: url('../NotoSans-BoldItalic.ttf') format('truetype'); }
+            </style>
+  <rect width="520" height="260" fill="#ffffff"/>
+  <rect x="0" y="0" width="520" height="260" fill="#fffff5"/>
+  <defs>
+    <clipPath id="clip-0-0-520-260">
+      <rect x="0" y="0" width="520" height="260"/>
+    </clipPath>
+  </defs>
+  <rect x="25" y="56" width="141" height="24" fill="#eeeee5" clip-path="url(#clip-0-0-520-260)"/>
+  <rect x="166" y="56" width="38" height="24" fill="#eeeee5" clip-path="url(#clip-0-0-520-260)"/>
+  <rect x="204" y="56" width="173" height="24" fill="#eeeee5" clip-path="url(#clip-0-0-520-260)"/>
+  <line x1="25" y1="56" x2="25" y2="152" stroke="#bbbbbb" stroke-width="1"/>
+  <line x1="166" y1="56" x2="166" y2="152" stroke="#bbbbbb" stroke-width="1"/>
+  <line x1="204" y1="56" x2="204" y2="152" stroke="#bbbbbb" stroke-width="1"/>
+  <line x1="377" y1="56" x2="377" y2="152" stroke="#bbbbbb" stroke-width="1"/>
+  <line x1="25" y1="56" x2="377" y2="56" stroke="#bbbbbb" stroke-width="1"/>
+  <line x1="25" y1="80" x2="377" y2="80" stroke="#bbbbbb" stroke-width="1"/>
+  <line x1="25" y1="104" x2="377" y2="104" stroke="#bbbbbb" stroke-width="1"/>
+  <line x1="25" y1="128" x2="377" y2="128" stroke="#bbbbbb" stroke-width="1"/>
+  <line x1="25" y1="152" x2="377" y2="152" stroke="#bbbbbb" stroke-width="1"/>
+  <text x="25" y="34" fill="#000000" font-family="SnapshotSans" font-size="24" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-520-260)">Shopping</text>
+  <text x="32" y="74" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-520-260)">Item</text>
+  <text x="173" y="74" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-520-260)">Qty</text>
+  <text x="211" y="74" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="bold" font-style="normal" clip-path="url(#clip-0-0-520-260)">Notes</text>
+  <text x="32" y="98" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-260)">Apples</text>
+  <text x="173" y="98" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-260)">3</text>
+  <text x="211" y="98" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-260)">Granny </text>
+  <text x="265" y="98" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-260)">Smith</text>
+  <text x="32" y="122" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-260)">Whole-grain </text>
+  <text x="120" y="122" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-260)">bread</text>
+  <text x="173" y="122" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-260)">1</text>
+  <text x="211" y="122" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-260)">from </text>
+  <text x="248" y="122" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-260)">the </text>
+  <text x="274" y="122" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-260)">corner </text>
+  <text x="323" y="122" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-260)">bakery</text>
+  <text x="32" y="146" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-260)">Coffee </text>
+  <text x="80" y="146" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-260)">beans</text>
+  <text x="173" y="146" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-260)">2</text>
+  <text x="211" y="146" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-260)">dark </text>
+  <text x="246" y="146" fill="#000000" font-family="SnapshotSans" font-size="14" font-weight="normal" font-style="normal" clip-path="url(#clip-0-0-520-260)">roast</text>
+  <rect x="25" y="10" width="2" height="31" fill="#000000" clip-path="url(#clip-0-0-520-260)"/>
+</svg>

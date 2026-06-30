@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="140" viewBox="0 0 520 140">
+  <rect width="520" height="140" fill="#ffffff"/>
+  <rect x="0" y="0" width="520" height="140" fill="#fffff5"/>
+  <defs>
+    <clipPath id="clip-0-0-520-140">
+      <rect x="0" y="0" width="520" height="140"/>
+    </clipPath>
+  </defs>
+  <text x="25" y="24" fill="#000000" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="14" font-weight="normal" font-style="normal" textLength="80" lengthAdjust="spacingAndGlyphs" xml:space="preserve" clip-path="url(#clip-0-0-520-140)">Paragraph </text>
+  <text x="105" y="24" fill="#000000" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="14" font-weight="normal" font-style="normal" textLength="40" lengthAdjust="spacingAndGlyphs" xml:space="preserve" clip-path="url(#clip-0-0-520-140)">with </text>
+  <text x="145" y="24" fill="#000000" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="14" font-weight="normal" font-style="normal" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve" clip-path="url(#clip-0-0-520-140)">a </text>
+  <text x="161" y="24" fill="#000000" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="14" font-weight="normal" font-style="normal" textLength="56" lengthAdjust="spacingAndGlyphs" xml:space="preserve" clip-path="url(#clip-0-0-520-140)">cursor.</text>
+  <rect x="137" y="10" width="2" height="17" fill="#000000" clip-path="url(#clip-0-0-520-140)"/>
+</svg>

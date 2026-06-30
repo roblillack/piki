@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="500" height="140" viewBox="0 0 500 140">
+  <rect width="500" height="140" fill="#ffffff"/>
+  <rect x="0" y="0" width="500" height="140" fill="#fffff5"/>
+  <defs>
+    <clipPath id="clip-0-0-500-140">
+      <rect x="0" y="0" width="500" height="140"/>
+    </clipPath>
+  </defs>
+  <text x="25" y="24" fill="#000000" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="14" font-weight="normal" font-style="normal" textLength="40" lengthAdjust="spacingAndGlyphs" xml:space="preserve" clip-path="url(#clip-0-0-500-140)">This </text>
+  <text x="65" y="24" fill="#000000" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="14" font-weight="normal" font-style="normal" textLength="24" lengthAdjust="spacingAndGlyphs" xml:space="preserve" clip-path="url(#clip-0-0-500-140)">is </text>
+  <rect x="89" y="10" width="72" height="17" fill="#b4d5fe" clip-path="url(#clip-0-0-500-140)"/>
+  <text x="89" y="24" fill="#000000" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="14" font-weight="normal" font-style="normal" textLength="80" lengthAdjust="spacingAndGlyphs" xml:space="preserve" clip-path="url(#clip-0-0-500-140)">selection </text>
+  <text x="169" y="24" fill="#000000" font-family="'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="14" font-weight="normal" font-style="normal" textLength="40" lengthAdjust="spacingAndGlyphs" xml:space="preserve" clip-path="url(#clip-0-0-500-140)">test.</text>
+  <rect x="25" y="10" width="2" height="17" fill="#000000" clip-path="url(#clip-0-0-500-140)"/>
+</svg>

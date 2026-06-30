@@ -13,6 +13,7 @@ unicode-segmentation = "1.10"
 [dev-dependencies]
 insta = "1.34"
 rusttype = "0.9"
+unicode-segmentation = "1.10"
 
 [[bench]]
 name = "performance"

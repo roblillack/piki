@@ -1,0 +1,6 @@
+---
+source: tdoc-editor/tests/layout_snapshots_mono.rs
+expression: "common::table_render(MODE)"
+extension: svg
+snapshot_kind: binary
+---
