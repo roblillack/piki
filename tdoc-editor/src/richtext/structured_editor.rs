@@ -12,6 +12,9 @@
 
 use super::inline_convert::{inline_to_spans, spans_to_inline};
 use super::markdown_converter::markdown_to_document;
+use super::reveal::{
+    clear_reveal_style, next_tag_boundary, prev_tag_boundary, reveal_tag_at, reveal_tag_count_at,
+};
 use super::structured_document::{
     Block, BlockType, InlineContent, TextRun, TextStyle, normalize_plain_text,
 };
@@ -117,6 +120,17 @@ pub struct StructuredEditor {
     undo_baseline: EditorSnapshot,
     last_edit_kind: Option<UndoKind>,
     last_edit_time: Option<Instant>,
+    /// Whether reveal-codes mode is active. When on, inline-style boundaries are
+    /// shown as `[Bold>` / `<Bold]` tags by the display, and backspace/delete next
+    /// to such a tag removes the style instead of editing text. Off by default, so
+    /// frontends that never enable it (the GUI) are wholly unaffected.
+    reveal_codes: bool,
+    /// While reveal codes is on, how many of the inline-style tags rendered at
+    /// the cursor's byte offset the caret sits *past* (0 = before all of them).
+    /// This lets Left/Right step onto a zero-width `[Bold>`/`<Bold]` tag — a stop
+    /// the bare `DocumentPosition` can't express — without changing row:col.
+    /// Always 0 unless reveal codes is on.
+    cursor_reveal_stop: usize,
 }
 
 impl StructuredEditor {
@@ -142,6 +156,8 @@ impl StructuredEditor {
             undo_baseline: baseline,
             last_edit_kind: None,
             last_edit_time: None,
+            reveal_codes: false,
+            cursor_reveal_stop: 0,
         };
         editor.normalize_cursor();
         editor
@@ -234,6 +250,142 @@ impl StructuredEditor {
     pub fn cursor_inline_labels(&self) -> Vec<&'static str> {
         let runs = tree_walk::leaf_inline(&self.tdoc, &self.cursor.path);
         inline_labels_at(&runs, self.cursor.offset)
+    }
+
+    /// Whether reveal-codes mode is active (see the `reveal_codes` field).
+    pub fn reveal_codes(&self) -> bool {
+        self.reveal_codes
+    }
+
+    /// Enable or disable reveal-codes mode.
+    pub fn set_reveal_codes(&mut self, enabled: bool) {
+        self.reveal_codes = enabled;
+        self.cursor_reveal_stop = 0;
+    }
+
+    /// How many reveal tags at the cursor's offset the caret sits past (see the
+    /// `cursor_reveal_stop` field). Consumed by the display when placing the caret.
+    pub fn cursor_reveal_stop(&self) -> usize {
+        self.cursor_reveal_stop
+    }
+
+    /// Number of reveal-tag cursor stops at `offset` in the given leaf (0 when
+    /// reveal codes is off or `offset` isn't a style boundary).
+    fn reveal_stops_at(&self, path: &TreePath, offset: usize) -> usize {
+        if !self.reveal_codes {
+            return 0;
+        }
+        let content = tree_walk::leaf_inline(&self.tdoc, path);
+        reveal_tag_count_at(&content, offset)
+    }
+
+    /// Reveal-aware left step: walk back through the tags at the current offset
+    /// before crossing to the previous character (landing past that character's
+    /// trailing tags). Returns the new position and reveal-stop.
+    fn reveal_position_left(&self) -> (DocumentPosition, usize) {
+        if self.reveal_codes && self.cursor_reveal_stop > 0 {
+            return (self.cursor.clone(), self.cursor_reveal_stop - 1);
+        }
+        let prev = self.position_left(&self.cursor);
+        if self.reveal_codes && prev != self.cursor {
+            let stops = self.reveal_stops_at(&prev.path, prev.offset);
+            return (prev, stops);
+        }
+        (prev, 0)
+    }
+
+    /// Reveal-aware right step: walk forward through the tags at the current
+    /// offset before crossing to the next character.
+    fn reveal_position_right(&self) -> (DocumentPosition, usize) {
+        if self.reveal_codes {
+            let stops = self.reveal_stops_at(&self.cursor.path, self.cursor.offset);
+            if self.cursor_reveal_stop < stops {
+                return (self.cursor.clone(), self.cursor_reveal_stop + 1);
+            }
+        }
+        (self.position_right(&self.cursor), 0)
+    }
+
+    /// Reveal-aware word-right: step through the tags at the current offset one at
+    /// a time (each tag is its own word stop, like classic Pure), then jump to the
+    /// next word — stopping at any intervening style boundary so its tags stay
+    /// reachable. Returns the new position and reveal-stop.
+    fn reveal_word_right(&self) -> (DocumentPosition, usize) {
+        if !self.reveal_codes {
+            return (self.word_right_position(&self.cursor), 0);
+        }
+        let stops = self.reveal_stops_at(&self.cursor.path, self.cursor.offset);
+        if self.cursor_reveal_stop < stops {
+            return (self.cursor.clone(), self.cursor_reveal_stop + 1);
+        }
+        let word = self.word_right_position(&self.cursor);
+        let content = tree_walk::leaf_inline(&self.tdoc, &self.cursor.path);
+        if let Some(b) = next_tag_boundary(&content, self.cursor.offset) {
+            let crosses_leaf = word.path != self.cursor.path;
+            if crosses_leaf || b < word.offset {
+                return (DocumentPosition::at(self.cursor.path.clone(), b), 0);
+            }
+        }
+        (word, 0)
+    }
+
+    /// Reveal-aware word-left: mirror of [`Self::reveal_word_right`]. Lands at a
+    /// boundary's *last* reveal-stop (after its tags) so the next steps walk back
+    /// through them.
+    fn reveal_word_left(&self) -> (DocumentPosition, usize) {
+        if !self.reveal_codes {
+            return (self.word_left_position(&self.cursor), 0);
+        }
+        if self.cursor_reveal_stop > 0 {
+            return (self.cursor.clone(), self.cursor_reveal_stop - 1);
+        }
+        let word = self.word_left_position(&self.cursor);
+        let content = tree_walk::leaf_inline(&self.tdoc, &self.cursor.path);
+        if let Some(b) = prev_tag_boundary(&content, self.cursor.offset) {
+            let crosses_leaf = word.path != self.cursor.path;
+            if crosses_leaf || b > word.offset {
+                let stops = reveal_tag_count_at(&content, b);
+                return (DocumentPosition::at(self.cursor.path.clone(), b), stops);
+            }
+        }
+        let stops = self.reveal_stops_at(&word.path, word.offset);
+        (word, stops)
+    }
+
+    /// When reveal codes is on, delete the inline-style tag rendered immediately
+    /// to one side of the cursor (`backward` = the `[Bold>`/`<Bold]` just left of
+    /// the caret, mirrored for forward), removing that style from its span without
+    /// touching the text. Returns `true` when a tag was removed, so the caller can
+    /// skip the normal character deletion. The caret stays put.
+    fn remove_reveal_tag(&mut self, backward: bool) -> bool {
+        if !self.reveal_codes {
+            return false;
+        }
+        let path = self.cursor.path.clone();
+        if self.is_table_leaf(&path) {
+            return false;
+        }
+        let runs = tree_walk::leaf_inline(&self.tdoc, &path);
+        let Some((style, range_start, range_end)) =
+            reveal_tag_at(&runs, self.cursor.offset, backward)
+        else {
+            return false;
+        };
+        if range_start >= range_end {
+            return false;
+        }
+        let offset = self.cursor.offset;
+        self.edit_leaf(&path, |content| {
+            let (before, selected, after) =
+                split_content_for_style(content, range_start, range_end);
+            let cleared = map_style_on_runs(selected, &mut |s: &mut TextStyle| {
+                clear_reveal_style(s, style)
+            });
+            *content = before.into_iter().chain(cleared).chain(after).collect();
+        });
+        self.cursor = DocumentPosition::at(path, offset);
+        self.normalize_cursor();
+        true
     }
 
     /// The presentation block type at a path (`Paragraph` when the path is invalid).
@@ -359,6 +511,9 @@ impl StructuredEditor {
 
     fn normalize_cursor(&mut self) {
         self.cursor = tree_walk::clamp_position(&self.tdoc, &self.cursor);
+        // Any cursor move other than reveal-tag stepping lands "before" the tags;
+        // the two horizontal movers restore the stepped value after calling this.
+        self.cursor_reveal_stop = 0;
     }
 
     // ----- Cursor & selection --------------------------------------------------------
@@ -475,6 +630,7 @@ impl StructuredEditor {
     // ----- Insertion -----------------------------------------------------------------
 
     pub fn insert_text(&mut self, text: &str) -> EditResult {
+        self.cursor_reveal_stop = 0;
         if self.leaf_count() == 0 {
             self.tdoc
                 .add_paragraph(Paragraph::new_text().with_content(inline_to_spans(&[
@@ -571,6 +727,11 @@ impl StructuredEditor {
             return self.delete_selection();
         }
 
+        // Reveal codes: backspacing into an inline-style tag removes the style.
+        if self.remove_reveal_tag(true) {
+            return Ok(());
+        }
+
         let path = self.cursor.path.clone();
         let offset = self.cursor.offset;
 
@@ -649,6 +810,11 @@ impl StructuredEditor {
         }
         if self.selection.is_some() {
             return self.delete_selection();
+        }
+
+        // Reveal codes: deleting into an inline-style tag removes the style.
+        if self.remove_reveal_tag(false) {
+            return Ok(());
         }
 
         let path = self.cursor.path.clone();
@@ -799,18 +965,21 @@ impl StructuredEditor {
 
     pub fn move_cursor_left(&mut self) {
         self.break_undo_coalescing();
-        let new = self.position_left(&self.cursor.clone());
+        let (new, stop) = self.reveal_position_left();
         self.cursor = new;
         self.normalize_cursor();
         self.selection = None;
+        // normalize_cursor reset the reveal-stop; restore the stepped value.
+        self.cursor_reveal_stop = stop;
     }
 
     pub fn move_cursor_right(&mut self) {
         self.break_undo_coalescing();
-        let new = self.position_right(&self.cursor.clone());
+        let (new, stop) = self.reveal_position_right();
         self.cursor = new;
         self.normalize_cursor();
         self.selection = None;
+        self.cursor_reveal_stop = stop;
     }
 
     fn position_left(&self, pos: &DocumentPosition) -> DocumentPosition {
@@ -867,18 +1036,32 @@ impl StructuredEditor {
         self.cursor.offset = self.leaf_text_len(&self.cursor.path.clone());
         self.normalize_cursor();
         self.selection = None;
+        // Land behind any trailing reveal tags (e.g. a closing `<Bold]`).
+        self.cursor_reveal_stop = self.reveal_stops_at(&self.cursor.path, self.cursor.offset);
+    }
+
+    /// Place the caret at `pos`, positioned *after* all reveal tags rendered there
+    /// (the rightmost reveal-stop). Used when jumping to the end of a visual line
+    /// so the caret sits behind a trailing `<Bold]` rather than before it.
+    pub fn set_cursor_after_reveal_tags(&mut self, pos: DocumentPosition) {
+        self.set_cursor(pos);
+        self.cursor_reveal_stop = self.reveal_stops_at(&self.cursor.path, self.cursor.offset);
     }
 
     pub fn move_word_right(&mut self) {
         self.break_undo_coalescing();
-        self.cursor = self.word_right_position(&self.cursor.clone());
+        let (new, stop) = self.reveal_word_right();
+        self.cursor = new;
         self.selection = None;
+        self.cursor_reveal_stop = stop;
     }
 
     pub fn move_word_left(&mut self) {
         self.break_undo_coalescing();
-        self.cursor = self.word_left_position(&self.cursor.clone());
+        let (new, stop) = self.reveal_word_left();
+        self.cursor = new;
         self.selection = None;
+        self.cursor_reveal_stop = stop;
     }
 
     pub fn move_word_right_extend(&mut self) {

@@ -2,6 +2,7 @@
 // A rendering and interaction widget for StructuredDocument
 // Completely decoupled from markdown syntax
 
+use super::reveal::{RevealReconciler, RevealStyle, item_reveal_styles};
 use super::structured_document::*;
 use super::structured_editor::*;
 use super::tree_path::{DocumentPosition, PathSegment, TreePath};
@@ -107,6 +108,7 @@ fn run_from_style(
         char_range,
         inline_index: Some(inline_index),
         checklist: None,
+        reveal_tag: false,
     }
 }
 
@@ -333,6 +335,7 @@ fn layout_styled_text(
                     char_range: (char_base, char_base + space_end),
                     inline_index: Some(inline_index),
                     checklist: None,
+                    reveal_tag: false,
                 });
 
                 *current_x += space_width;
@@ -379,6 +382,121 @@ fn layout_styled_text(
             word_start = i;
             in_word = true;
         }
+    }
+}
+
+/// Place a reveal-codes tag (e.g. `[Bold>`) onto the current line as a
+/// zero-document-width, cursor-skipped run, wrapping to the next line if it
+/// doesn't fit. The tag occupies visual space — so following text wraps and the
+/// caret lands past it — but spans no document text: its `char_range` is the
+/// empty `(char_offset, char_offset)` and it carries no `inline_index`, which is
+/// exactly the shape the cursor/column logic skips.
+#[allow(clippy::too_many_arguments)]
+fn push_reveal_tag(
+    ctx: &mut dyn DrawContext,
+    lines: &mut Vec<Vec<VisualRun>>,
+    line_ranges: &mut Vec<(usize, usize)>,
+    line_wraps: &mut Vec<bool>,
+    current_line: &mut Vec<VisualRun>,
+    current_x: &mut i32,
+    current_y: &mut i32,
+    start_x: i32,
+    width: i32,
+    line_height: i32,
+    label: &str,
+    char_offset: usize,
+    block_idx: usize,
+    style: ResolvedRunStyle,
+) {
+    let tag_width =
+        ctx.text_width(label, style.font_type, style.font_style, style.font_size) as i32;
+    if *current_x + tag_width > start_x + width && *current_x > start_x {
+        push_line(
+            lines,
+            line_ranges,
+            line_wraps,
+            current_line,
+            char_offset,
+            true,
+        );
+        *current_x = start_x;
+        *current_y += line_height;
+    }
+    current_line.push(VisualRun {
+        text: label.to_string(),
+        x: *current_x,
+        width: tag_width,
+        font_type: style.font_type,
+        font_style: style.font_style,
+        font_size: style.font_size,
+        font_color: style.font_color,
+        background_color: style.background_color,
+        underline: style.underline,
+        strikethrough: style.strikethrough,
+        block_index: block_idx,
+        char_range: (char_offset, char_offset),
+        inline_index: None,
+        checklist: None,
+        reveal_tag: true,
+    });
+    *current_x += tag_width;
+}
+
+/// Emit the reveal tags at one boundary: end tags (`<Name]`, innermost first)
+/// then start tags (`[Name>`, outermost first), all at `char_offset`.
+#[allow(clippy::too_many_arguments)]
+fn emit_reveal_tags(
+    ctx: &mut dyn DrawContext,
+    lines: &mut Vec<Vec<VisualRun>>,
+    line_ranges: &mut Vec<(usize, usize)>,
+    line_wraps: &mut Vec<bool>,
+    current_line: &mut Vec<VisualRun>,
+    current_x: &mut i32,
+    current_y: &mut i32,
+    start_x: i32,
+    width: i32,
+    line_height: i32,
+    char_offset: usize,
+    block_idx: usize,
+    style: ResolvedRunStyle,
+    closes: &[RevealStyle],
+    opens: &[RevealStyle],
+) {
+    for s in closes {
+        push_reveal_tag(
+            ctx,
+            lines,
+            line_ranges,
+            line_wraps,
+            current_line,
+            current_x,
+            current_y,
+            start_x,
+            width,
+            line_height,
+            &format!("<{}]", s.label()),
+            char_offset,
+            block_idx,
+            style,
+        );
+    }
+    for s in opens {
+        push_reveal_tag(
+            ctx,
+            lines,
+            line_ranges,
+            line_wraps,
+            current_line,
+            current_x,
+            current_y,
+            start_x,
+            width,
+            line_height,
+            &format!("[{}>", s.label()),
+            char_offset,
+            block_idx,
+            style,
+        );
     }
 }
 
@@ -459,6 +577,9 @@ struct VisualRun {
     inline_index: Option<usize>,
     /// Checklist rendering info (if this run is a checklist marker)
     checklist: Option<ChecklistVisual>,
+    /// True for a reveal-codes tag run (`[Bold>`/`<Bold]`): a zero-document-width
+    /// decoration the caret can still step onto (see `cursor_reveal_stop`).
+    reveal_tag: bool,
 
     font_type: FontType,
     font_style: FontStyle,
@@ -587,6 +708,17 @@ impl StructuredRichDisplay {
     pub fn editor_mut(&mut self) -> &mut StructuredEditor {
         self.layout_valid = false;
         &mut self.editor
+    }
+
+    /// Whether reveal-codes mode is active (inline-style tags shown inline).
+    pub fn reveal_codes(&self) -> bool {
+        self.editor.reveal_codes()
+    }
+
+    /// Enable/disable reveal-codes mode and invalidate the cached layout.
+    pub fn set_reveal_codes(&mut self, enabled: bool) {
+        self.editor.set_reveal_codes(enabled);
+        self.layout_valid = false;
     }
 
     /// Set scroll offset
@@ -1124,7 +1256,8 @@ impl StructuredRichDisplay {
         if extend {
             self.editor.extend_selection_to(new_pos.clone());
         } else {
-            self.editor.set_cursor(new_pos.clone());
+            // Land behind any reveal tags at the line end (e.g. a closing `<Bold]`).
+            self.editor.set_cursor_after_reveal_tags(new_pos.clone());
         }
         self.record_preferred_pos(new_pos);
     }
@@ -1245,6 +1378,7 @@ impl StructuredRichDisplay {
                         char_range: (char_start, char_end),
                         inline_index: None,
                         checklist: None,
+                        reveal_tag: false,
                     }];
                     let visual_char_end = self.compute_visual_char_end(&runs, char_end, false);
                     self.layout_lines.push(LayoutLine {
@@ -1459,6 +1593,7 @@ impl StructuredRichDisplay {
                         char_range: (0, 0),
                         inline_index: None,
                         checklist: None,
+                        reveal_tag: false,
                     }
                 };
                 let mut runs = if self.theme.checkbox_text
@@ -1505,6 +1640,7 @@ impl StructuredRichDisplay {
                     width - (content_start_x - start_x),
                     default_line_height,
                     false,
+                    true,
                     ctx,
                 );
                 let (mut content_runs, content_ranges, content_wraps, _y_after) = (
@@ -1684,6 +1820,8 @@ impl StructuredRichDisplay {
                             // Force-break tokens too wide for the column so cell
                             // content can't bleed into the next column.
                             true,
+                            // Tables are read-only; never reveal codes in cells.
+                            false,
                             ctx,
                         )
                         .lines
@@ -1752,6 +1890,7 @@ impl StructuredRichDisplay {
             width,
             line_height,
             false,
+            true,
             ctx,
         );
         let (lines, line_ranges, line_wraps, _y_after) = (
@@ -1890,6 +2029,20 @@ impl StructuredRichDisplay {
         style
     }
 
+    /// Resolved style of a reveal-codes tag: the theme's tag colors, plain weight.
+    fn reveal_tag_style(&self) -> ResolvedRunStyle {
+        let base = self.theme.plain_text;
+        ResolvedRunStyle {
+            font_type: base.font_type,
+            font_style: FontStyle::Regular,
+            font_size: base.font_size,
+            font_color: self.theme.reveal_tag_fg,
+            background_color: Some(self.theme.reveal_tag_bg),
+            underline: false,
+            strikethrough: false,
+        }
+    }
+
     /// Layout inline content with word wrapping
     /// Returns (lines of runs, final_y)
     #[allow(clippy::too_many_arguments)]
@@ -1903,6 +2056,7 @@ impl StructuredRichDisplay {
         width: i32,
         line_height: i32,
         break_long_words: bool,
+        allow_reveal: bool,
         ctx: &mut dyn DrawContext,
     ) -> InlineContentLayout {
         let mut lines: Vec<Vec<VisualRun>> = Vec::new();
@@ -1924,9 +2078,38 @@ impl StructuredRichDisplay {
             _ => self.theme.plain_text,
         };
 
+        // Reveal codes: surface inline-style boundaries as `[Bold>` / `<Bold]`
+        // tags interleaved with the text. The reconciler tracks the open tags so
+        // a style stays open across an inner style's span (classic nesting). Off
+        // unless the caller permits it (not for read-only table cells) and the
+        // editor is in reveal mode.
+        let reveal = allow_reveal && self.editor.reveal_codes();
+        let reveal_style = self.reveal_tag_style();
+        let mut reconciler = RevealReconciler::new();
+
         let mut pending_empty_line = false;
 
         for (inline_idx, item) in content.iter().enumerate() {
+            if reveal && let Some(target) = item_reveal_styles(item) {
+                let (closes, opens) = reconciler.reconcile(&target);
+                emit_reveal_tags(
+                    ctx,
+                    &mut lines,
+                    &mut line_ranges,
+                    &mut line_wraps,
+                    &mut current_line,
+                    &mut current_x,
+                    &mut current_y,
+                    start_x,
+                    width,
+                    line_height,
+                    char_offset,
+                    block_idx,
+                    reveal_style,
+                    &closes,
+                    &opens,
+                );
+            }
             match item {
                 InlineContent::Text(run) => {
                     pending_empty_line = false;
@@ -2038,6 +2221,28 @@ impl StructuredRichDisplay {
                     pending_empty_line = true;
                 }
             }
+        }
+
+        // Close any reveal tags still open after the last run.
+        if reveal {
+            let closes = reconciler.finish();
+            emit_reveal_tags(
+                ctx,
+                &mut lines,
+                &mut line_ranges,
+                &mut line_wraps,
+                &mut current_line,
+                &mut current_x,
+                &mut current_y,
+                start_x,
+                width,
+                line_height,
+                char_offset,
+                block_idx,
+                reveal_style,
+                &closes,
+                &[],
+            );
         }
 
         let is_empty = lines.is_empty();
@@ -2538,6 +2743,21 @@ impl StructuredRichDisplay {
         let (cx, _cy, _h) = self.get_cursor_visual_position(ctx)?;
         let cursor = self.editor.cursor();
         let cur_idx = self.index_for_path(&cursor.path);
+        // In reveal-codes mode the inline tags inflate the visual x, so report a
+        // character column relative to the line's text start instead — classic
+        // Pure counted the document characters, not the on-screen tag glyphs.
+        if self.reveal_codes() {
+            for (idx, line) in self.layout_lines.iter().enumerate() {
+                if Some(line.block_index) != cur_idx {
+                    continue;
+                }
+                if !self.offset_belongs_to_line(idx, cursor.offset) {
+                    continue;
+                }
+                return Some(cursor.offset.saturating_sub(line.char_start) + 1);
+            }
+            return None;
+        }
         for (idx, line) in self.layout_lines.iter().enumerate() {
             if Some(line.block_index) != cur_idx {
                 continue;
@@ -2628,7 +2848,8 @@ impl StructuredRichDisplay {
             let mut x = line.base_x;
 
             for run in &line.runs {
-                // Skip non-content runs (like list bullets with char_range (0,0))
+                // Skip non-content runs (like list bullets and reveal tags, with
+                // an empty char_range and no inline index).
                 if run.char_range.0 == run.char_range.1 && run.inline_index.is_none() {
                     continue;
                 }
@@ -2648,13 +2869,41 @@ impl StructuredRichDisplay {
                     let width_before =
                         ctx.text_width(text_before_cursor, font, fstyle, size) as i32;
                     x = run.x + width_before;
-                    return Some((x, line.y, line.height));
+                    break;
                 }
 
                 if cursor.offset > run.char_range.1 {
                     // Cursor is after this run - measure full run width
                     let (font, fstyle, size) = (run.font_type, run.font_style, run.font_size);
                     x = run.x + ctx.text_width(&run.text, font, fstyle, size) as i32;
+                }
+            }
+
+            // Reveal codes: place the caret relative to the inline-style tags
+            // rendered at this offset. They lay out consecutively, so anchor the
+            // caret before the first one (the "before all tags" stop — important
+            // when the paragraph *starts* with a tag, where the matched text run
+            // already sits past it) and advance past the first `reveal_stop` of
+            // them. With no tags here this leaves the text-based x untouched.
+            if self.reveal_codes() {
+                let stop = self.editor.cursor_reveal_stop();
+                let mut anchored = false;
+                let mut passed = 0usize;
+                for run in &line.runs {
+                    if !(run.reveal_tag && run.char_range.0 == cursor.offset) {
+                        continue;
+                    }
+                    if !anchored {
+                        x = run.x;
+                        anchored = true;
+                    }
+                    if passed >= stop {
+                        break;
+                    }
+                    x = run.x
+                        + ctx.text_width(&run.text, run.font_type, run.font_style, run.font_size)
+                            as i32;
+                    passed += 1;
                 }
             }
 

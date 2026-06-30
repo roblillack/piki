@@ -28,6 +28,13 @@ pub struct Theme {
     pub search_highlight_color: u32,
     pub search_current_highlight_color: u32,
 
+    /// Foreground / background of the inline reveal-codes tags (`[Bold>`,
+    /// `<Bold]`, …) drawn when reveal codes is enabled. Only consulted while
+    /// reveal codes is on (a Pure-only mode, off by default), so the defaults are
+    /// harmless for the GUI, which never turns it on.
+    pub reveal_tag_fg: u32,
+    pub reveal_tag_bg: u32,
+
     pub padding_vertical: i32,
     pub padding_horizontal: i32,
 
@@ -168,6 +175,8 @@ impl Default for Theme {
             highlight_color: 0xFFFF00FF,                // Yellow highlight color
             search_highlight_color: 0xFFE4B5FF,         // Light orange for search matches
             search_current_highlight_color: 0xFFA500FF, // Orange for current match
+            reveal_tag_fg: 0x000000FF,                  // Black tag text (GUI: unused)
+            reveal_tag_bg: 0xCCCCCCFF,                  // Light gray tag fill (GUI: unused)
 
             padding_vertical: 10,
             padding_horizontal: 25,
