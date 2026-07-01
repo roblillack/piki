@@ -3,7 +3,6 @@ members = [
     "core",
     "cli",
     "gui",
-    "tdoc-editor"
 ]
 resolver = "3"
 

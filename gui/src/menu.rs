@@ -930,7 +930,7 @@ fn perform_edit_link(
         let (init_target, init_text, mode_existing_link, selection_mode, link_pos) =
             if let Some((block_idx, inline_idx)) = display.hovered_link() {
                 let content =
-                    piki_gui::richtext::tree_walk::leaf_inline(display.editor().tdoc(), &block_idx);
+                    piki_gui::richtext::tree_walk::leaf_inline(display.editor().document(), &block_idx);
                 if let Some(InlineContent::Link {
                     link,
                     content: inner,

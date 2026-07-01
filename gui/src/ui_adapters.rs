@@ -242,15 +242,16 @@ impl StructuredRichUI {
 impl ContentProvider for StructuredRichUI {
     fn get_content(&self) -> String {
         let disp = self.0.display.borrow();
-        document_to_markdown(disp.editor().tdoc())
+        document_to_markdown(disp.editor().document())
     }
 }
 
 impl ContentLoader for StructuredRichUI {
     fn set_content_from_markdown(&mut self, markdown: &str) {
         let mut disp = self.0.display.borrow_mut();
-        // Loading a different page starts a fresh undo history (load_markdown resets it).
-        disp.editor_mut().load_markdown(markdown);
+        // Loading a different page starts a fresh undo history (set_document resets it).
+        let doc = crate::richtext::markdown_converter::markdown_to_document(markdown);
+        disp.editor_mut().set_document(doc);
         disp.set_scroll(0);
         drop(disp);
         self.0.emit_paragraph_state();

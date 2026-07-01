@@ -18,7 +18,7 @@ exclude = [
 
 [dependencies]
 piki-core = { version = "0.3.0", path = "../core" }
-tdoc-editor = { version = "0.1.0", path = "../tdoc-editor" }
+rutle = "0.1.0"
 fltk = { version = "1.5.20", features = ["use-wayland"] }
 fltk-sys = "1.5.20"
 pulldown-cmark = "0.13.0"

@@ -521,7 +521,7 @@ impl FltkStructuredRichDisplay {
                                             if let Some((b, i)) = disp.hovered_link() {
                                                 let content =
                                                     crate::richtext::tree_walk::leaf_inline(
-                                                        disp.editor().tdoc(),
+                                                        disp.editor().document(),
                                                         &b,
                                                     );
                                                 if let Some(InlineContent::Link {
@@ -862,7 +862,7 @@ impl FltkStructuredRichDisplay {
                                 ) = if let Some((b, i)) = hovered {
                                     // Prefill from hovered link
                                     let content = crate::richtext::tree_walk::leaf_inline(
-                                        disp.editor().tdoc(),
+                                        disp.editor().document(),
                                         &b,
                                     );
                                     if let Some(InlineContent::Link {
@@ -1209,7 +1209,7 @@ impl FltkStructuredRichDisplay {
                                                     if let Some((b, i)) = disp.hovered_link() {
                                                         let content =
                                                             crate::richtext::tree_walk::leaf_inline(
-                                                                disp.editor().tdoc(),
+                                                                disp.editor().document(),
                                                                 &b,
                                                             );
                                                         if let Some(InlineContent::Link {

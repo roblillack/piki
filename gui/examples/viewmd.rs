@@ -188,7 +188,7 @@ fn main() {
                     let d = display_for_menu.borrow_mut();
                     if let Some((b, i)) = d.hovered_link() {
                         let content =
-                            piki_gui::richtext::tree_walk::leaf_inline(d.editor().tdoc(), &b);
+                            piki_gui::richtext::tree_walk::leaf_inline(d.editor().document(), &b);
                         if let Some(InlineContent::Link {
                             link,
                             content: inner,
@@ -424,7 +424,7 @@ fn main() {
     let doc = markdown_to_document(&contents);
     {
         let mut d = display.borrow_mut();
-        d.editor_mut().set_tdoc(doc);
+        d.editor_mut().set_document(doc);
         d.editor_mut().set_cursor(DocumentPosition::start());
     }
 
@@ -471,7 +471,7 @@ fn main() {
                 if let Ok(content) = fs::read_to_string(&destination) {
                     let new_doc = markdown_to_document(&content);
                     let mut d = display_ref.borrow_mut();
-                    d.editor_mut().set_tdoc(new_doc);
+                    d.editor_mut().set_document(new_doc);
                     d.editor_mut().set_cursor(DocumentPosition::start());
                     if let Some(mut win) = win_handle.as_base_widget().window() {
                         win.set_label(&format!(
