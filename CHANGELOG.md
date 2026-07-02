@@ -40,6 +40,6 @@ While pre-1.0, the minor version is bumped for breaking changes.
   RTF encodes these as Windows-1252 codepage bytes, but the RTF parser decoded
   the C1 range (`0x80`–`0x9F`) as raw Unicode scalars — turning `\'92` into the
   control character U+0092 instead of `'`. Piki now remaps that block to the
-  characters the bytes actually stand for on import.
+  characters the bytes actually stand for on import. (#26)
 
 [Unreleased]: https://github.com/roblillack/piki/compare/piki-v0.3.0...HEAD
