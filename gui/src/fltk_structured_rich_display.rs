@@ -1,12 +1,12 @@
-// FLTK integration for StructuredRichDisplay widget
+// FLTK integration for rutle's Renderer
 
 use crate::clipboard;
 use crate::fltk_draw_context::FltkDrawContext;
 use crate::responsive_scrollbar::ResponsiveScrollbar;
-use crate::richtext::structured_document::{BlockType, InlineContent};
-use crate::richtext::structured_editor::UndoKind;
-use crate::richtext::structured_rich_display::StructuredRichDisplay;
 use fltk::{app::MouseWheel, enums::*, prelude::*};
+use rutle::editor::UndoKind;
+use rutle::renderer::Renderer;
+use rutle::structured_document::{BlockType, InlineContent};
 use std::cell::RefCell;
 use std::ffi::CStr;
 use std::rc::Rc;
@@ -23,10 +23,10 @@ type Callback<T> = Rc<RefCell<Option<Box<dyn Fn(T) + 'static>>>>;
 type MutCallback<T> = Rc<RefCell<Option<Box<dyn FnMut(T) + 'static>>>>;
 type MutCallback0 = Rc<RefCell<Option<Box<dyn FnMut() + 'static>>>>;
 
-/// FLTK wrapper for StructuredRichDisplay with scrollbar and event handling
+/// FLTK wrapper for rutle's `Renderer` with scrollbar and event handling
 pub struct FltkStructuredRichDisplay {
     pub group: fltk::group::Group,
-    pub display: Rc<RefCell<StructuredRichDisplay>>,
+    pub display: Rc<RefCell<Renderer>>,
     link_cb: Callback<String>,
     hover_cb: Callback<Option<String>>,
     change_cb: MutCallback0,
@@ -44,13 +44,8 @@ impl FltkStructuredRichDisplay {
     pub fn new(x: i32, y: i32, w: i32, h: i32, edit_mode: bool) -> Self {
         let mut widget = fltk::group::Group::new(x, y, w, h, None);
 
-        // Create structured rich display
-        let display = Rc::new(RefCell::new(StructuredRichDisplay::new(
-            x,
-            y,
-            w - SCROLLBAR_WIDTH,
-            h,
-        )));
+        // Create the rutle renderer
+        let display = Rc::new(RefCell::new(Renderer::new(x, y, w - SCROLLBAR_WIDTH, h)));
 
         // Track click count for triple-click detection
         let last_click_time = Rc::new(RefCell::new(Instant::now()));
@@ -519,11 +514,10 @@ impl FltkStructuredRichDisplay {
                                         ) = {
                                             let disp = display.borrow_mut();
                                             if let Some((b, i)) = disp.hovered_link() {
-                                                let content =
-                                                    crate::richtext::tree_walk::leaf_inline(
-                                                        disp.editor().document(),
-                                                        &b,
-                                                    );
+                                                let content = rutle::tree_walk::leaf_inline(
+                                                    disp.editor().document(),
+                                                    &b,
+                                                );
                                                 if let Some(InlineContent::Link {
                                                     link,
                                                     content: inner,
@@ -861,10 +855,8 @@ impl FltkStructuredRichDisplay {
                                     link_pos,
                                 ) = if let Some((b, i)) = hovered {
                                     // Prefill from hovered link
-                                    let content = crate::richtext::tree_walk::leaf_inline(
-                                        disp.editor().document(),
-                                        &b,
-                                    );
+                                    let content =
+                                        rutle::tree_walk::leaf_inline(disp.editor().document(), &b);
                                     if let Some(InlineContent::Link {
                                         link,
                                         content: inner,
@@ -1207,11 +1199,10 @@ impl FltkStructuredRichDisplay {
                                                 ) = {
                                                     let disp = display.borrow_mut();
                                                     if let Some((b, i)) = disp.hovered_link() {
-                                                        let content =
-                                                            crate::richtext::tree_walk::leaf_inline(
-                                                                disp.editor().document(),
-                                                                &b,
-                                                            );
+                                                        let content = rutle::tree_walk::leaf_inline(
+                                                            disp.editor().document(),
+                                                            &b,
+                                                        );
                                                         if let Some(InlineContent::Link {
                                                             link,
                                                             content: inner,

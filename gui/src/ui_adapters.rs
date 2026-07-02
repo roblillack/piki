@@ -1,15 +1,15 @@
 use crate::content::{ContentLoader, ContentProvider};
 use crate::fltk_draw_context::FltkDrawContext;
 use crate::fltk_structured_rich_display::FltkStructuredRichDisplay;
+use crate::markdown_converter::document_to_markdown;
 use crate::page_ui::PageUI;
-use crate::richtext::markdown_converter::document_to_markdown;
-use crate::richtext::structured_document::BlockType;
-use crate::richtext::structured_editor::StructuredEditor;
-use crate::richtext::structured_rich_display::SearchMatch;
 use fltk::{app, enums::Color, prelude::*, window};
+use rutle::editor::Editor;
+use rutle::renderer::SearchMatch;
+use rutle::structured_document::BlockType;
 use std::any::Any;
 
-/// PageUI adapter for StructuredRichDisplay + FLTK Group wrapper
+/// PageUI adapter for rutle's `Renderer` + FLTK Group wrapper
 pub struct StructuredRichUI(pub FltkStructuredRichDisplay);
 
 impl StructuredRichUI {
@@ -222,7 +222,7 @@ impl StructuredRichUI {
 
     fn apply_edit<F>(&mut self, edit: F) -> bool
     where
-        F: FnOnce(&mut StructuredEditor) -> crate::richtext::structured_editor::EditResult,
+        F: FnOnce(&mut Editor) -> rutle::editor::EditResult,
     {
         let result = {
             let mut disp = self.0.display.borrow_mut();
@@ -250,7 +250,7 @@ impl ContentLoader for StructuredRichUI {
     fn set_content_from_markdown(&mut self, markdown: &str) {
         let mut disp = self.0.display.borrow_mut();
         // Loading a different page starts a fresh undo history (set_document resets it).
-        let doc = crate::richtext::markdown_converter::markdown_to_document(markdown);
+        let doc = crate::markdown_converter::markdown_to_document(markdown);
         disp.editor_mut().set_document(doc);
         disp.set_scroll(0);
         drop(disp);

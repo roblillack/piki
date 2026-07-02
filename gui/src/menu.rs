@@ -16,8 +16,8 @@ use fltk::{
 };
 use piki_gui::link_editor::{self, LinkEditOptions};
 use piki_gui::page_ui::PageUI;
-use piki_gui::richtext::structured_document::{BlockType, InlineContent};
 use piki_gui::ui_adapters::StructuredRichUI;
+use rutle::structured_document::{BlockType, InlineContent};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -929,10 +929,8 @@ fn perform_edit_link(
         let display = editor.0.display.borrow();
         let (init_target, init_text, mode_existing_link, selection_mode, link_pos) =
             if let Some((block_idx, inline_idx)) = display.hovered_link() {
-                let content = piki_gui::richtext::tree_walk::leaf_inline(
-                    display.editor().document(),
-                    &block_idx,
-                );
+                let content =
+                    rutle::tree_walk::leaf_inline(display.editor().document(), &block_idx);
                 if let Some(InlineContent::Link {
                     link,
                     content: inner,

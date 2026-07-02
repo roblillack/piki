@@ -2,9 +2,7 @@ use std::io::Cursor;
 
 use tdoc::{Document, html, markdown};
 
-use crate::richtext::markdown_converter::{
-    document_to_html, document_to_markdown, markdown_to_document,
-};
+use crate::markdown_converter::{document_to_html, document_to_markdown, markdown_to_document};
 use crate::rtf;
 
 #[derive(Debug)]

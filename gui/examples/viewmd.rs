@@ -5,10 +5,10 @@ use fltk::{prelude::*, *};
 use piki_gui::fltk_structured_rich_display::FltkStructuredRichDisplay;
 use piki_gui::link_editor::LinkEditOptions;
 use piki_gui::link_editor::show_link_editor;
-use piki_gui::richtext::markdown_converter::markdown_to_document;
-use piki_gui::richtext::structured_document::BlockType;
-use piki_gui::richtext::structured_document::InlineContent;
-use piki_gui::richtext::tree_path::DocumentPosition;
+use piki_gui::markdown_converter::markdown_to_document;
+use rutle::structured_document::BlockType;
+use rutle::structured_document::InlineContent;
+use rutle::tree_path::DocumentPosition;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -187,8 +187,7 @@ fn main() {
                 let (init_target, init_text, mode_existing_link, selection_mode, link_pos) = {
                     let d = display_for_menu.borrow_mut();
                     if let Some((b, i)) = d.hovered_link() {
-                        let content =
-                            piki_gui::richtext::tree_walk::leaf_inline(d.editor().document(), &b);
+                        let content = rutle::tree_walk::leaf_inline(d.editor().document(), &b);
                         if let Some(InlineContent::Link {
                             link,
                             content: inner,

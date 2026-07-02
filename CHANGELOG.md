@@ -11,7 +11,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
 ### Changed
 
 - The text rendering and editing engine has been carved out of Piki into a new
-  shared crate, `rutle` (`rutle = "0.1.0"` on crates.io), and the `gui` crate
+  shared crate, `rutle` (`rutle = "0.2.0"` on crates.io), and the `gui` crate
   now builds on it instead of its own homegrown implementation. This removes
   roughly 10,600 lines — the entire `richtext` module (the structured document
   model, the editor, the rich-text display, the tdoc bridge, and the Markdown
@@ -21,14 +21,17 @@ While pre-1.0, the minor version is bumped for breaking changes.
   builds on the same crate, and both resolve the identical crates.io
   `tdoc 0.11.0`, so `tdoc::Document` values are shared across the crate
   boundary unchanged. rutle renamed several items in the move (e.g.
-  `StructuredRichDisplay` → `Renderer`, `Editor` → `StructuredEditor`) and
-  flattened the `richtext` module to its crate root, so `gui/src/lib.rs` keeps
-  a thin façade that re-exports rutle under Piki's former module paths; the
-  FLTK integration layer (`fltk_structured_rich_display.rs` and the FLTK draw
-  context) needed only small adjustments. Rendering, selection, reveal codes,
-  styled links, and table display are unchanged. As part of the shared core,
-  rutle's layout cache no longer invalidates on an unchanged resize/padding
-  update, which speeds up redraws in Piki as well. (#26)
+  `StructuredRichDisplay` → `Renderer`, `StructuredEditor` → `Editor`,
+  `DrawContext` → `RenderContext`) and flattened the `richtext` module to its
+  crate root; `gui` now uses those names and module paths from `rutle`
+  directly. The FLTK integration layer — `fltk_structured_rich_display.rs` and
+  the FLTK draw context — implements rutle's `RenderContext` trait and drives
+  its `Renderer` straight from the crate, and the small Markdown/HTML `tdoc`
+  conversion wrappers Piki still needs for the clipboard and page load/save now
+  live in `gui`'s own `markdown_converter` module. Rendering, selection, reveal
+  codes, styled links, and table display are unchanged. As part of the shared
+  core, rutle's layout cache no longer invalidates on an unchanged
+  resize/padding update, which speeds up redraws in Piki as well. (#26)
 
 ### Fixed
 

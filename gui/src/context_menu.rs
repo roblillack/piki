@@ -1,9 +1,9 @@
-use crate::richtext::structured_document::BlockType;
 use fltk::{
     enums::Shortcut,
     menu::{MenuButton, MenuFlag},
     prelude::{MenuExt, WidgetExt},
 };
+use rutle::structured_document::BlockType;
 
 /// Actions to be wired to context menu entries.
 pub struct MenuActions {

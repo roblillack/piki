@@ -1,9 +1,5 @@
 mod app_icon;
 mod autosave;
-// `draw_context` now lives in the shared `rutle` crate (as `render_context`);
-// re-export the library's façade under the original `crate::draw_context` path
-// the binary's modules use.
-pub use piki_gui::draw_context;
 pub mod fltk_draw_context;
 mod history;
 mod link_handler;
