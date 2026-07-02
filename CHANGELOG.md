@@ -35,6 +35,10 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Fixed
 
+- Alt-Up/Down now reorders the block at the cursor's current nesting level, not
+  just top-level paragraphs: list items, checklist items, and quote children can
+  be resorted among their siblings, and a nested sub-item stays within its
+  sublist (via `rutle 0.2.1`). (#27)
 - Pasting rich text via RTF (e.g. from Word or Outlook) no longer inserts inert
   boxes where curly quotes, apostrophes, en/em dashes, or ellipses should be.
   RTF encodes these as Windows-1252 codepage bytes, but the RTF parser decoded
