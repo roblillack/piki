@@ -1,12 +1,12 @@
-// FLTK integration for StructuredRichDisplay widget
+// FLTK integration for rutle's Renderer
 
 use crate::clipboard;
 use crate::fltk_draw_context::FltkDrawContext;
 use crate::responsive_scrollbar::ResponsiveScrollbar;
-use crate::richtext::structured_document::{BlockType, InlineContent};
-use crate::richtext::structured_editor::UndoKind;
-use crate::richtext::structured_rich_display::StructuredRichDisplay;
 use fltk::{app::MouseWheel, enums::*, prelude::*};
+use rutle::editor::UndoKind;
+use rutle::renderer::Renderer;
+use rutle::structured_document::{BlockType, InlineContent};
 use std::cell::RefCell;
 use std::ffi::CStr;
 use std::rc::Rc;
@@ -23,10 +23,10 @@ type Callback<T> = Rc<RefCell<Option<Box<dyn Fn(T) + 'static>>>>;
 type MutCallback<T> = Rc<RefCell<Option<Box<dyn FnMut(T) + 'static>>>>;
 type MutCallback0 = Rc<RefCell<Option<Box<dyn FnMut() + 'static>>>>;
 
-/// FLTK wrapper for StructuredRichDisplay with scrollbar and event handling
+/// FLTK wrapper for rutle's `Renderer` with scrollbar and event handling
 pub struct FltkStructuredRichDisplay {
     pub group: fltk::group::Group,
-    pub display: Rc<RefCell<StructuredRichDisplay>>,
+    pub display: Rc<RefCell<Renderer>>,
     link_cb: Callback<String>,
     hover_cb: Callback<Option<String>>,
     change_cb: MutCallback0,
@@ -44,13 +44,8 @@ impl FltkStructuredRichDisplay {
     pub fn new(x: i32, y: i32, w: i32, h: i32, edit_mode: bool) -> Self {
         let mut widget = fltk::group::Group::new(x, y, w, h, None);
 
-        // Create structured rich display
-        let display = Rc::new(RefCell::new(StructuredRichDisplay::new(
-            x,
-            y,
-            w - SCROLLBAR_WIDTH,
-            h,
-        )));
+        // Create the rutle renderer
+        let display = Rc::new(RefCell::new(Renderer::new(x, y, w - SCROLLBAR_WIDTH, h)));
 
         // Track click count for triple-click detection
         let last_click_time = Rc::new(RefCell::new(Instant::now()));
@@ -231,18 +226,7 @@ impl FltkStructuredRichDisplay {
                                 display.borrow_mut().editor_mut().set_cursor(clicked_pos);
                             }
                             // Determine current block type based on caret position
-                            let current_block = {
-                                let d = display.borrow();
-                                let ed = d.editor();
-                                let cur = ed.cursor();
-                                let doc = ed.document();
-                                let blocks = doc.blocks();
-                                if !blocks.is_empty() && cur.block_index < blocks.len() {
-                                    blocks[cur.block_index].block_type.clone()
-                                } else {
-                                    BlockType::Paragraph
-                                }
-                            };
+                            let current_block = display.borrow().editor().current_block_type();
                             let w_for_actions = w.clone();
                             let actions = crate::context_menu::MenuActions {
                                 has_selection,
@@ -330,20 +314,10 @@ impl FltkStructuredRichDisplay {
                                     move || {
                                         // Toggle: if current is quote -> paragraph, else -> quote
                                         let set_to_quote = {
-                                            let d = display.borrow();
-                                            let ed = d.editor();
-                                            let cur = ed.cursor();
-                                            let doc = ed.document();
-                                            let blocks = doc.blocks();
-                                            if !blocks.is_empty() && cur.block_index < blocks.len()
-                                            {
-                                                !matches!(
-                                                    blocks[cur.block_index].block_type,
-                                                    BlockType::BlockQuote
-                                                )
-                                            } else {
-                                                true
-                                            }
+                                            !matches!(
+                                                display.borrow().editor().current_block_type(),
+                                                BlockType::BlockQuote
+                                            )
                                         };
                                         let mut ed = display.borrow_mut();
                                         if set_to_quote {
@@ -540,12 +514,16 @@ impl FltkStructuredRichDisplay {
                                         ) = {
                                             let disp = display.borrow_mut();
                                             if let Some((b, i)) = disp.hovered_link() {
-                                                let doc = disp.editor().document();
-                                                let block = &doc.blocks()[b];
-                                                if let InlineContent::Link { link, content } =
-                                                    &block.content[i]
+                                                let content = rutle::tree_walk::leaf_inline(
+                                                    disp.editor().document(),
+                                                    &b,
+                                                );
+                                                if let Some(InlineContent::Link {
+                                                    link,
+                                                    content: inner,
+                                                }) = content.get(i)
                                                 {
-                                                    let text = content
+                                                    let text = inner
                                                         .iter()
                                                         .map(|c| c.to_plain_text())
                                                         .collect::<String>();
@@ -587,12 +565,13 @@ impl FltkStructuredRichDisplay {
 
                                         let display_cb = display.clone();
                                         let change_cb_ref = change_cb.clone();
+                                        let link_pos_rm = link_pos.clone();
                                         crate::link_editor::show_link_editor(
                                             opts,
                                             move |dest: String, txt: String| {
                                                 let mut disp = display_cb.borrow_mut();
                                                 let editor = disp.editor_mut();
-                                                if let Some((b, i)) = link_pos {
+                                                if let Some((b, i)) = link_pos.clone() {
                                                     editor.edit_link_at(b, i, &dest, &txt).ok();
                                                 } else if !txt.is_empty() {
                                                     if editor.selection().is_some() {
@@ -616,7 +595,7 @@ impl FltkStructuredRichDisplay {
                                                 let display_rm = display.clone();
                                                 let change_cb_rm = change_cb.clone();
                                                 move || {
-                                                    if let Some((b, i)) = link_pos {
+                                                    if let Some((b, i)) = link_pos_rm.clone() {
                                                         let mut disp = display_rm.borrow_mut();
                                                         disp.editor_mut().remove_link_at(b, i).ok();
                                                         drop(disp);
@@ -713,9 +692,9 @@ impl FltkStructuredRichDisplay {
                                     // Single click: position cursor or extend selection if Shift is held
                                     let mut d = display.borrow_mut();
                                     if shift_held {
-                                        d.editor_mut().extend_selection_to(pos);
+                                        d.editor_mut().extend_selection_to(pos.clone());
                                     } else {
-                                        d.editor_mut().set_cursor(pos);
+                                        d.editor_mut().set_cursor(pos.clone());
                                     }
                                     d.record_preferred_pos(pos);
                                 }
@@ -781,7 +760,10 @@ impl FltkStructuredRichDisplay {
                                 let d = display.borrow();
                                 d.xy_to_position(x - w.x(), y - w.y())
                             };
-                            display.borrow_mut().editor_mut().extend_selection_to(pos);
+                            display
+                                .borrow_mut()
+                                .editor_mut()
+                                .extend_selection_to(pos.clone());
 
                             // Ensure the cursor (selection end) is visible after update
                             display.borrow_mut().record_preferred_pos(pos);
@@ -873,11 +855,14 @@ impl FltkStructuredRichDisplay {
                                     link_pos,
                                 ) = if let Some((b, i)) = hovered {
                                     // Prefill from hovered link
-                                    let doc = disp.editor().document();
-                                    let block = &doc.blocks()[b];
-                                    if let InlineContent::Link { link, content } = &block.content[i]
+                                    let content =
+                                        rutle::tree_walk::leaf_inline(disp.editor().document(), &b);
+                                    if let Some(InlineContent::Link {
+                                        link,
+                                        content: inner,
+                                    }) = content.get(i)
                                     {
-                                        let text = content
+                                        let text = inner
                                             .iter()
                                             .map(|c| c.to_plain_text())
                                             .collect::<String>();
@@ -910,12 +895,13 @@ impl FltkStructuredRichDisplay {
                                 // Invoke shared dialog
                                 let display_cb = display.clone();
                                 let change_cb_ref = change_cb.clone();
+                                let link_pos_rm = link_pos.clone();
                                 crate::link_editor::show_link_editor(
                                     opts,
                                     move |dest: String, txt: String| {
                                         let mut disp = display_cb.borrow_mut();
                                         let editor = disp.editor_mut();
-                                        if let Some((b, i)) = link_pos {
+                                        if let Some((b, i)) = link_pos.clone() {
                                             editor.edit_link_at(b, i, &dest, &txt).ok();
                                         } else if !txt.is_empty() {
                                             if editor.selection().is_some() {
@@ -935,7 +921,7 @@ impl FltkStructuredRichDisplay {
                                         let display_rm = display.clone();
                                         let change_cb_rm = change_cb.clone();
                                         move || {
-                                            if let Some((b, i)) = link_pos {
+                                            if let Some((b, i)) = link_pos_rm.clone() {
                                                 let mut disp = display_rm.borrow_mut();
                                                 disp.editor_mut().remove_link_at(b, i).ok();
                                                 drop(disp);
@@ -966,19 +952,10 @@ impl FltkStructuredRichDisplay {
                                     let w_for_actions = w.clone();
                                     let actions = crate::context_menu::MenuActions {
                                         has_selection,
-                                        current_block: {
-                                            let d = display.borrow();
-                                            let ed = d.editor();
-                                            let cur = ed.cursor();
-                                            let doc = ed.document();
-                                            let blocks = doc.blocks();
-                                            if !blocks.is_empty() && cur.block_index < blocks.len()
-                                            {
-                                                blocks[cur.block_index].block_type.clone()
-                                            } else {
-                                                BlockType::Paragraph
-                                            }
-                                        },
+                                        current_block: display
+                                            .borrow()
+                                            .editor()
+                                            .current_block_type(),
                                         set_paragraph: Box::new({
                                             let display = display.clone();
                                             let mut w_r = w_for_actions.clone();
@@ -1222,14 +1199,16 @@ impl FltkStructuredRichDisplay {
                                                 ) = {
                                                     let disp = display.borrow_mut();
                                                     if let Some((b, i)) = disp.hovered_link() {
-                                                        let doc = disp.editor().document();
-                                                        let block = &doc.blocks()[b];
-                                                        if let InlineContent::Link {
+                                                        let content = rutle::tree_walk::leaf_inline(
+                                                            disp.editor().document(),
+                                                            &b,
+                                                        );
+                                                        if let Some(InlineContent::Link {
                                                             link,
-                                                            content,
-                                                        } = &block.content[i]
+                                                            content: inner,
+                                                        }) = content.get(i)
                                                         {
-                                                            let text = content
+                                                            let text = inner
                                                                 .iter()
                                                                 .map(|c| c.to_plain_text())
                                                                 .collect::<String>();
@@ -1290,7 +1269,7 @@ impl FltkStructuredRichDisplay {
                                                     move |dest: String, txt: String| {
                                                         let mut disp = display_cb.borrow_mut();
                                                         let editor = disp.editor_mut();
-                                                        if let Some((b, i)) = link_pos {
+                                                        if let Some((b, i)) = link_pos.clone() {
                                                             editor
                                                                 .edit_link_at(b, i, &dest, &txt)
                                                                 .ok();
@@ -1756,6 +1735,23 @@ impl FltkStructuredRichDisplay {
                                             did_horizontal = true;
                                             handled = true;
                                         }
+                                        Key::Tab => {
+                                            // Tab/Shift-Tab indent/outdent within a list.
+                                            if matches!(
+                                                disp.editor().current_block_type(),
+                                                BlockType::ListItem { .. }
+                                            ) {
+                                                if shift_held {
+                                                    disp.editor_mut().outdent_list_item().ok();
+                                                } else {
+                                                    disp.editor_mut().indent_list_item().ok();
+                                                }
+                                                if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                                    (cb)();
+                                                }
+                                                handled = true;
+                                            }
+                                        }
                                         Key::Enter => {
                                             let alt_pressed = state.contains(Shortcut::Alt);
                                             let ctrl_pressed = state.contains(Shortcut::Ctrl);
@@ -1875,8 +1871,9 @@ impl FltkStructuredRichDisplay {
                                     let mut disp = display.borrow_mut();
                                     if let Some(((b, i), dest)) = disp.find_link_near_cursor() {
                                         let prev = disp.hovered_link();
-                                        if prev != Some((b, i)) {
-                                            disp.set_hovered_link(Some((b, i)));
+                                        let loc = (b, i);
+                                        if prev.as_ref() != Some(&loc) {
+                                            disp.set_hovered_link(Some(loc));
                                             if let Some(cb) = &*hover_cb.borrow() {
                                                 (cb)(Some(dest));
                                             }
@@ -2100,11 +2097,7 @@ impl FltkStructuredRichDisplay {
     }
 
     pub fn current_block_type(&self) -> Option<BlockType> {
-        let disp = self.display.borrow();
-        let editor = disp.editor();
-        let blocks = editor.document().blocks();
-        let idx = editor.cursor().block_index;
-        blocks.get(idx).map(|b| b.block_type.clone())
+        Some(self.display.borrow().editor().current_block_type())
     }
 }
 

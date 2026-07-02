@@ -2,14 +2,16 @@
 pub mod clipboard;
 pub mod content;
 pub mod context_menu;
-pub mod draw_context;
 pub mod fltk_draw_context;
 pub mod fltk_structured_rich_display;
 pub mod link_editor;
 pub mod link_handler;
+pub mod markdown_converter;
 pub mod page_ui;
 pub mod responsive_scrollbar;
-pub mod richtext;
 pub mod rtf;
-pub mod theme;
 pub mod ui_adapters;
+
+// The structured editor/layout core lives in the shared `rutle` crate; piki-gui
+// uses its types (`rutle::Renderer`, `rutle::Editor`, `rutle::RenderContext`, …)
+// and modules (`rutle::structured_document`, `rutle::tree_walk`, …) directly.

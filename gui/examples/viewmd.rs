@@ -5,10 +5,10 @@ use fltk::{prelude::*, *};
 use piki_gui::fltk_structured_rich_display::FltkStructuredRichDisplay;
 use piki_gui::link_editor::LinkEditOptions;
 use piki_gui::link_editor::show_link_editor;
-use piki_gui::richtext::markdown_converter::markdown_to_document;
-use piki_gui::richtext::structured_document::BlockType;
-use piki_gui::richtext::structured_document::DocumentPosition;
-use piki_gui::richtext::structured_document::InlineContent;
+use piki_gui::markdown_converter::markdown_to_document;
+use rutle::structured_document::BlockType;
+use rutle::structured_document::InlineContent;
+use rutle::tree_path::DocumentPosition;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -187,13 +187,13 @@ fn main() {
                 let (init_target, init_text, mode_existing_link, selection_mode, link_pos) = {
                     let d = display_for_menu.borrow_mut();
                     if let Some((b, i)) = d.hovered_link() {
-                        let doc = d.editor().document();
-                        let block = &doc.blocks()[b];
-                        if let InlineContent::Link { link, content } = &block.content[i] {
-                            let text = content
-                                .iter()
-                                .map(|c| c.to_plain_text())
-                                .collect::<String>();
+                        let content = rutle::tree_walk::leaf_inline(d.editor().document(), &b);
+                        if let Some(InlineContent::Link {
+                            link,
+                            content: inner,
+                        }) = content.get(i)
+                        {
+                            let text = inner.iter().map(|c| c.to_plain_text()).collect::<String>();
                             (link.destination.clone(), text, true, false, Some((b, i)))
                         } else {
                             (String::new(), String::new(), false, false, None)
@@ -222,12 +222,13 @@ fn main() {
                 // Invoke shared link editor dialog
                 let display_cb = display_for_menu.clone();
                 let redraw_handle = widget_for_menu.clone();
+                let link_pos_rm = link_pos.clone();
                 show_link_editor(
                     opts,
                     move |dest: String, txt: String| {
                         let mut d = display_cb.borrow_mut();
                         let editor = d.editor_mut();
-                        if let Some((b, i)) = link_pos {
+                        if let Some((b, i)) = link_pos.clone() {
                             editor.edit_link_at(b, i, &dest, &txt).ok();
                         } else if !txt.is_empty() {
                             if editor.selection().is_some() {
@@ -244,7 +245,7 @@ fn main() {
                         let display_rm = display_for_menu.clone();
                         let redraw_rm = widget_for_menu.clone();
                         move || {
-                            if let Some((b, i)) = link_pos {
+                            if let Some((b, i)) = link_pos_rm.clone() {
                                 let mut d = display_rm.borrow_mut();
                                 d.editor_mut().remove_link_at(b, i).ok();
                                 drop(d);
@@ -276,6 +277,7 @@ fn main() {
                             ordered: false,
                             number: None,
                             checkbox: None,
+                            depth: 0,
                         })
                         .ok();
                 }
@@ -373,18 +375,7 @@ fn main() {
             let mb = menu_bar.clone();
             let disp = display.clone();
             app::add_timeout3(0.25, move |h| {
-                let current = {
-                    let d = disp.borrow();
-                    let ed = d.editor();
-                    let cur = ed.cursor();
-                    let doc = ed.document();
-                    let blocks = doc.blocks();
-                    if !blocks.is_empty() && cur.block_index < blocks.len() {
-                        blocks[cur.block_index].block_type.clone()
-                    } else {
-                        BlockType::Paragraph
-                    }
-                };
+                let current = disp.borrow().editor().current_block_type();
 
                 if let Some(selected) = match current {
                     BlockType::Paragraph => Some("Paragraph Style/Paragraph\t"),
@@ -432,7 +423,7 @@ fn main() {
     let doc = markdown_to_document(&contents);
     {
         let mut d = display.borrow_mut();
-        *d.editor_mut().document_mut() = doc;
+        d.editor_mut().set_document(doc);
         d.editor_mut().set_cursor(DocumentPosition::start());
     }
 
@@ -479,7 +470,7 @@ fn main() {
                 if let Ok(content) = fs::read_to_string(&destination) {
                     let new_doc = markdown_to_document(&content);
                     let mut d = display_ref.borrow_mut();
-                    *d.editor_mut().document_mut() = new_doc;
+                    d.editor_mut().set_document(new_doc);
                     d.editor_mut().set_cursor(DocumentPosition::start());
                     if let Some(mut win) = win_handle.as_base_widget().window() {
                         win.set_label(&format!(

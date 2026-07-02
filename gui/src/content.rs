@@ -11,15 +11,12 @@ pub trait ContentProvider {
     fn get_content(&self) -> String;
 }
 
-// Implementation for Rc<RefCell<StructuredRichDisplay>> using markdown conversion
-impl ContentProvider
-    for Rc<RefCell<crate::richtext::structured_rich_display::StructuredRichDisplay>>
-{
+// Implementation for Rc<RefCell<rutle::Renderer>> using markdown conversion
+impl ContentProvider for Rc<RefCell<rutle::renderer::Renderer>> {
     fn get_content(&self) -> String {
-        use crate::richtext::markdown_converter::document_to_markdown;
+        use crate::markdown_converter::document_to_markdown;
         let disp = self.borrow();
-        let doc = disp.editor().document();
-        document_to_markdown(doc)
+        document_to_markdown(disp.editor().document())
     }
 }
 
@@ -28,14 +25,13 @@ impl ContentProvider
 pub trait ContentLoader {
     fn set_content_from_markdown(&mut self, markdown: &str);
 }
-// Loader for Rc<RefCell<StructuredRichDisplay>> by converting markdown to StructuredDocument
-impl ContentLoader for crate::richtext::structured_rich_display::StructuredRichDisplay {
+// Loader for rutle::Renderer by converting markdown to a tdoc::Document
+impl ContentLoader for rutle::renderer::Renderer {
     fn set_content_from_markdown(&mut self, markdown: &str) {
-        use crate::richtext::markdown_converter::markdown_to_document;
-        let editor = self.editor_mut();
-        *editor.document_mut() = markdown_to_document(markdown);
-        // Clear selection to prevent stale selection from being applied to new content
-        editor.clear_selection();
+        // `set_document` replaces the tree, resets the caret, and clears undo
+        // history — the load semantics the old `load_markdown` provided.
+        let doc = crate::markdown_converter::markdown_to_document(markdown);
+        self.editor_mut().set_document(doc);
         // Reset scroll to top after loading new content
         self.set_scroll(0);
     }

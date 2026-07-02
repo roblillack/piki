@@ -1,7 +1,7 @@
-use crate::draw_context::{DrawContext, FontStyle, FontType};
 use fltk::{draw as fltk_draw, enums::*, prelude::*};
+use rutle::render_context::{FontStyle, FontType, RenderContext};
 
-/// FLTK implementation of DrawContext
+/// FLTK implementation of rutle's [`RenderContext`].
 pub struct FltkDrawContext {
     has_focus: bool,
     is_active: bool,
@@ -51,7 +51,7 @@ impl FltkDrawContext {
     }
 }
 
-impl DrawContext for FltkDrawContext {
+impl RenderContext for FltkDrawContext {
     fn set_color(&mut self, color: u32) {
         let r = ((color >> 24) & 0xFF) as u8;
         let g = ((color >> 16) & 0xFF) as u8;

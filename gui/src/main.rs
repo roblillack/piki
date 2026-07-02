@@ -1,6 +1,5 @@
 mod app_icon;
 mod autosave;
-pub mod draw_context;
 pub mod fltk_draw_context;
 mod history;
 mod link_handler;

@@ -2,10 +2,7 @@ use std::io::Cursor;
 
 use tdoc::{Document, html, markdown};
 
-use crate::richtext::markdown_converter::{
-    document_to_html, document_to_markdown, markdown_to_document,
-};
-use crate::richtext::structured_document::StructuredDocument;
+use crate::markdown_converter::{document_to_html, document_to_markdown, markdown_to_document};
 use crate::rtf;
 
 #[derive(Debug)]
@@ -136,7 +133,7 @@ fn document_from_html(html_content: &str) -> Result<Document, ClipboardDocumentE
 /// serialization as the plain-text alternative so plain-text (and
 /// Markdown-aware) targets get a useful representation too. Falls back to a
 /// plain-text Markdown copy via FLTK when the system clipboard is unavailable.
-pub fn copy_structured_to_system(doc: &StructuredDocument) {
+pub fn copy_structured_to_system(doc: &Document) {
     let markdown = document_to_markdown(doc);
     let html = document_to_html(doc);
     place_on_clipboard(&markdown, &html);

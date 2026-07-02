@@ -1,15 +1,15 @@
 use crate::content::{ContentLoader, ContentProvider};
 use crate::fltk_draw_context::FltkDrawContext;
 use crate::fltk_structured_rich_display::FltkStructuredRichDisplay;
+use crate::markdown_converter::document_to_markdown;
 use crate::page_ui::PageUI;
-use crate::richtext::markdown_converter::{document_to_markdown, markdown_to_document};
-use crate::richtext::structured_document::BlockType;
-use crate::richtext::structured_editor::StructuredEditor;
-use crate::richtext::structured_rich_display::SearchMatch;
 use fltk::{app, enums::Color, prelude::*, window};
+use rutle::editor::Editor;
+use rutle::renderer::SearchMatch;
+use rutle::structured_document::BlockType;
 use std::any::Any;
 
-/// PageUI adapter for StructuredRichDisplay + FLTK Group wrapper
+/// PageUI adapter for rutle's `Renderer` + FLTK Group wrapper
 pub struct StructuredRichUI(pub FltkStructuredRichDisplay);
 
 impl StructuredRichUI {
@@ -133,10 +133,7 @@ impl StructuredRichUI {
 
     pub fn current_block_type(&self) -> Option<BlockType> {
         let disp = self.0.display.borrow();
-        let editor = disp.editor();
-        let blocks = editor.document().blocks();
-        let idx = editor.cursor().block_index;
-        blocks.get(idx).map(|b| b.block_type.clone())
+        Some(disp.editor().current_block_type())
     }
 
     /// Set horizontal padding (for write room mode)
@@ -225,7 +222,7 @@ impl StructuredRichUI {
 
     fn apply_edit<F>(&mut self, edit: F) -> bool
     where
-        F: FnOnce(&mut StructuredEditor) -> crate::richtext::structured_editor::EditResult,
+        F: FnOnce(&mut Editor) -> rutle::editor::EditResult,
     {
         let result = {
             let mut disp = self.0.display.borrow_mut();
@@ -245,18 +242,16 @@ impl StructuredRichUI {
 impl ContentProvider for StructuredRichUI {
     fn get_content(&self) -> String {
         let disp = self.0.display.borrow();
-        let doc = disp.editor().document();
-        document_to_markdown(doc)
+        document_to_markdown(disp.editor().document())
     }
 }
 
 impl ContentLoader for StructuredRichUI {
     fn set_content_from_markdown(&mut self, markdown: &str) {
         let mut disp = self.0.display.borrow_mut();
-        let editor = disp.editor_mut();
-        *editor.document_mut() = markdown_to_document(markdown);
-        // Loading a different page starts a fresh undo history.
-        editor.reset_undo_history();
+        // Loading a different page starts a fresh undo history (set_document resets it).
+        let doc = crate::markdown_converter::markdown_to_document(markdown);
+        disp.editor_mut().set_document(doc);
         disp.set_scroll(0);
         drop(disp);
         self.0.emit_paragraph_state();
