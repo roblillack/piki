@@ -40,7 +40,7 @@ pub mod richtext {
     // needs for the clipboard and page load/save.
     pub mod markdown_converter {
         use std::io::Cursor;
-        use tdoc::{html, markdown, Document};
+        use tdoc::{Document, html, markdown};
 
         /// Parse markdown text into a [`tdoc::Document`]. Empty document on error.
         pub fn markdown_to_document(src: &str) -> Document {

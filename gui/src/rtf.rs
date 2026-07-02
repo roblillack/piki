@@ -109,8 +109,71 @@ fn push_span(text: &str, painter: &Painter, spans: &mut Vec<Span>) -> bool {
         return false;
     }
 
+    let text = repair_cp1252_c1(text);
+    if text.is_empty() {
+        return false;
+    }
+
     spans.push(apply_styles(Span::new_text(text), painter));
     true
+}
+
+/// Repair mis-decoded Windows-1252 C1 characters (`U+0080`–`U+009F`) in text
+/// produced by `rtf-parser`.
+///
+/// RTF encodes non-ASCII bytes as `\'xx` hex escapes in the document's codepage
+/// (almost always Windows-1252 on macOS/Windows). `rtf-parser` decodes them with
+/// `byte as char`, i.e. it treats the codepage byte as a Unicode scalar. For
+/// bytes `0xA0`–`0xFF` that happens to match Latin-1/Unicode, but the C1 block
+/// `0x80`–`0x9F` does not: `\'92` (a curly apostrophe in Windows-1252) becomes
+/// the control character `U+0092` instead of `U+2019`, `\'85` becomes `U+0085`
+/// instead of `…`, and so on — these render as inert boxes rather than real
+/// glyphs. Because `\'xx` escapes *are* codepage bytes, remapping this block is
+/// the correct decoding the parser skipped, not a heuristic. Codepoints the
+/// caller already decoded correctly (everything outside the C1 block) pass
+/// through untouched, and the borrow is only cloned when a repair is needed.
+fn repair_cp1252_c1(text: &str) -> Cow<'_, str> {
+    if !text.chars().any(|ch| ('\u{80}'..='\u{9F}').contains(&ch)) {
+        return Cow::Borrowed(text);
+    }
+    Cow::Owned(text.chars().filter_map(cp1252_c1_char).collect())
+}
+
+/// Map a single character through the Windows-1252 C1 remap. Characters outside
+/// the C1 block are returned unchanged; the five codepoints Windows-1252 leaves
+/// undefined (`0x81`, `0x8D`, `0x8F`, `0x90`, `0x9D`) are dropped.
+fn cp1252_c1_char(ch: char) -> Option<char> {
+    Some(match ch {
+        '\u{80}' => '\u{20AC}', // €
+        '\u{82}' => '\u{201A}', // ‚
+        '\u{83}' => '\u{0192}', // ƒ
+        '\u{84}' => '\u{201E}', // „
+        '\u{85}' => '\u{2026}', // …
+        '\u{86}' => '\u{2020}', // †
+        '\u{87}' => '\u{2021}', // ‡
+        '\u{88}' => '\u{02C6}', // ˆ
+        '\u{89}' => '\u{2030}', // ‰
+        '\u{8A}' => '\u{0160}', // Š
+        '\u{8B}' => '\u{2039}', // ‹
+        '\u{8C}' => '\u{0152}', // Œ
+        '\u{8E}' => '\u{017D}', // Ž
+        '\u{91}' => '\u{2018}', // '
+        '\u{92}' => '\u{2019}', // '
+        '\u{93}' => '\u{201C}', // "
+        '\u{94}' => '\u{201D}', // "
+        '\u{95}' => '\u{2022}', // •
+        '\u{96}' => '\u{2013}', // –
+        '\u{97}' => '\u{2014}', // —
+        '\u{98}' => '\u{02DC}', // ˜
+        '\u{99}' => '\u{2122}', // ™
+        '\u{9A}' => '\u{0161}', // š
+        '\u{9B}' => '\u{203A}', // ›
+        '\u{9C}' => '\u{0153}', // œ
+        '\u{9E}' => '\u{017E}', // ž
+        '\u{9F}' => '\u{0178}', // Ÿ
+        '\u{81}' | '\u{8D}' | '\u{8F}' | '\u{90}' | '\u{9D}' => return None,
+        other => other,
+    })
 }
 
 fn apply_styles(mut span: Span, painter: &Painter) -> Span {
@@ -232,6 +295,27 @@ mod tests {
         if let Paragraph::Text { content } = second {
             assert_eq!(content[0].text, "Next line.");
         }
+    }
+
+    #[test]
+    fn repairs_windows_1252_c1_punctuation() {
+        // In Windows-1252: \'92 = curly apostrophe, \'85 = ellipsis,
+        // \'97 = em dash. rtf-parser decodes these to the raw C1 control
+        // codepoints; parse_rtf_document must map them back to real glyphs.
+        let rtf = br#"{\rtf1\ansi\ansicpg1252 It\'92s done\'85 or\'97maybe.\par}"#;
+        let document = parse_rtf_document(rtf).unwrap();
+
+        let Paragraph::Text { content } = &document.paragraphs[0] else {
+            panic!("expected text paragraph");
+        };
+        let combined: String = content.iter().map(|span| span.text.as_str()).collect();
+        assert_eq!(combined, "It\u{2019}s done\u{2026} or\u{2014}maybe.");
+        assert!(
+            !combined
+                .chars()
+                .any(|ch| ('\u{80}'..='\u{9F}').contains(&ch)),
+            "no C1 control characters should survive"
+        );
     }
 
     #[test]
