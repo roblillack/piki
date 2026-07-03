@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 #[derive(Clone)]
@@ -34,6 +34,55 @@ pub fn ensure_md_extension(name: &str) -> String {
         name.to_string()
     } else {
         format!("{name}.md")
+    }
+}
+
+/// Name of the per-folder subdirectory that holds a page's attachments.
+///
+/// Chosen to match Logseq's `assets/` convention and Obsidian's "subfolder
+/// under current folder" attachment setting, so vaults stay portable between
+/// tools. See `specs/image-support.md`.
+pub const ATTACHMENTS_DIR: &str = "assets";
+
+/// Sanitise a dropped file's name into one that is safe both as an on-disk
+/// filename and as a Markdown link destination.
+///
+/// Markdown link destinations can't contain unescaped spaces or brackets, so
+/// rather than percent-encode (which would then need decoding everywhere and
+/// is fragile across the editor's Markdown round-trip) we replace any run of
+/// problematic characters with a single dash. Unicode letters/digits, dots,
+/// dashes and underscores are preserved.
+pub fn sanitize_attachment_name(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut prev_dash = false;
+    for c in name.chars() {
+        if c.is_alphanumeric() || matches!(c, '.' | '-' | '_') {
+            // Avoid leaving a dash stranded right before the extension dot
+            // (e.g. "photo (1).png" -> "photo-1.png" rather than "photo-1-.png").
+            if c == '.' && out.ends_with('-') {
+                out.pop();
+            }
+            out.push(c);
+            prev_dash = false;
+        } else if !prev_dash {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches(|c| c == '-' || c == '.');
+    if trimmed.is_empty() {
+        "attachment".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Split a sanitised filename into its stem and extension (without the dot).
+/// Used to insert a numeric suffix before the extension on name collisions.
+fn split_name(name: &str) -> (&str, Option<&str>) {
+    match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() && !ext.is_empty() => (stem, Some(ext)),
+        _ => (name, None),
     }
 }
 
@@ -124,6 +173,96 @@ impl DocumentStore {
 
         fs::write(&doc.path, &doc.content)
             .map_err(|e| format!("Failed to save '{}': {}", doc.name, e))
+    }
+
+    /// The directory that holds `page_name`'s Markdown file. Attachments live in
+    /// a sibling `assets/` folder, so this is resolved relative to it.
+    fn page_dir(&self, page_name: &str) -> PathBuf {
+        let page_path = self.base_path.join(ensure_md_extension(page_name));
+        page_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| self.base_path.clone())
+    }
+
+    /// The `assets/` folder for a page (per-folder convention): a sibling of the
+    /// page's Markdown file. Not guaranteed to exist yet.
+    pub fn attachments_dir(&self, page_name: &str) -> PathBuf {
+        self.page_dir(page_name).join(ATTACHMENTS_DIR)
+    }
+
+    /// Copy an external file into `page_name`'s `assets/` folder and return the
+    /// Markdown-relative link destination to embed (e.g. `assets/photo.png`).
+    ///
+    /// The filename is sanitised (see [`sanitize_attachment_name`]). On a name
+    /// collision an identical existing file is reused; otherwise a `-N` suffix
+    /// is added so distinct files never clobber each other.
+    pub fn add_attachment(&self, page_name: &str, source: &Path) -> Result<String, String> {
+        let dir = self.attachments_dir(page_name);
+        fs::create_dir_all(&dir).map_err(|e| {
+            format!(
+                "Failed to create attachments directory '{}': {}",
+                dir.display(),
+                e
+            )
+        })?;
+
+        let raw_name = source
+            .file_name()
+            .and_then(|s| s.to_str())
+            .ok_or_else(|| format!("Invalid attachment filename: {}", source.display()))?;
+        let safe_name = sanitize_attachment_name(raw_name);
+
+        let bytes = fs::read(source)
+            .map_err(|e| format!("Failed to read '{}': {}", source.display(), e))?;
+
+        let final_name = self.unique_attachment_name(&dir, &safe_name, &bytes);
+        let target = dir.join(&final_name);
+        // `unique_attachment_name` only returns the name of an already-present
+        // file when its bytes are identical, so writing again is redundant.
+        if !target.exists() {
+            fs::write(&target, &bytes)
+                .map_err(|e| format!("Failed to write '{}': {}", target.display(), e))?;
+        }
+
+        Ok(format!("{ATTACHMENTS_DIR}/{final_name}"))
+    }
+
+    /// Pick a non-colliding filename in `dir`. Reuses an existing file whose
+    /// bytes match `bytes` (so re-dropping the same file doesn't duplicate it),
+    /// otherwise appends `-1`, `-2`, … before the extension.
+    fn unique_attachment_name(&self, dir: &Path, name: &str, bytes: &[u8]) -> String {
+        let (stem, ext) = split_name(name);
+        let mut candidate = name.to_string();
+        let mut n = 1;
+        loop {
+            let path = dir.join(&candidate);
+            if !path.exists() {
+                return candidate;
+            }
+            if fs::read(&path).map(|b| b == bytes).unwrap_or(false) {
+                return candidate; // identical file already present – reuse it
+            }
+            candidate = match ext {
+                Some(ext) => format!("{stem}-{n}.{ext}"),
+                None => format!("{stem}-{n}"),
+            };
+            n += 1;
+        }
+    }
+
+    /// Resolve a link destination that may point at a local attachment, relative
+    /// to `page_name`'s folder. Returns the absolute path only when it is an
+    /// existing, non-Markdown file — Markdown files are always pages, never
+    /// attachments (see `specs/image-support.md`), so they resolve to `None`
+    /// and fall through to normal wiki navigation.
+    pub fn resolve_attachment(&self, page_name: &str, dest: &str) -> Option<PathBuf> {
+        let dest = dest.trim();
+        if dest.is_empty() || has_md_extension(dest) {
+            return None;
+        }
+        let candidate = self.page_dir(page_name).join(dest);
+        candidate.is_file().then_some(candidate)
     }
 }
 
@@ -239,6 +378,84 @@ mod tests {
         assert_eq!(fs::read_to_string(&doc.path).unwrap(), "Test content");
 
         // Cleanup
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_sanitize_attachment_name() {
+        assert_eq!(sanitize_attachment_name("My Report.pdf"), "My-Report.pdf");
+        assert_eq!(sanitize_attachment_name("photo (1).png"), "photo-1.png");
+        assert_eq!(sanitize_attachment_name("a  b   c.txt"), "a-b-c.txt");
+        assert_eq!(sanitize_attachment_name("clean_name-1.PNG"), "clean_name-1.PNG");
+        // Nothing usable left -> fallback name.
+        assert_eq!(sanitize_attachment_name("***"), "attachment");
+        // Unicode letters are preserved.
+        assert_eq!(sanitize_attachment_name("café.png"), "café.png");
+    }
+
+    #[test]
+    fn test_attachments_dir_is_page_sibling() {
+        let store = DocumentStore::new(PathBuf::from("/vault"));
+        assert_eq!(store.attachments_dir("frontpage"), PathBuf::from("/vault/assets"));
+        assert_eq!(
+            store.attachments_dir("work/projects/q4"),
+            PathBuf::from("/vault/work/projects/assets")
+        );
+    }
+
+    #[test]
+    fn test_add_attachment_copies_and_returns_relative_link() {
+        let temp_dir = env::temp_dir().join("piki-test-attach");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        // A source file to attach, living outside the vault.
+        let src = temp_dir.join("source.png");
+        fs::write(&src, b"image-bytes").unwrap();
+
+        let store = DocumentStore::new(temp_dir.join("vault"));
+        let link = store.add_attachment("notes", &src).unwrap();
+
+        assert_eq!(link, "assets/source.png");
+        let copied = temp_dir.join("vault/assets/source.png");
+        assert!(copied.is_file());
+        assert_eq!(fs::read(&copied).unwrap(), b"image-bytes");
+
+        // Re-dropping the identical file reuses it (no duplicate).
+        let link2 = store.add_attachment("notes", &src).unwrap();
+        assert_eq!(link2, "assets/source.png");
+
+        // A different file with the same name gets a numeric suffix.
+        let src2 = temp_dir.join("other/source.png");
+        fs::create_dir_all(src2.parent().unwrap()).unwrap();
+        fs::write(&src2, b"different-bytes").unwrap();
+        let link3 = store.add_attachment("notes", &src2).unwrap();
+        assert_eq!(link3, "assets/source-1.png");
+
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_resolve_attachment() {
+        let temp_dir = env::temp_dir().join("piki-test-resolve");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(temp_dir.join("work/assets")).unwrap();
+        fs::write(temp_dir.join("work/assets/report.pdf"), b"pdf").unwrap();
+        fs::write(temp_dir.join("work/other.md"), b"# page").unwrap();
+
+        let store = DocumentStore::new(temp_dir.clone());
+
+        // An existing non-Markdown file resolves relative to the page's folder.
+        assert_eq!(
+            store.resolve_attachment("work/q4", "assets/report.pdf"),
+            Some(temp_dir.join("work/assets/report.pdf"))
+        );
+        // Markdown links are pages, not attachments.
+        assert_eq!(store.resolve_attachment("work/q4", "other.md"), None);
+        // Missing files and plain page names fall through to wiki navigation.
+        assert_eq!(store.resolve_attachment("work/q4", "assets/missing.png"), None);
+        assert_eq!(store.resolve_attachment("work/q4", "some-page"), None);
+
         fs::remove_dir_all(&temp_dir).ok();
     }
 

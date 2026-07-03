@@ -9,6 +9,7 @@ use rutle::renderer::Renderer;
 use rutle::structured_document::{BlockType, InlineContent};
 use std::cell::RefCell;
 use std::ffi::CStr;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -31,6 +32,7 @@ pub struct FltkStructuredRichDisplay {
     hover_cb: Callback<Option<String>>,
     change_cb: MutCallback0,
     paragraph_cb: MutCallback<BlockType>,
+    drop_cb: Callback<Vec<PathBuf>>,
 }
 
 const SCROLLBAR_WIDTH: i32 = 15;
@@ -67,6 +69,12 @@ impl FltkStructuredRichDisplay {
         let change_callback: MutCallback0 = Rc::new(RefCell::new(None));
         let hover_callback: Callback<Option<String>> = Rc::new(RefCell::new(None));
         let paragraph_callback: MutCallback<BlockType> = Rc::new(RefCell::new(None));
+        let drop_callback: Callback<Vec<PathBuf>> = Rc::new(RefCell::new(None));
+
+        // Set true between a drag-and-drop `DndRelease` and the `Paste` event
+        // FLTK delivers with the dropped file list, so that paste is routed to
+        // the drop handler instead of being inserted as clipboard text.
+        let pending_drop = Rc::new(RefCell::new(false));
 
         // Create vertical responsive scrollbar
         let mut vscroll = ResponsiveScrollbar::new(
@@ -134,6 +142,8 @@ impl FltkStructuredRichDisplay {
             let link_cb = link_callback.clone();
             let hover_cb = hover_callback.clone();
             let change_cb = change_callback.clone();
+            let drop_cb = drop_callback.clone();
+            let pending_drop = pending_drop.clone();
             let last_block_move = last_block_move.clone();
             move |w, event| {
                 // Handle hover checking for Push, Drag, Move, and Enter
@@ -1923,6 +1933,18 @@ impl FltkStructuredRichDisplay {
                         }
                     }
                     Event::Paste => {
+                        // A paste immediately following a drag-and-drop carries the
+                        // dropped file list, not clipboard content: hand it to the
+                        // drop handler instead of inserting it as text.
+                        if pending_drop.replace(false) {
+                            let paths = parse_dropped_paths(&fltk::app::event_text());
+                            if !paths.is_empty()
+                                && let Some(cb) = &*drop_cb.borrow()
+                            {
+                                cb(paths);
+                            }
+                            return true;
+                        }
                         if edit_mode {
                             let fallback_text = fltk::app::event_text();
                             let (platform_formats, platform_rtf) = inspect_platform_clipboard();
@@ -1999,6 +2021,14 @@ impl FltkStructuredRichDisplay {
                         w.redraw();
                         true
                     }
+                    // Accept files dragged onto the editor. Returning true for the
+                    // DnD handshake makes FLTK follow up with a `Paste` event that
+                    // carries the dropped paths (handled above via `pending_drop`).
+                    Event::DndEnter | Event::DndDrag | Event::DndLeave => true,
+                    Event::DndRelease => {
+                        pending_drop.replace(true);
+                        true
+                    }
                     _ => false,
                 }
             }
@@ -2036,6 +2066,7 @@ impl FltkStructuredRichDisplay {
             hover_cb: hover_callback,
             change_cb: change_callback,
             paragraph_cb: paragraph_callback,
+            drop_cb: drop_callback,
         }
     }
 
@@ -2049,6 +2080,11 @@ impl FltkStructuredRichDisplay {
 
     pub fn set_change_callback(&self, cb: Option<Box<dyn FnMut() + 'static>>) {
         *self.change_cb.borrow_mut() = cb;
+    }
+
+    /// Callback invoked with the list of files dropped onto the editor.
+    pub fn set_drop_callback(&self, cb: Option<Box<dyn Fn(Vec<PathBuf>) + 'static>>) {
+        *self.drop_cb.borrow_mut() = cb;
     }
 
     /// Periodic tick to update cursor blinking; triggers redraw if needed
@@ -2191,4 +2227,53 @@ fn read_pasteboard_data(item: &NSPasteboardItem, type_name: &str) -> Option<Vec<
     let data = item.dataForType(&NSString::from_str(type_name))?;
     let bytes = data.to_vec();
     if bytes.is_empty() { None } else { Some(bytes) }
+}
+
+/// Parse the text FLTK delivers for a file drop into existing file paths.
+///
+/// The payload is one entry per line; entries may be plain paths (macOS) or
+/// `file://` URIs with percent-encoding (X11). Non-file entries (e.g. a URL
+/// dragged from a browser) and missing paths are dropped.
+fn parse_dropped_paths(text: &str) -> Vec<PathBuf> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter_map(|line| {
+            let raw = match line.strip_prefix("file://") {
+                Some(rest) => percent_decode(rest),
+                None => line.to_string(),
+            };
+            let path = PathBuf::from(raw);
+            path.is_file().then_some(path)
+        })
+        .collect()
+}
+
+/// Decode `%XX` escapes in a `file://` URI path. Invalid escapes are left as-is.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let (Some(hi), Some(lo)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2]))
+        {
+            out.push(hi * 16 + lo);
+            i += 3;
+            continue;
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn hex_val(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
 }

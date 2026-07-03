@@ -297,6 +297,120 @@ fn navigate_forward(
     }
 }
 
+/// Open a file with the operating system's default application for its type.
+fn open_in_system_app(path: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut c = std::process::Command::new("open");
+        c.arg(path);
+        c
+    };
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", "start", ""]).arg(path);
+        c
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let mut command = {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(path);
+        c
+    };
+    command.spawn().map(|_| ())
+}
+
+/// Copy dropped files into the current page's `assets/` folder and append a
+/// Markdown link to each at the bottom of the page content, then save.
+fn handle_files_dropped(
+    paths: &[PathBuf],
+    app_state: &Rc<RefCell<AppState>>,
+    autosave_state: &Rc<RefCell<AutoSaveState>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    statusbar: &Rc<RefCell<StatusBar>>,
+) {
+    if paths.is_empty() {
+        return;
+    }
+
+    let current_page = app_state.borrow().current_page.clone();
+
+    // Generated plugin pages (e.g. !index) are read-only, so there's nothing to
+    // attach files to.
+    if current_page.starts_with('!') {
+        statusbar
+            .borrow_mut()
+            .set_status("Can't attach files to a generated page");
+        app::redraw();
+        return;
+    }
+
+    // Copy each file into the page's assets/ folder, collecting Markdown links.
+    let mut links: Vec<String> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+    {
+        let st = app_state.borrow();
+        for path in paths {
+            match st.store.add_attachment(&current_page, path) {
+                Ok(dest) => {
+                    // Show the original filename as the link text (the on-disk /
+                    // link name may be sanitised).
+                    let label = path
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("attachment");
+                    links.push(format!("[{label}]({dest})"));
+                }
+                Err(e) => errors.push(e),
+            }
+        }
+    }
+
+    if links.is_empty() {
+        statusbar
+            .borrow_mut()
+            .set_status(&format!("Attach failed: {}", errors.join("; ")));
+        app::redraw();
+        return;
+    }
+
+    // Append the links as a bullet list at the bottom of the page content.
+    {
+        let active = active_editor.borrow();
+        let mut ed = active.borrow_mut();
+        let scroll = ed.scroll_pos();
+        let mut content = ed.get_content();
+        if !content.is_empty() && !content.ends_with('\n') {
+            content.push('\n');
+        }
+        if !content.trim().is_empty() {
+            content.push('\n'); // blank line between existing content and the list
+        }
+        for link in &links {
+            content.push_str("- ");
+            content.push_str(link);
+            content.push('\n');
+        }
+        ed.set_content_from_markdown(&content);
+        ed.set_scroll_pos(scroll);
+    }
+
+    // Flush to disk immediately so a dropped attachment isn't lost if the app
+    // exits before the debounced autosave fires.
+    if let Ok(mut as_state) = autosave_state.try_borrow_mut() {
+        as_state.mark_changed();
+    }
+    save_current_page(app_state, autosave_state, active_editor, statusbar);
+
+    let msg = if errors.is_empty() {
+        format!("Attached {} file(s)", links.len())
+    } else {
+        format!("Attached {} file(s), {} failed", links.len(), errors.len())
+    };
+    statusbar.borrow_mut().set_status(&msg);
+    app::redraw();
+}
+
 fn get_directory(dir_opt: Option<PathBuf>) -> PathBuf {
     dir_opt.unwrap_or_else(|| {
         std::env::var("HOME")
@@ -900,6 +1014,26 @@ fn wire_editor_callbacks(
                 return;
             }
 
+            // Links that resolve to a local attachment file (a non-Markdown file
+            // in the page's `assets/` folder) open in the system's default app
+            // rather than being treated as a wiki page.
+            let attachment = {
+                let st = app_state_links.borrow();
+                st.store.resolve_attachment(&st.current_page, &link_dest)
+            };
+            if let Some(path) = attachment {
+                let statusbar = statusbar_links.clone();
+                app::awake_callback(move || {
+                    if let Err(e) = open_in_system_app(&path) {
+                        statusbar
+                            .borrow_mut()
+                            .set_status(&format!("Failed to open attachment: {}", e));
+                        app::redraw();
+                    }
+                });
+                return;
+            }
+
             let app_state = app_state_links.clone();
             let autosave_state = autosave_links.clone();
             let editor_ref = active_clone.clone();
@@ -912,6 +1046,35 @@ fn wire_editor_callbacks(
                     &editor_ref,
                     &statusbar,
                     None,
+                );
+            });
+        }));
+    }
+
+    // Drag-and-drop: files dropped on the editor become attachments of the
+    // current page (copied into its `assets/` folder, linked at the bottom).
+    let current_for_drop = active_editor.borrow().clone();
+    {
+        let mut cur = current_for_drop.borrow_mut();
+        let app_state = app_state.clone();
+        let autosave_state = autosave_state.clone();
+        let statusbar = statusbar.clone();
+        let active_editor = active_editor.clone();
+        cur.on_files_dropped(Box::new(move |paths: Vec<PathBuf>| {
+            // Defer the work: the drop callback fires from inside the widget's
+            // event handler, and mutating the editor content must happen after
+            // that borrow is released.
+            let app_state = app_state.clone();
+            let autosave_state = autosave_state.clone();
+            let statusbar = statusbar.clone();
+            let active_editor = active_editor.clone();
+            app::awake_callback(move || {
+                handle_files_dropped(
+                    &paths,
+                    &app_state,
+                    &autosave_state,
+                    &active_editor,
+                    &statusbar,
                 );
             });
         }));

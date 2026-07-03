@@ -31,6 +31,9 @@ pub trait PageUI: ContentProvider + ContentLoader + 'static {
     // and None when not hovering any link. Default no-op.
     fn on_link_hover(&mut self, _f: Box<dyn Fn(Option<String>) + 'static>) {}
 
+    // Install handler for files dragged and dropped onto the widget. Default no-op.
+    fn on_files_dropped(&mut self, _f: Box<dyn Fn(Vec<std::path::PathBuf>) + 'static>) {}
+
     // Optional restyle hook (no-op by default).
     fn restyle(&mut self) {}
 
