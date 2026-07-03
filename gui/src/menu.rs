@@ -1,14 +1,15 @@
 use super::{
     AppState, AutoSaveState, load_page_helper, markdown_editor::MarkdownEditor, navigate_back,
-    navigate_forward, page_picker, search_bar::SearchBar, statusbar::StatusBar,
-    window_state::WindowGeometry, wire_editor_callbacks,
+    navigate_forward, page_picker, rename_current_page, search_bar::SearchBar,
+    statusbar::StatusBar, window_state::WindowGeometry, wire_editor_callbacks,
 };
 // Only the non-macOS in-app Quit item saves explicitly; on macOS the system
 // Quit routes through the window Close event, which already saves.
 #[cfg(not(target_os = "macos"))]
 use super::save_current_page;
+use chrono::Local;
 use fltk::{
-    app, button,
+    app, button, dialog,
     enums::{self, Key, Shortcut},
     frame, input, menu,
     prelude::*,
@@ -169,6 +170,7 @@ fn populate_menu<M>(
         Shortcut::Ctrl
     };
     let new_shortcut = cmd | 'n';
+    let rename_shortcut = cmd | 's';
     let gotopage_shortcut = cmd | 'o';
 
     let back_shortcut = if cfg!(target_os = "macos") {
@@ -214,6 +216,31 @@ fn populate_menu<M>(
     let fullscreen_shortcut = cmd | Shortcut::Shift | 'f';
 
     // Page menu
+    // New Note creates an auto-named `untitled_…` note and opens it immediately,
+    // so a quick thought can be captured without first inventing a name; the note
+    // is given a real name later with Rename Note (Cmd-S).
+    {
+        let app_state = app_state.clone();
+        let autosave_state = autosave_state.clone();
+        let active_editor = active_editor.clone();
+        let statusbar = statusbar.clone();
+        menu_bar.add(
+            "Note/New Note",
+            new_shortcut,
+            menu::MenuFlag::Normal,
+            move |_| {
+                load_page_helper(
+                    &default_new_note_name(),
+                    &app_state,
+                    &autosave_state,
+                    &active_editor,
+                    &statusbar,
+                    None,
+                );
+            },
+        );
+    }
+
     {
         let app_state = app_state.clone();
         let autosave_state = autosave_state.clone();
@@ -221,11 +248,11 @@ fn populate_menu<M>(
         let statusbar = statusbar.clone();
         let wind_ref = wind_ref.clone();
         menu_bar.add(
-            "Note/New Note …",
-            new_shortcut,
+            "Note/Rename Note …",
+            rename_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
-                show_new_page_dialog(
+                show_rename_dialog(
                     app_state.clone(),
                     autosave_state.clone(),
                     active_editor.clone(),
@@ -1358,13 +1385,37 @@ fn switch_editor(
     true
 }
 
-fn show_new_page_dialog(
+/// The auto-generated name for a quick new note, e.g.
+/// `untitled_2026-07-04_153412`. Seconds are included so two notes created
+/// within the same minute do not collide onto the same file.
+fn default_new_note_name() -> String {
+    format!("untitled_{}", Local::now().format("%Y-%m-%d_%H%M%S"))
+}
+
+/// Whether `name` is an auto-generated quick-note name (see
+/// [`default_new_note_name`]) that has not been given a real name yet.
+fn is_untitled(name: &str) -> bool {
+    name.starts_with("untitled_")
+}
+
+/// Prompt for a new name for the currently open note and rename it in place
+/// (see [`rename_current_page`]). This is how a quick, auto-named note gets a
+/// real name, but it works on any note.
+fn show_rename_dialog(
     app_state: Rc<RefCell<AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
     active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
     statusbar: Rc<RefCell<StatusBar>>,
     wind_ref: Rc<RefCell<window::Window>>,
 ) {
+    let current_name = app_state.borrow().current_page.clone();
+
+    // Read-only plugin views (e.g. !index) have no file to rename.
+    if current_name.starts_with('!') {
+        dialog::alert_default("This note cannot be renamed.");
+        return;
+    }
+
     let width = 360;
     let height = 140;
 
@@ -1377,49 +1428,68 @@ fn show_new_page_dialog(
     let pos_x = px + (pw - width) / 2;
     let pos_y = py + (ph - height) / 2;
 
-    let mut win = window::Window::new(pos_x.max(0), pos_y.max(0), width, height, Some("New Note"));
+    let mut win = window::Window::new(
+        pos_x.max(0),
+        pos_y.max(0),
+        width,
+        height,
+        Some("Rename Note"),
+    );
     win.make_modal(true);
     win.begin();
 
-    let mut label = frame::Frame::new(10, 10, width - 20, 24, Some("Enter new note name:"));
+    let mut label = frame::Frame::new(10, 10, width - 20, 24, Some("Rename note to:"));
     label.set_align(enums::Align::Inside | enums::Align::Left);
 
     let mut input = input::Input::new(10, 40, width - 20, 28, None);
+    // Start blank for an unnamed quick note so the user just types a name; for a
+    // note that already has a real name, pre-fill it so this acts as an edit.
+    if !is_untitled(&current_name) {
+        input.set_value(&current_name);
+    }
 
     let mut cancel_btn = button::Button::new(width - 180, height - 40, 80, 30, Some("Cancel"));
-    let mut create_btn = button::ReturnButton::new(width - 90, height - 40, 80, 30, Some("Create"));
-    create_btn.deactivate();
+    let mut rename_btn = button::ReturnButton::new(width - 90, height - 40, 80, 30, Some("Rename"));
+    if input.value().trim().is_empty() {
+        rename_btn.deactivate();
+    }
 
     {
-        let mut create_btn_clone = create_btn.clone();
+        let mut rename_btn_clone = rename_btn.clone();
         input.set_trigger(enums::CallbackTrigger::Changed);
         input.set_callback(move |inp| {
             if inp.value().trim().is_empty() {
-                create_btn_clone.deactivate();
+                rename_btn_clone.deactivate();
             } else {
-                create_btn_clone.activate();
+                rename_btn_clone.activate();
             }
         });
     }
 
-    let input_for_create = input.clone();
+    let input_for_rename = input.clone();
     {
-        let mut win_for_create = win.clone();
-        create_btn.set_callback(move |_| {
-            let name = input_for_create.value().trim().to_string();
+        let mut win_for_rename = win.clone();
+        rename_btn.set_callback(move |_| {
+            let name = input_for_rename.value().trim().to_string();
             if name.is_empty() {
                 return;
             }
 
-            load_page_helper(
+            match rename_current_page(
                 &name,
                 &app_state,
                 &autosave_state,
                 &active_editor,
                 &statusbar,
-                None,
-            );
-            win_for_create.hide();
+            ) {
+                Ok(()) => {
+                    win_for_rename.hide();
+                    app::redraw();
+                }
+                // Keep the dialog open on failure (e.g. the name is taken) so
+                // the user can correct the name.
+                Err(e) => dialog::alert_default(&e),
+            }
         });
     }
 

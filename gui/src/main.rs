@@ -97,6 +97,24 @@ impl AppState {
         }
     }
 
+    /// Update all in-session state that refers to `old` to point at `new` after
+    /// a note has been renamed: the current-page pointer, back/forward history,
+    /// the picker's recency ordering, and remembered scroll positions. The
+    /// on-disk file move is handled by `rename_current_page`.
+    fn rename_page(&mut self, old: &str, new: &str) {
+        if self.current_page == old {
+            self.current_page = new.to_string();
+        }
+        self.history.rename_page(old, new);
+        self.recent_pages.rename(old, new);
+        self.scroll_positions.rename(old, new);
+        if let Some(path) = &self.recent_pages_path
+            && let Err(e) = self.recent_pages.save(path)
+        {
+            eprintln!("Failed to save recent pages: {e}");
+        }
+    }
+
     fn load_page(&mut self, page_name: &str) -> Result<String, String> {
         // Check if this is a plugin page (starts with !)
         if let Some(plugin_name) = page_name.strip_prefix('!') {
@@ -147,6 +165,70 @@ fn save_current_page(
             }
         }
     }
+}
+
+/// Rename the currently open note: move its file on disk and update every piece
+/// of in-session state to follow it. Backs the "Rename Note …" menu item, which
+/// is how a quick, auto-named `untitled_…` note gets a real name.
+///
+/// The current content is flushed to the old file first, so an edit that has not
+/// yet hit the debounced autosave is not lost and there is a file to move. A
+/// brand-new untitled note the user has not typed into has no file yet, so the
+/// move is skipped and the next autosave simply writes to the new name. Returns
+/// an error (surfaced by the dialog) when the target name is already taken or
+/// the move fails; read-only plugin pages ("!…") cannot be renamed.
+fn rename_current_page(
+    new_name: &str,
+    app_state: &Rc<RefCell<AppState>>,
+    autosave_state: &Rc<RefCell<AutoSaveState>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    statusbar: &Rc<RefCell<StatusBar>>,
+) -> Result<(), String> {
+    let new_name = new_name.trim();
+    if new_name.is_empty() {
+        return Err("Please enter a name.".to_string());
+    }
+
+    let old_name = app_state.borrow().current_page.clone();
+    if new_name == old_name {
+        return Ok(());
+    }
+    if old_name.starts_with('!') {
+        return Err("This note cannot be renamed.".to_string());
+    }
+
+    // Flush current content to the old file first, so a not-yet-autosaved edit
+    // is not lost and there is a file to move.
+    save_current_page(app_state, autosave_state, active_editor, statusbar);
+
+    let (old_path, new_path) = {
+        let st = app_state.borrow();
+        (st.store.path_for(&old_name), st.store.path_for(new_name))
+    };
+    if new_path.exists() {
+        return Err(format!("A note named '{new_name}' already exists."));
+    }
+    // A never-typed-into untitled note has no file yet; nothing to move, the new
+    // name is picked up by the next autosave.
+    if old_path.exists() {
+        if let Some(parent) = new_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create folder for '{new_name}': {e}"))?;
+        }
+        std::fs::rename(&old_path, &new_path).map_err(|e| format!("Failed to rename note: {e}"))?;
+    }
+
+    // Point all in-session state at the new name. The editor already holds the
+    // content, so we deliberately do not reload it.
+    app_state.borrow_mut().rename_page(&old_name, new_name);
+    if let Ok(mut as_state) = autosave_state.try_borrow_mut() {
+        as_state.current_page = new_name.to_string();
+    }
+    statusbar
+        .borrow_mut()
+        .set_page(&format!("Note: {new_name}"));
+
+    Ok(())
 }
 
 fn load_page_helper(

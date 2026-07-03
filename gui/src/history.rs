@@ -52,6 +52,17 @@ impl History {
         self.current_index = Some(self.entries.len() - 1);
     }
 
+    /// Rename every entry that points at `old` to `new`, so back/forward
+    /// navigation follows a note that was renamed instead of resurrecting its
+    /// former (now non-existent) name as an empty note.
+    pub fn rename_page(&mut self, old: &str, new: &str) {
+        for entry in &mut self.entries {
+            if entry.page_name == old {
+                entry.page_name = new.to_string();
+            }
+        }
+    }
+
     /// Update the scroll position of the current entry
     pub fn update_scroll_position(&mut self, scroll_position: i32) {
         if let Some(idx) = self.current_index
@@ -170,6 +181,24 @@ mod tests {
         // Should only keep the last 100
         assert_eq!(history.entries.len(), MAX_HISTORY_SIZE);
         assert_eq!(history.current().unwrap().page_name, "page149");
+    }
+
+    #[test]
+    fn test_rename_page_updates_all_matching_entries() {
+        let mut history = History::new();
+        history.push("untitled_x".to_string(), 0);
+        history.push("other".to_string(), 0);
+        history.push("untitled_x".to_string(), 0);
+
+        history.rename_page("untitled_x", "real-name");
+
+        // Every occurrence of the old name follows the rename; other entries are
+        // untouched.
+        assert_eq!(history.current().unwrap().page_name, "real-name");
+        history.go_back();
+        assert_eq!(history.current().unwrap().page_name, "other");
+        history.go_back();
+        assert_eq!(history.current().unwrap().page_name, "real-name");
     }
 
     #[test]

@@ -42,14 +42,21 @@ impl DocumentStore {
         DocumentStore { base_path }
     }
 
+    /// Resolve the on-disk path for a page name (with or without a `.md`
+    /// extension), without reading the file. Used e.g. to move a note when
+    /// renaming it.
+    ///
+    /// We deliberately do not rely on `Path::extension`, which would treat the
+    /// trailing part of a dotted page name (e.g. "sprint-q2.6") as the
+    /// extension and skip adding `.md`.
+    pub fn path_for(&self, name: &str) -> PathBuf {
+        self.base_path.join(ensure_md_extension(name))
+    }
+
     /// Load a document by name (with or without .md extension)
     /// If the file doesn't exist, creates an empty document that will be saved on first write
     pub fn load(&self, name: &str) -> Result<Document, String> {
-        // Append `.md` unless the name already carries it. Note we deliberately
-        // do not rely on `Path::extension`, which would treat the trailing part
-        // of a dotted page name (e.g. "sprint-q2.6") as the extension and skip
-        // adding `.md`.
-        let path = self.base_path.join(ensure_md_extension(name));
+        let path = self.path_for(name);
 
         // Read file content and metadata if it exists, otherwise create empty document
         let (content, modified_time) = if path.exists() {
@@ -203,6 +210,26 @@ mod tests {
         assert_eq!(ensure_md_extension("sprint-q2.6"), "sprint-q2.6.md");
         assert_eq!(ensure_md_extension("notes.md"), "notes.md");
         assert_eq!(ensure_md_extension("notes.MD"), "notes.MD");
+    }
+
+    #[test]
+    fn test_path_for_resolves_without_reading() {
+        let store = DocumentStore::new("/tmp/piki-x".into());
+        // `.md` is appended, an existing one is kept, dotted names are preserved,
+        // and nested names keep their separators.
+        assert_eq!(
+            store.path_for("notes"),
+            PathBuf::from("/tmp/piki-x/notes.md")
+        );
+        assert_eq!(
+            store.path_for("notes.md"),
+            PathBuf::from("/tmp/piki-x/notes.md")
+        );
+        assert_eq!(
+            store.path_for("sprint-q2.6"),
+            PathBuf::from("/tmp/piki-x/sprint-q2.6.md")
+        );
+        assert_eq!(store.path_for("a/b"), PathBuf::from("/tmp/piki-x/a/b.md"));
     }
 
     #[test]
