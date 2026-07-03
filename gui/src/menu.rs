@@ -169,7 +169,7 @@ fn populate_menu<M>(
         Shortcut::Ctrl
     };
     let new_shortcut = cmd | 'n';
-    let gotopage_shortcut = cmd | 'p';
+    let gotopage_shortcut = cmd | 'o';
 
     let back_shortcut = if cfg!(target_os = "macos") {
         Shortcut::Command | '['
@@ -221,7 +221,7 @@ fn populate_menu<M>(
         let statusbar = statusbar.clone();
         let wind_ref = wind_ref.clone();
         menu_bar.add(
-            "Page/New Page …",
+            "Note/New Note …",
             new_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
@@ -243,7 +243,7 @@ fn populate_menu<M>(
         let statusbar = statusbar.clone();
         let wind_ref = wind_ref.clone();
         menu_bar.add(
-            "Page/_Go to Page …",
+            "Note/_Open Note …",
             gotopage_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
@@ -266,7 +266,7 @@ fn populate_menu<M>(
         let active_editor = active_editor.clone();
         let statusbar = statusbar.clone();
         menu_bar.add(
-            "Page/Back",
+            "Note/Back",
             back_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
@@ -281,7 +281,7 @@ fn populate_menu<M>(
         let active_editor = active_editor.clone();
         let statusbar = statusbar.clone();
         menu_bar.add(
-            "Page/_Forward",
+            "Note/_Forward",
             forward_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
@@ -296,7 +296,7 @@ fn populate_menu<M>(
         let active_editor = active_editor.clone();
         let statusbar = statusbar.clone();
         menu_bar.add(
-            "Page/Go to Frontpage",
+            "Note/Go to Frontpage",
             frontpage_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
@@ -314,11 +314,11 @@ fn populate_menu<M>(
 
     {
         #[cfg(not(target_os = "macos"))]
-        let label = "Page/_Go to Index";
+        let label = "Note/_Go to Index";
         // No separator on macOS for this item,
         // as there's not going to be a Quit item below it.
         #[cfg(target_os = "macos")]
-        let label = "Page/Go to Index";
+        let label = "Note/Go to Index";
         let app_state = app_state.clone();
         let autosave_state = autosave_state.clone();
         let active_editor = active_editor.clone();
@@ -342,7 +342,7 @@ fn populate_menu<M>(
         let active_editor = active_editor.clone();
         let statusbar = statusbar.clone();
         menu_bar.add(
-            "Page/Quit",
+            "Note/Quit",
             quit_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
@@ -1377,11 +1377,11 @@ fn show_new_page_dialog(
     let pos_x = px + (pw - width) / 2;
     let pos_y = py + (ph - height) / 2;
 
-    let mut win = window::Window::new(pos_x.max(0), pos_y.max(0), width, height, Some("New Page"));
+    let mut win = window::Window::new(pos_x.max(0), pos_y.max(0), width, height, Some("New Note"));
     win.make_modal(true);
     win.begin();
 
-    let mut label = frame::Frame::new(10, 10, width - 20, 24, Some("Enter new page name:"));
+    let mut label = frame::Frame::new(10, 10, width - 20, 24, Some("Enter new note name:"));
     label.set_align(enums::Align::Inside | enums::Align::Left);
 
     let mut input = input::Input::new(10, 40, width - 20, 28, None);

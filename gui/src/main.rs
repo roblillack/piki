@@ -6,6 +6,7 @@ mod link_handler;
 mod markdown_editor;
 mod menu;
 mod page_picker;
+mod recency;
 pub mod responsive_scrollbar;
 mod search_bar;
 mod statusbar;
@@ -18,6 +19,7 @@ use history::History;
 use piki_core::{DocumentStore, IndexPlugin, PluginRegistry, TodoPlugin};
 use piki_gui::page_ui::PageUI;
 use piki_gui::ui_adapters::StructuredRichUI;
+use recency::RecentPages;
 use search_bar::SearchBar;
 use statusbar::StatusBar;
 use std::cell::RefCell;
@@ -51,15 +53,41 @@ struct AppState {
     plugin_registry: PluginRegistry,
     current_page: String,
     history: History,
+    /// When each page was last opened, used by the page picker to order notes
+    /// and to resolve the "previous note" for a double Cmd-O/Ctrl-O.
+    recent_pages: RecentPages,
+    /// Where `recent_pages` is persisted (None if no data dir is available).
+    recent_pages_path: Option<PathBuf>,
 }
 
 impl AppState {
-    fn new(store: DocumentStore, plugin_registry: PluginRegistry, initial_page: String) -> Self {
+    fn new(
+        store: DocumentStore,
+        plugin_registry: PluginRegistry,
+        initial_page: String,
+        recent_pages_path: Option<PathBuf>,
+    ) -> Self {
+        let recent_pages = recent_pages_path
+            .as_deref()
+            .map(RecentPages::load)
+            .unwrap_or_default();
         AppState {
             store,
             plugin_registry,
             current_page: initial_page,
             history: History::new(),
+            recent_pages,
+            recent_pages_path,
+        }
+    }
+
+    /// Record that `page` was just opened and persist the updated recency store.
+    fn mark_page_opened(&mut self, page: &str) {
+        self.recent_pages.mark_opened(page);
+        if let Some(path) = &self.recent_pages_path
+            && let Err(e) = self.recent_pages.save(path)
+        {
+            eprintln!("Failed to save recent pages: {e}");
         }
     }
 
@@ -189,6 +217,13 @@ fn load_page_helper(
                     .push(page_name.to_string(), final_scroll_pos);
             }
 
+            // Record the open so the page picker can order notes by recency and
+            // resolve the "previous note" for a double Cmd-O. Plugin pages (e.g.
+            // !index) are generated views that never appear in the picker list.
+            if !is_plugin {
+                app_state.borrow_mut().mark_page_opened(page_name);
+            }
+
             // Reset autosave state for the new page
             if let Ok(mut as_state) = autosave_state.try_borrow_mut() {
                 as_state.reset_for_page(page_name, &content);
@@ -203,9 +238,9 @@ fn load_page_helper(
             let page_text = if let Some(plugin_name) = page_name.strip_prefix('!') {
                 format!("Plugin: {}", plugin_name)
             } else if content.is_empty() {
-                format!("Page: {} (new)", page_name)
+                format!("Note: {} (new)", page_name)
             } else {
-                format!("Page: {}", page_name)
+                format!("Note: {}", page_name)
             };
 
             statusbar.borrow_mut().set_page(&page_text);
@@ -363,10 +398,13 @@ fn main() {
     plugin_registry.register("index", Box::new(IndexPlugin));
     plugin_registry.register("todo", Box::new(TodoPlugin));
 
+    let recent_pages_path = window_state::recent_pages_file(&directory);
+
     let app_state = Rc::new(RefCell::new(AppState::new(
         store,
         plugin_registry,
         args.page.clone(),
+        recent_pages_path,
     )));
     let autosave_state = Rc::new(RefCell::new(AutoSaveState::new()));
 

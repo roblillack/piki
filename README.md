@@ -175,12 +175,12 @@ piki-gui -d /path/to/wiki
 | Shortcut              | Action            |
 | --------------------- | ----------------- |
 | **Navigation**        |                   |
-| `Cmd+N`               | New page          |
-| `Cmd+P`               | Open page picker  |
+| `Cmd+N`               | New note          |
+| `Cmd+O`               | Open note picker  |
 | `Cmd+[`               | Back              |
 | `Cmd+]`               | Forward           |
 | `Cmd+Option+F`        | Jump to frontpage |
-| `Cmd+Option+I`        | Open page index   |
+| `Cmd+Option+I`        | Open note index   |
 | **Editing**           |                   |
 | `Cmd+Z`               | Undo              |
 | `Cmd+Shift+Z`         | Redo              |
