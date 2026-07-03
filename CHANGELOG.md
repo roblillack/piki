@@ -10,6 +10,10 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Added
 
+- Returning to a recently visited note now resumes at the scroll position you
+  left it at, rather than jumping to the top — for the last 10 notes, and via any
+  navigation (links, the picker, back/forward). This memory is in-memory only and
+  is not persisted across restarts.
 - The note picker now remembers when each note was last opened and persists this
   per wiki (in the application data directory, keyed by a hash of the wiki's
   path). The recency ordering therefore survives restarts, and separate wikis
