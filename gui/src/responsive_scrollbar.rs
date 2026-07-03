@@ -6,6 +6,127 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+/// Minimum height (in pixels) of the slider thumb.
+///
+/// FLTK derives the *draggable* thumb from `slider_size()`; for a very long note
+/// that fraction is tiny. We floor `slider_size()` (see `min_slider_size`) so the
+/// thumb never drops below this, keeping it comfortably grabbable.
+pub const MIN_THUMB_HEIGHT: i32 = 20;
+
+/// Compute the thumb rectangle (top `y`, height) for the given scroll state.
+///
+/// We drive dragging ourselves (see the `handle` closure), so — unlike FLTK's
+/// built-in `Fl_Scrollbar` — the thumb spans the *full* height with no space
+/// reserved for arrow buttons. Both the drawing and the hit-testing go through
+/// this one function, so what you see is exactly what you grab.
+///
+/// Returns `None` when there is nothing to drag (content fits, or degenerate size).
+fn thumb_geometry(
+    y: i32,
+    h: i32,
+    min: f64,
+    max: f64,
+    val: f64,
+    slider_size: f32,
+) -> Option<(i32, i32)> {
+    if !(max > min) || slider_size <= 0.0 || h <= 0 {
+        return None;
+    }
+    let s = ((slider_size as f64 * h as f64).round() as i32).clamp(MIN_THUMB_HEIGHT, h);
+    if s >= h {
+        // Content fits within the view; no thumb to draw or drag.
+        return None;
+    }
+    let val_frac = ((val - min) / (max - min)).clamp(0.0, 1.0);
+    let track = h - s;
+    Some((y + (val_frac * track as f64).round() as i32, s))
+}
+
+/// Inverse of `thumb_geometry`'s position mapping: given the desired thumb *top*
+/// (window y), return the scroll value that places it there.
+fn value_for_thumb_top(
+    thumb_top: i32,
+    y: i32,
+    h: i32,
+    thumb_height: i32,
+    min: f64,
+    max: f64,
+) -> f64 {
+    let track = h - thumb_height;
+    if track <= 0 {
+        return min;
+    }
+    let frac = ((thumb_top - y) as f64 / track as f64).clamp(0.0, 1.0);
+    min + frac * (max - min)
+}
+
+/// Value delta for one "page" — a full visible screen — matching the PageUp/PageDown
+/// keys and FLTK's own trough-click step. Since `slider_size` is `visible/content`,
+/// this works out to exactly the visible height in scroll-value units.
+fn page_step(min: f64, max: f64, slider_size: f32) -> f64 {
+    let ss = slider_size as f64;
+    if ss <= 0.0 || ss >= 1.0 {
+        return 0.0;
+    }
+    (max - min) * ss / (1.0 - ss)
+}
+
+/// A page-scroll gesture in progress (mouse held down in the track, above or below
+/// the thumb). We page toward `target_y` (the click position) and stop once the
+/// thumb reaches it, repeating on a timer while the button stays down.
+#[derive(Debug, Clone, Copy)]
+struct Paging {
+    /// `true` = page down (clicked below the thumb), `false` = page up.
+    down: bool,
+    /// Window-y of the click; paging stops once the thumb covers this point.
+    target_y: i32,
+}
+
+/// Perform one page step for an in-progress track-click gesture. Returns `true` if
+/// paging should continue (thumb hasn't yet reached the cursor and isn't at a bound).
+fn apply_page_step(state: &Rc<RefCell<ResponsiveScrollbarState>>, sb: &mut Scrollbar) -> bool {
+    let paging = match state.borrow().paging {
+        Some(p) => p,
+        None => return false,
+    };
+    let (y, h) = (sb.y(), sb.h());
+    let (min, max) = (sb.minimum(), sb.maximum());
+    let slider_size = sb.slider_size();
+    let val = sb.value();
+
+    let (thumb_top, thumb_h) = match thumb_geometry(y, h, min, max, val, slider_size) {
+        Some(g) => g,
+        None => return false,
+    };
+
+    // Stop once the thumb has moved far enough to cover the click point.
+    let reached = if paging.down {
+        paging.target_y < thumb_top + thumb_h
+    } else {
+        paging.target_y >= thumb_top
+    };
+    if reached {
+        return false;
+    }
+
+    let page = page_step(min, max, slider_size);
+    if page <= 0.0 {
+        return false;
+    }
+    let new_val = if paging.down {
+        (val + page).min(max)
+    } else {
+        (val - page).max(min)
+    };
+    if new_val == val {
+        return false; // already at a bound
+    }
+    sb.set_value(new_val);
+    sb.do_callback();
+    sb.redraw();
+    true
+}
+
 /// Visibility state of the responsive scrollbar
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScrollbarState {
@@ -23,6 +144,14 @@ struct ResponsiveScrollbarState {
     state: ScrollbarState,
     last_wake_time: Instant,
     background_color: Color,
+    /// While a thumb drag is in progress, the offset (px) from the thumb's top
+    /// to the mouse at grab time. `None` when not dragging.
+    drag_offset: Option<i32>,
+    /// An in-progress track-click page gesture, if any.
+    paging: Option<Paging>,
+    /// Whether the auto-repeat timeout for paging is currently scheduled, so a
+    /// held button doesn't stack up multiple timer chains.
+    paging_timer_active: bool,
 }
 
 /// Responsive scrollbar wrapper
@@ -41,6 +170,9 @@ impl ResponsiveScrollbar {
             state: ScrollbarState::Asleep,
             last_wake_time: Instant::now() - Duration::from_secs(10),
             background_color,
+            drag_offset: None,
+            paging: None,
+            paging_timer_active: false,
         }));
 
         // Set up custom draw callback
@@ -83,22 +215,9 @@ impl ResponsiveScrollbar {
                             w - sbw - 2
                         };
 
-                        if max > min && slider_size > 0.0 {
-                            let range = max - min;
-                            let slider_frac = slider_size as f64;
-
-                            // Calculate slider dimensions
-                            let slider_height = (h as f64 * slider_frac).max(10.0) as i32;
-                            let track_height = h - slider_height;
-
-                            // Calculate slider position
-                            let pos_frac = if range > 0.0 {
-                                ((val - min) / range).clamp(0.0, 1.0)
-                            } else {
-                                0.0
-                            };
-                            let slider_y = y + (track_height as f64 * pos_frac) as i32;
-
+                        if let Some((slider_y, slider_height)) =
+                            thumb_geometry(y, h, min, max, val, slider_size)
+                        {
                             // Draw light gray slider rectangle
                             fltk_draw::set_draw_color(rect_col);
                             fltk_draw::draw_rounded_rectf(
@@ -130,22 +249,9 @@ impl ResponsiveScrollbar {
                         let val = sb.value();
                         let slider_size = sb.slider_size();
 
-                        if max > min && slider_size > 0.0 {
-                            let range = max - min;
-                            let slider_frac = slider_size as f64;
-
-                            // Calculate slider dimensions
-                            let slider_height = (h as f64 * slider_frac).max(20.0) as i32;
-                            let track_height = h - slider_height;
-
-                            // Calculate slider position
-                            let pos_frac = if range > 0.0 {
-                                ((val - min) / range).clamp(0.0, 1.0)
-                            } else {
-                                0.0
-                            };
-                            let slider_y = y + (track_height as f64 * pos_frac) as i32;
-
+                        if let Some((slider_y, slider_height)) =
+                            thumb_geometry(y, h, min, max, val, slider_size)
+                        {
                             // Draw slider with proper 3D look
                             fltk_draw::draw_box(
                                 FrameType::ThinUpBox,
@@ -190,10 +296,92 @@ impl ResponsiveScrollbar {
                         }
                         true
                     }
-                    Event::Push | Event::Drag | Event::Released => {
-                        // Ensure we're hovered during interaction
+                    Event::Push => {
+                        // We drive dragging ourselves (see `super_handle_first(false)` below)
+                        // so the thumb uses the full height with no arrow-button gap.
+                        let ey = fltk::app::event_y();
+                        let (y, h) = (sb.y(), sb.h());
+                        let geom = thumb_geometry(
+                            y,
+                            h,
+                            sb.minimum(),
+                            sb.maximum(),
+                            sb.value(),
+                            sb.slider_size(),
+                        );
+
+                        let mut start_paging = false;
+                        {
+                            let mut st = state.borrow_mut();
+                            st.state = ScrollbarState::Hovered;
+                            st.drag_offset = None;
+                            st.paging = None;
+                            if let Some((thumb_top, thumb_h)) = geom {
+                                if ey >= thumb_top && ey < thumb_top + thumb_h {
+                                    // Grabbed the thumb directly.
+                                    st.drag_offset = Some(ey - thumb_top);
+                                } else {
+                                    // Clicked in the track: page toward the click, repeating
+                                    // while the button stays down (classic scrollbar paging).
+                                    st.paging = Some(Paging {
+                                        down: ey >= thumb_top + thumb_h,
+                                        target_y: ey,
+                                    });
+                                    start_paging = true;
+                                }
+                            }
+                        }
+                        if start_paging {
+                            // Page once now, then auto-repeat after a short initial delay.
+                            let more = apply_page_step(&state, &mut sb);
+                            let mut st = state.borrow_mut();
+                            if more && !st.paging_timer_active {
+                                st.paging_timer_active = true;
+                                drop(st);
+                                let state_pg = state.clone();
+                                let mut sb_pg = sb.clone();
+                                fltk::app::add_timeout3(0.3, move |handle| {
+                                    let cont = apply_page_step(&state_pg, &mut sb_pg);
+                                    if cont && state_pg.borrow().paging.is_some() {
+                                        fltk::app::repeat_timeout3(0.05, handle);
+                                    } else {
+                                        state_pg.borrow_mut().paging_timer_active = false;
+                                    }
+                                });
+                            } else if !more {
+                                st.paging = None;
+                            }
+                        }
+                        sb.redraw();
+                        true
+                    }
+                    Event::Drag => {
+                        let offset = state.borrow().drag_offset;
+                        if let Some(offset) = offset {
+                            let ey = fltk::app::event_y();
+                            let y = sb.y();
+                            let h = sb.h();
+                            let (min, max) = (sb.minimum(), sb.maximum());
+                            if let Some((_, thumb_h)) =
+                                thumb_geometry(y, h, min, max, sb.value(), sb.slider_size())
+                            {
+                                let v = value_for_thumb_top(ey - offset, y, h, thumb_h, min, max);
+                                sb.set_value(v);
+                                sb.do_callback();
+                            }
+                            sb.redraw();
+                        }
+                        state.borrow_mut().state = ScrollbarState::Hovered;
+                        true
+                    }
+                    Event::Released => {
+                        // Clearing `paging` also tells the auto-repeat timer to stop.
                         let mut st = state.borrow_mut();
+                        st.drag_offset = None;
+                        st.paging = None;
                         st.state = ScrollbarState::Hovered;
+                        st.last_wake_time = Instant::now();
+                        drop(st);
                         sb.redraw();
                         true
                     }
@@ -201,6 +389,11 @@ impl ResponsiveScrollbar {
                 }
             }
         });
+
+        // Run our handler *before* FLTK's built-in scrollbar logic, and let it
+        // consume Push/Drag/Release. This bypasses `Fl_Scrollbar`'s arrow-button
+        // track reservation entirely, so the thumb spans the full height.
+        scrollbar.super_handle_first(false);
 
         // Set up periodic timer to check for auto-sleep (every 500ms)
         {
@@ -263,6 +456,18 @@ impl ResponsiveScrollbar {
     pub fn set_slider_size(&mut self, size: f32) {
         // self.wake();
         self.scrollbar.set_slider_size(size);
+    }
+
+    /// Smallest slider-size fraction that still yields a thumb at least
+    /// `MIN_THUMB_HEIGHT` pixels tall, given the current scrollbar geometry.
+    /// Callers should clamp their computed `slider_size` to at least this.
+    pub fn min_slider_size(&self) -> f32 {
+        let h = self.scrollbar.h();
+        if h > 0 {
+            (MIN_THUMB_HEIGHT as f32 / h as f32).min(1.0)
+        } else {
+            1.0
+        }
     }
 
     /// Set the step sizes
