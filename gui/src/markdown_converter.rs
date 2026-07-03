@@ -32,3 +32,19 @@ pub fn document_to_html(doc: &Document) -> String {
     }
     String::from_utf8(buffer).unwrap_or_default()
 }
+
+#[cfg(test)]
+mod attachment_roundtrip_tests {
+    use super::*;
+
+    #[test]
+    fn bullet_link_roundtrips() {
+        let md = "# Notes\n\nSome text.\n\n- [My Report.pdf](assets/My-Report.pdf)\n";
+        let doc = markdown_to_document(md);
+        let out = document_to_markdown(&doc);
+        // The link text and destination must survive the round-trip.
+        assert!(out.contains("assets/My-Report.pdf"), "dest lost: {out:?}");
+        assert!(out.contains("My Report.pdf"), "text lost: {out:?}");
+        assert!(out.contains('-') || out.contains('*'), "list marker lost: {out:?}");
+    }
+}

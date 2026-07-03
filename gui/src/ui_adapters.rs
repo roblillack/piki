@@ -299,6 +299,10 @@ impl PageUI for StructuredRichUI {
         self.0.set_link_hover_callback(Some(f));
     }
 
+    fn on_files_dropped(&mut self, f: Box<dyn Fn(Vec<std::path::PathBuf>) + 'static>) {
+        self.0.set_drop_callback(Some(f));
+    }
+
     fn on_paragraph_style_change(&mut self, f: Box<dyn FnMut(BlockType) + 'static>) {
         self.0.set_paragraph_callback(Some(f));
     }
