@@ -147,6 +147,22 @@ impl StructuredRichUI {
         self.0.display.borrow().horizontal_padding()
     }
 
+    /// Whether reveal-codes mode is active (rutle's inline-style tags, e.g.
+    /// `[Bold>`…`<Bold]`, shown inline).
+    pub fn reveal_codes(&self) -> bool {
+        self.0.display.borrow().reveal_codes()
+    }
+
+    /// Toggle reveal-codes mode, returning the new state. This is purely a view
+    /// change — not a document edit — so it deliberately skips the change/undo
+    /// machinery; the tags appearing inline are their own feedback.
+    pub fn toggle_reveal_codes(&mut self) -> bool {
+        let new_state = !self.0.display.borrow().reveal_codes();
+        self.0.display.borrow_mut().set_reveal_codes(new_state);
+        self.0.group.redraw();
+        new_state
+    }
+
     /// Resize the editor widget
     pub fn resize(&mut self, x: i32, y: i32, w: i32, h: i32) {
         self.0.group.resize(x, y, w, h);

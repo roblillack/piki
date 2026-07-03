@@ -513,6 +513,28 @@ fn populate_menu<M>(
         }
     }
 
+    // Reveal Codes (Cmd/Ctrl-R): surface rutle's inline-style tags (`[Bold>`…)
+    // inline. A plain action rather than a checkmarked toggle, because it can
+    // also be flipped from the keyboard (Cmd/Ctrl-R / F9, handled in the editor)
+    // while the editor has focus — keeping a menu checkmark in sync would give
+    // it a chance to go stale. The tags appearing in the document are the
+    // feedback that the mode is on.
+    {
+        let active_editor = active_editor.clone();
+        let is_structured = is_structured.clone();
+        menu_bar.add(
+            "View/Reveal Codes",
+            cmd | 'r',
+            menu::MenuFlag::Normal,
+            move |_| {
+                let _ = with_structured_editor(&active_editor, &is_structured, false, |editor| {
+                    editor.toggle_reveal_codes()
+                });
+                app::redraw();
+            },
+        );
+    }
+
     // Write Room mode (fullscreen with centered text)
     {
         let wind_ref = wind_ref.clone();
