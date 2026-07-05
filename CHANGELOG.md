@@ -16,7 +16,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   still-unnamed note the dialog opens blank; for a note that already has a name it
   is pre-filled, so the command doubles as a plain rename. Renaming to a name that
   is already taken is refused, and read-only plugin views (e.g. `!index`) cannot
-  be renamed. (#XX)
+  be renamed. (#32)
 - Returning to a recently visited note now resumes at the scroll position you
   left it at, rather than jumping to the top — for the last 10 notes, and via any
   navigation (links, the picker, back/forward). This memory is in-memory only and
@@ -34,7 +34,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   stopping to name it first; give it a real name afterwards with _Rename Note_
   (`Cmd-S`/`Ctrl-S`). Because an untitled note is only written to disk once you
   type into it, pressing _New Note_ and navigating away leaves no stray files
-  behind. (#XX)
+  behind. (#32)
 - The note picker has been reworked and now opens with `Cmd-O`/`Ctrl-O`
   (previously "Go to Page" on `Cmd-P`/`Ctrl-P`). With an empty query it lists
   notes by last-opened date; every row shows a one-line plaintext preview of the
