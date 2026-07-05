@@ -836,6 +836,32 @@ impl FltkStructuredRichDisplay {
                             // a single checkpoint is committed once below.
                             let mut undo_kind = UndoKind::Other;
 
+                            // Reveal Codes toggle: Cmd-R (macOS) / Ctrl-R (elsewhere),
+                            // or F9. Surfaces rutle's inline-style tags (`[Bold>`…) inline.
+                            // This is a view toggle, not a document edit, so it returns
+                            // early without touching the change/undo machinery. Cmd/Ctrl-R
+                            // is mirrored in the View menu; F9 is handled only here (so it
+                            // needs the editor to have focus).
+                            #[cfg(target_os = "macos")]
+                            let reveal_cmd = state.contains(Shortcut::Command)
+                                && !state.contains(Shortcut::Shift)
+                                && !state.contains(Shortcut::Alt)
+                                && !state.contains(Shortcut::Ctrl);
+                            #[cfg(not(target_os = "macos"))]
+                            let reveal_cmd = state.contains(Shortcut::Ctrl)
+                                && !state.contains(Shortcut::Shift)
+                                && !state.contains(Shortcut::Alt)
+                                && !state.contains(Shortcut::Command);
+                            if key == Key::F9
+                                || (reveal_cmd
+                                    && (key == Key::from_char('r') || key == Key::from_char('R')))
+                            {
+                                let new_state = !display.borrow().reveal_codes();
+                                display.borrow_mut().set_reveal_codes(new_state);
+                                w.redraw();
+                                return true;
+                            }
+
                             // Ctrl/Cmd+K: Open link editor dialog
                             #[cfg(target_os = "macos")]
                             let cmd_modifier = state.contains(Shortcut::Command);
