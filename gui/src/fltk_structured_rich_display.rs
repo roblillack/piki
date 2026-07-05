@@ -106,11 +106,12 @@ impl FltkStructuredRichDisplay {
 
                 if content_height > 0 {
                     let max_scroll = (content_height - visible_height).max(0) as f64;
-                    let slider_fraction = if content_height > 0 {
-                        (visible_height as f64 / content_height as f64).min(1.0) as f32
-                    } else {
-                        1.0
-                    };
+                    // Floor the slider size so the thumb stays comfortably grabbable on long
+                    // notes; `min_slider_size` accounts for FLTK's arrow-button track so the
+                    // drawn thumb and FLTK's draggable thumb stay in lockstep.
+                    let min_fraction = vscroll_draw.min_slider_size() as f64;
+                    let slider_fraction = (visible_height as f64 / content_height as f64)
+                        .clamp(min_fraction, 1.0) as f32;
 
                     vscroll_draw.set_bounds(0.0, max_scroll);
                     vscroll_draw.set_slider_size(slider_fraction);

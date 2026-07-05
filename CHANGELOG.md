@@ -71,6 +71,13 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Fixed
 
+- Dragging the scrollbar thumb now tracks the mouse correctly. On long notes the
+  thumb was far larger than the target FLTK actually let you grab, so a drag
+  registered as a click in the trough and the view jumped the wrong way; the thumb
+  also stopped short of the very top and bottom because FLTK reserved space for its
+  (invisible) arrow buttons. Piki now draws and drives the thumb itself over the
+  full track, so what you see is what you grab. Clicking in the track above or
+  below the thumb pages by one screen and auto-repeats while held. (#30)
 - Alt-Up/Down now reorders the block at the cursor's current nesting level, not
   just top-level paragraphs: list items, checklist items, and quote children can
   be resorted among their siblings, and a nested sub-item stays within its
