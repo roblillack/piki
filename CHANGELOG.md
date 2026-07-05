@@ -81,7 +81,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   plain-text editor that showed a note's raw Markdown source with rudimentary
   syntax highlighting, toggled from the View menu. It had fallen out of sync
   with the structured rich-text editor and no longer worked correctly, so the
-  structured editor is now the only editor.
+  structured editor is now the only editor. (#34)
 
 ### Fixed
 
