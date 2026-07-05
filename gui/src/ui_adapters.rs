@@ -21,21 +21,6 @@ impl StructuredRichUI {
         self.0.display.borrow().editor().selection().is_some()
     }
 
-    /// Whether the caret pauses for two positions at inline-style boundaries.
-    pub fn style_boundary_stops(&self) -> bool {
-        self.0.display.borrow().editor().style_boundary_stops()
-    }
-
-    /// Enable or disable the two-caret-positions-at-style-boundaries behavior.
-    /// Callers should trigger a redraw (e.g. `app::redraw()`) afterwards.
-    pub fn set_style_boundary_stops(&mut self, enabled: bool) {
-        self.0
-            .display
-            .borrow_mut()
-            .editor_mut()
-            .set_style_boundary_stops(enabled);
-    }
-
     /// Cut the current selection to the system clipboard (HTML + Markdown).
     /// Returns `true` if there was a selection that was cut.
     pub fn cut_selection(&mut self) -> bool {

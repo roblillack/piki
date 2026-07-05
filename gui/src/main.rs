@@ -10,7 +10,6 @@ mod recency;
 pub mod responsive_scrollbar;
 mod scroll_memory;
 mod search_bar;
-mod settings;
 mod statusbar;
 mod window_state;
 
@@ -526,7 +525,6 @@ fn main() {
     let rich_editor: Rc<RefCell<dyn PageUI>> = Rc::new(RefCell::new(StructuredRichUI::new(
         editor_x, editor_y, editor_w, editor_h, true,
     )));
-    menu::apply_editor_preferences(&rich_editor);
     let active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>> = Rc::new(RefCell::new(rich_editor));
     let is_structured: Rc<RefCell<bool>> = Rc::new(RefCell::new(true));
 

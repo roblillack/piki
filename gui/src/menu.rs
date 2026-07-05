@@ -540,47 +540,6 @@ fn populate_menu<M>(
         }
     }
 
-    // View menu: two caret positions at inline-style boundaries (persisted).
-    // Lets you place the caret before *or* after an invisible style tag, so you
-    // can choose whether newly typed text picks up the style.
-    let style_boundary_label = "View/Two carets at style edges";
-    {
-        let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
-        let menu_handle = menu_bar.clone();
-        menu_bar.add(
-            style_boundary_label,
-            Shortcut::None,
-            menu::MenuFlag::Toggle,
-            move |_| {
-                let mut settings = crate::settings::Settings::load();
-                settings.style_boundary_stops = !settings.style_boundary_stops;
-                settings.save();
-                let enabled = settings.style_boundary_stops;
-                // Apply to the live editor (readonly views included — it's a
-                // display preference, not an edit).
-                let _ = with_structured_editor(&active_editor, &is_structured, false, |ui| {
-                    ui.set_style_boundary_stops(enabled);
-                });
-                if let Some(mut item) = menu_handle.find_item(style_boundary_label) {
-                    if enabled {
-                        item.set();
-                    } else {
-                        item.clear();
-                    }
-                }
-                app::redraw();
-            },
-        );
-    }
-    if let Some(mut item) = menu_bar.find_item(style_boundary_label) {
-        if crate::settings::Settings::load().style_boundary_stops {
-            item.set();
-        } else {
-            item.clear();
-        }
-    }
-
     // Write Room mode (fullscreen with centered text)
     {
         let wind_ref = wind_ref.clone();
@@ -1312,19 +1271,6 @@ fn register_paragraph_callback<M: MenuExt + Clone + 'static>(
     });
 }
 
-/// Apply persisted editor preferences to a freshly created page UI. A no-op for
-/// non-structured editors (the Markdown editor carries none of these settings).
-pub(crate) fn apply_editor_preferences(editor: &Rc<RefCell<dyn PageUI>>) {
-    let settings = crate::settings::Settings::load();
-    if let Some(structured) = editor
-        .borrow_mut()
-        .as_any_mut()
-        .downcast_mut::<StructuredRichUI>()
-    {
-        structured.set_style_boundary_stops(settings.style_boundary_stops);
-    }
-}
-
 fn instantiate_editor(
     kind: EditorKind,
     wind_ref: &Rc<RefCell<window::Window>>,
@@ -1355,7 +1301,6 @@ fn instantiate_editor(
             .set_bg_color(enums::Color::from_rgb(255, 255, 245));
         editor.borrow().set_resizable(&mut win);
         win.end();
-        apply_editor_preferences(&editor);
         editor
     } else {
         let editor: Rc<RefCell<dyn PageUI>> = match kind {
@@ -1369,7 +1314,6 @@ fn instantiate_editor(
         editor
             .borrow_mut()
             .set_bg_color(enums::Color::from_rgb(255, 255, 245));
-        apply_editor_preferences(&editor);
         editor
     }
 }
