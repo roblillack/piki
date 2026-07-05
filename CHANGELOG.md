@@ -10,6 +10,12 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Added
 
+- Editing now offers **two caret positions at the edges of styled text** (bold,
+  italic, code, links, …), even with Reveal Codes off: arrowing to the border of a
+  bold word stops once "before" and once "inside" the style, letting you choose
+  whether text you type there picks up the style. The caret shows which side it
+  will apply by leaning that way, with small angled tails at its top and bottom.
+  (via rutle)
 - _Rename Note_ (`Cmd-S`/`Ctrl-S`) renames the currently open note: it moves the
   note's file on disk and carries the note's navigation history, picker recency,
   and remembered scroll position over to the new name. For a freshly created,

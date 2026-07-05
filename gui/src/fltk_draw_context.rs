@@ -1,5 +1,5 @@
 use fltk::{draw as fltk_draw, enums::*, prelude::*};
-use rutle::render_context::{FontStyle, FontType, RenderContext};
+use rutle::render_context::{CaretLean, FontStyle, FontType, RenderContext};
 
 /// FLTK implementation of rutle's [`RenderContext`].
 pub struct FltkDrawContext {
@@ -73,6 +73,45 @@ impl RenderContext for FltkDrawContext {
 
     fn draw_line(&mut self, x1: i32, y1: i32, x2: i32, y2: i32) {
         fltk_draw::draw_line(x1, y1, x2, y2);
+    }
+
+    /// Piki's caret design: a uniform-width bracket leaning toward the affinity
+    /// side — the 2px bar plus two arms (the bar's end edges extruded along the
+    /// lean) — filled as one connected polygon, so there are no seams where the
+    /// arms meet the bar. (rutle's default draws a plainer foot tick.)
+    fn draw_caret(&mut self, x: i32, y: i32, height: i32, lean: CaretLean) {
+        let dir = match lean {
+            CaretLean::None => {
+                fltk_draw::draw_rectf(x, y, 2, height);
+                return;
+            }
+            CaretLean::Left => -1,
+            CaretLean::Right => 1,
+        };
+        let w = 2; // bar / arm width
+        let reach = dir * 4; // horizontal arm extent, toward the lean
+        let rise = 2; // vertical arm flare
+        let edge = if dir > 0 { x + w } else { x }; // bar edge the arms sprout from
+        let far = edge - dir * w; // opposite bar edge
+        let top = y;
+        let bottom = y + height - 1;
+        let tip_edge = edge + reach;
+        let tip_far = far + reach;
+        let pts = [
+            (tip_far, top - rise),     // head tip, outer
+            (tip_edge, top - rise),    // head tip, inner (flat tip)
+            (edge, top),               // arm meets spine (top)
+            (edge, bottom),            // down the spine's near edge
+            (tip_edge, bottom + rise), // foot tip, inner
+            (tip_far, bottom + rise),  // foot tip, outer (flat tip)
+            (far, bottom),             // spine far edge (bottom)
+            (far, top),                // up the spine's far edge
+        ];
+        fltk_draw::begin_complex_polygon();
+        for (vx, vy) in pts {
+            fltk_draw::vertex(vx as f64, vy as f64);
+        }
+        fltk_draw::end_complex_polygon();
     }
 
     fn text_width(&mut self, text: &str, font: FontType, style: FontStyle, size: u8) -> f64 {
