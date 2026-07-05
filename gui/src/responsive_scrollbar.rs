@@ -29,7 +29,7 @@ fn thumb_geometry(
     val: f64,
     slider_size: f32,
 ) -> Option<(i32, i32)> {
-    if !(max > min) || slider_size <= 0.0 || h <= 0 {
+    if max <= min || slider_size <= 0.0 || h <= 0 {
         return None;
     }
     let s = ((slider_size as f64 * h as f64).round() as i32).clamp(MIN_THUMB_HEIGHT, h);
