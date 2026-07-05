@@ -34,6 +34,14 @@ impl ScrollMemory {
             .find(|(name, _)| name == page)
             .map(|(_, pos)| *pos)
     }
+
+    /// Rename a tracked note in place (used when a note is renamed), preserving
+    /// its remembered position and recency. No-op if `old` is not tracked.
+    pub fn rename(&mut self, old: &str, new: &str) {
+        if let Some((name, _)) = self.entries.iter_mut().find(|(name, _)| name == old) {
+            *name = new.to_string();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -70,6 +78,24 @@ mod tests {
         assert_eq!(m.get("p0"), None);
         assert_eq!(m.get("new"), Some(123));
         assert_eq!(m.get("p1"), Some(1));
+    }
+
+    #[test]
+    fn rename_preserves_position() {
+        let mut m = ScrollMemory::new();
+        m.remember("old", 42);
+        m.rename("old", "new");
+        assert_eq!(m.get("old"), None);
+        assert_eq!(m.get("new"), Some(42));
+    }
+
+    #[test]
+    fn rename_unknown_note_is_noop() {
+        let mut m = ScrollMemory::new();
+        m.remember("a", 1);
+        m.rename("missing", "new");
+        assert_eq!(m.get("new"), None);
+        assert_eq!(m.get("a"), Some(1));
     }
 
     #[test]

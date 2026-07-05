@@ -60,6 +60,15 @@ impl RecentPages {
     pub fn last_opened(&self, page: &str) -> Option<i64> {
         self.opened.get(page).copied()
     }
+
+    /// Move `old`'s recency entry to `new` (used when a note is renamed) so the
+    /// renamed note keeps its place in the picker's ordering and no stale entry
+    /// for the vanished name lingers. No-op if `old` was never opened.
+    pub fn rename(&mut self, old: &str, new: &str) {
+        if let Some(time) = self.opened.remove(old) {
+            self.opened.insert(new.to_string(), time);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -72,6 +81,25 @@ mod tests {
         assert_eq!(r.last_opened("x"), None);
         r.mark_opened("x");
         assert!(r.last_opened("x").is_some());
+    }
+
+    #[test]
+    fn rename_moves_entry_preserving_time() {
+        let mut r = RecentPages::default();
+        r.mark_opened("old");
+        let t = r.last_opened("old").unwrap();
+
+        r.rename("old", "new");
+
+        assert_eq!(r.last_opened("old"), None);
+        assert_eq!(r.last_opened("new"), Some(t));
+    }
+
+    #[test]
+    fn rename_unknown_page_is_noop() {
+        let mut r = RecentPages::default();
+        r.rename("missing", "new");
+        assert_eq!(r.last_opened("new"), None);
     }
 
     #[test]
