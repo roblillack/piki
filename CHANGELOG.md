@@ -75,6 +75,14 @@ While pre-1.0, the minor version is bumped for breaking changes.
   core, rutle's layout cache no longer invalidates on an unchanged
   resize/padding update, which speeds up redraws in Piki as well. (#26)
 
+### Removed
+
+- The _View → Markdown editor_ mode has been removed. This was a separate
+  plain-text editor that showed a note's raw Markdown source with rudimentary
+  syntax highlighting, toggled from the View menu. It had fallen out of sync
+  with the structured rich-text editor and no longer worked correctly, so the
+  structured editor is now the only editor.
+
 ### Fixed
 
 - Dragging the scrollbar thumb now tracks the mouse correctly. On long notes the

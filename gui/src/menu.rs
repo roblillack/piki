@@ -1,7 +1,6 @@
 use super::{
-    AppState, AutoSaveState, load_page_helper, markdown_editor::MarkdownEditor, navigate_back,
-    navigate_forward, page_picker, rename_current_page, search_bar::SearchBar,
-    statusbar::StatusBar, window_state::WindowGeometry, wire_editor_callbacks,
+    AppState, AutoSaveState, load_page_helper, navigate_back, navigate_forward, page_picker,
+    rename_current_page, search_bar::SearchBar, statusbar::StatusBar, window_state::WindowGeometry,
 };
 // Only the non-macOS in-app Quit item saves explicitly; on macOS the system
 // Quit routes through the window Close event, which already saves.
@@ -21,12 +20,6 @@ use piki_gui::ui_adapters::StructuredRichUI;
 use rutle::structured_document::{BlockType, InlineContent};
 use std::cell::RefCell;
 use std::rc::Rc;
-
-#[derive(Copy, Clone, PartialEq, Eq)]
-enum EditorKind {
-    Structured,
-    Markdown,
-}
 
 const FORMAT_PARAGRAPH: &str = "Format/Text";
 const FORMAT_HEADING1: &str = "Format/Heading 1";
@@ -83,15 +76,10 @@ pub fn setup_menu(
     app_state: Rc<RefCell<AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
     active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    is_structured: Rc<RefCell<bool>>,
     statusbar: Rc<RefCell<StatusBar>>,
     wind_ref: Rc<RefCell<window::Window>>,
     window_geometry: Rc<RefCell<WindowGeometry>>,
     search_bar: Rc<RefCell<SearchBar>>,
-    editor_x: i32,
-    editor_y: i32,
-    editor_w: i32,
-    editor_h: i32,
 ) {
     let mut menu_bar = menu::SysMenuBar::default();
     populate_menu(
@@ -99,15 +87,10 @@ pub fn setup_menu(
         app_state,
         autosave_state,
         active_editor,
-        is_structured,
         statusbar,
         wind_ref,
         window_geometry,
         search_bar,
-        editor_x,
-        editor_y,
-        editor_w,
-        editor_h,
     );
 }
 
@@ -117,15 +100,10 @@ pub fn setup_menu(
     app_state: Rc<RefCell<AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
     active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    is_structured: Rc<RefCell<bool>>,
     statusbar: Rc<RefCell<StatusBar>>,
     wind_ref: Rc<RefCell<window::Window>>,
     window_geometry: Rc<RefCell<WindowGeometry>>,
     search_bar: Rc<RefCell<SearchBar>>,
-    editor_x: i32,
-    editor_y: i32,
-    editor_w: i32,
-    editor_h: i32,
 ) -> menu::MenuBar {
     let mut menu_bar = menu::MenuBar::new(0, 0, 660, 25, None);
     populate_menu(
@@ -133,15 +111,10 @@ pub fn setup_menu(
         app_state,
         autosave_state,
         active_editor,
-        is_structured,
         statusbar,
         wind_ref,
         window_geometry,
         search_bar,
-        editor_x,
-        editor_y,
-        editor_w,
-        editor_h,
     );
     menu_bar
 }
@@ -152,15 +125,10 @@ fn populate_menu<M>(
     app_state: Rc<RefCell<AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
     active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    is_structured: Rc<RefCell<bool>>,
     statusbar: Rc<RefCell<StatusBar>>,
     wind_ref: Rc<RefCell<window::Window>>,
     window_geometry: Rc<RefCell<WindowGeometry>>,
     search_bar: Rc<RefCell<SearchBar>>,
-    editor_x: i32,
-    editor_y: i32,
-    editor_w: i32,
-    editor_h: i32,
 ) where
     M: MenuExt + Clone + 'static,
 {
@@ -383,65 +351,60 @@ fn populate_menu<M>(
     // Edit menu
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         menu_bar.add(
             "Edit/Undo",
             undo_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
-                perform_undo(&active_editor, &is_structured);
+                perform_undo(&active_editor);
             },
         );
     }
 
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         menu_bar.add(
             "Edit/_Redo",
             redo_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
-                perform_redo(&active_editor, &is_structured);
+                perform_redo(&active_editor);
             },
         );
     }
 
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         menu_bar.add(
             "Edit/Cut",
             cut_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
-                perform_cut(&active_editor, &is_structured);
+                perform_cut(&active_editor);
             },
         );
     }
 
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         menu_bar.add(
             "Edit/Copy",
             copy_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
-                perform_copy(&active_editor, &is_structured);
+                perform_copy(&active_editor);
             },
         );
     }
 
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         menu_bar.add(
             "Edit/Paste",
             paste_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
-                perform_paste(&active_editor, &is_structured);
+                perform_paste(&active_editor);
             },
         );
     }
@@ -483,63 +446,6 @@ fn populate_menu<M>(
         );
     }
 
-    // View menu (toggle Markdown editor)
-    let view_label = "View/Markdown editor";
-    {
-        let app_state = app_state.clone();
-        let autosave_state = autosave_state.clone();
-        let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
-        let statusbar = statusbar.clone();
-        let wind_ref = wind_ref.clone();
-        let menu_handle = menu_bar.clone();
-        menu_bar.add(
-            view_label,
-            Shortcut::None,
-            menu::MenuFlag::Toggle,
-            move |_| {
-                let target = if *is_structured.borrow() {
-                    EditorKind::Markdown
-                } else {
-                    EditorKind::Structured
-                };
-                let switched = switch_editor(
-                    target,
-                    &app_state,
-                    &autosave_state,
-                    &active_editor,
-                    &is_structured,
-                    &statusbar,
-                    &wind_ref,
-                    editor_x,
-                    editor_y,
-                    editor_w,
-                    editor_h,
-                );
-                if let Some(mut item) = menu_handle.find_item(view_label) {
-                    if !*is_structured.borrow() {
-                        item.set();
-                    } else {
-                        item.clear();
-                    }
-                    if switched {
-                        app::redraw();
-                    }
-                }
-                update_format_menu_state(&menu_handle, &active_editor, &is_structured);
-                register_paragraph_callback(&menu_handle, &active_editor, &is_structured);
-            },
-        );
-    }
-
-    if let Some(mut item) = menu_bar.find_item(view_label) {
-        if !*is_structured.borrow() {
-            item.set();
-        } else {
-            item.clear();
-        }
-    }
-
     // Reveal Codes (Cmd/Ctrl-R): surface rutle's inline-style tags (`[Bold>`…)
     // inline. A plain action rather than a checkmarked toggle, because it can
     // also be flipped from the keyboard (Cmd/Ctrl-R / F9, handled in the editor)
@@ -548,13 +454,12 @@ fn populate_menu<M>(
     // feedback that the mode is on.
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         menu_bar.add(
             "View/Reveal Codes",
             cmd | 'r',
             menu::MenuFlag::Normal,
             move |_| {
-                let _ = with_structured_editor(&active_editor, &is_structured, false, |editor| {
+                let _ = with_structured_editor(&active_editor, false, |editor| {
                     editor.toggle_reveal_codes()
                 });
                 app::redraw();
@@ -567,7 +472,6 @@ fn populate_menu<M>(
         let wind_ref = wind_ref.clone();
         let window_geometry = window_geometry.clone();
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         let statusbar = statusbar.clone();
         let search_bar = search_bar.clone();
         let menu_handle = menu_bar.clone();
@@ -580,7 +484,6 @@ fn populate_menu<M>(
                     &wind_ref,
                     &window_geometry,
                     &active_editor,
-                    &is_structured,
                     &statusbar,
                     &search_bar,
                     &menu_handle,
@@ -601,145 +504,133 @@ fn populate_menu<M>(
     // Format menu - paragraph styles
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         let menu_handle = menu_bar.clone();
         menu_bar.add(
             FORMAT_PARAGRAPH,
             paragraph_shortcut,
             menu::MenuFlag::Radio,
             move |_| {
-                let _ = with_structured_editor(&active_editor, &is_structured, true, |editor| {
+                let _ = with_structured_editor(&active_editor, true, |editor| {
                     editor.set_block_type(BlockType::Paragraph)
                 });
-                update_format_menu_state(&menu_handle, &active_editor, &is_structured);
+                update_format_menu_state(&menu_handle, &active_editor);
             },
         );
     }
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         let menu_handle = menu_bar.clone();
         menu_bar.add(
             FORMAT_HEADING1,
             heading1_shortcut,
             menu::MenuFlag::Radio,
             move |_| {
-                let _ = with_structured_editor(&active_editor, &is_structured, true, |editor| {
+                let _ = with_structured_editor(&active_editor, true, |editor| {
                     editor.set_block_type(BlockType::Heading { level: 1 })
                 });
-                update_format_menu_state(&menu_handle, &active_editor, &is_structured);
+                update_format_menu_state(&menu_handle, &active_editor);
             },
         );
     }
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         let menu_handle = menu_bar.clone();
         menu_bar.add(
             FORMAT_HEADING2,
             heading2_shortcut,
             menu::MenuFlag::Radio,
             move |_| {
-                let _ = with_structured_editor(&active_editor, &is_structured, true, |editor| {
+                let _ = with_structured_editor(&active_editor, true, |editor| {
                     editor.set_block_type(BlockType::Heading { level: 2 })
                 });
-                update_format_menu_state(&menu_handle, &active_editor, &is_structured);
+                update_format_menu_state(&menu_handle, &active_editor);
             },
         );
     }
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         let menu_handle = menu_bar.clone();
         menu_bar.add(
             FORMAT_HEADING3,
             heading3_shortcut,
             menu::MenuFlag::Radio,
             move |_| {
-                let _ = with_structured_editor(&active_editor, &is_structured, true, |editor| {
+                let _ = with_structured_editor(&active_editor, true, |editor| {
                     editor.set_block_type(BlockType::Heading { level: 3 })
                 });
-                update_format_menu_state(&menu_handle, &active_editor, &is_structured);
+                update_format_menu_state(&menu_handle, &active_editor);
             },
         );
     }
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         let menu_handle = menu_bar.clone();
         menu_bar.add(
             FORMAT_QUOTE,
             quote_shortcut,
             menu::MenuFlag::Radio,
             move |_| {
-                let _ = with_structured_editor(&active_editor, &is_structured, true, |editor| {
-                    editor.toggle_quote()
-                });
-                update_format_menu_state(&menu_handle, &active_editor, &is_structured);
+                let _ =
+                    with_structured_editor(&active_editor, true, |editor| editor.toggle_quote());
+                update_format_menu_state(&menu_handle, &active_editor);
             },
         );
     }
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         let menu_handle = menu_bar.clone();
         menu_bar.add(
             FORMAT_CODE_BLOCK,
             code_block_shortcut,
             menu::MenuFlag::Radio,
             move |_| {
-                let _ = with_structured_editor(&active_editor, &is_structured, true, |editor| {
+                let _ = with_structured_editor(&active_editor, true, |editor| {
                     editor.toggle_code_block()
                 });
-                update_format_menu_state(&menu_handle, &active_editor, &is_structured);
+                update_format_menu_state(&menu_handle, &active_editor);
             },
         );
     }
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         let menu_handle = menu_bar.clone();
         menu_bar.add(
             FORMAT_NUMBERED_LIST,
             ordered_list_shortcut,
             menu::MenuFlag::Radio,
             move |_| {
-                let _ = with_structured_editor(&active_editor, &is_structured, true, |editor| {
+                let _ = with_structured_editor(&active_editor, true, |editor| {
                     editor.toggle_ordered_list()
                 });
-                update_format_menu_state(&menu_handle, &active_editor, &is_structured);
+                update_format_menu_state(&menu_handle, &active_editor);
             },
         );
     }
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         let menu_handle = menu_bar.clone();
         menu_bar.add(
             FORMAT_LIST_ITEM,
             list_shortcut,
             menu::MenuFlag::Radio,
             move |_| {
-                let _ = with_structured_editor(&active_editor, &is_structured, true, |editor| {
-                    editor.toggle_list()
-                });
-                update_format_menu_state(&menu_handle, &active_editor, &is_structured);
+                let _ = with_structured_editor(&active_editor, true, |editor| editor.toggle_list());
+                update_format_menu_state(&menu_handle, &active_editor);
             },
         );
     }
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         let menu_handle = menu_bar.clone();
         menu_bar.add(
             FORMAT_CHECKLIST_ITEM,
             checklist_shortcut,
             menu::MenuFlag::Radio,
             move |_| {
-                let _ = with_structured_editor(&active_editor, &is_structured, true, |editor| {
+                let _ = with_structured_editor(&active_editor, true, |editor| {
                     editor.toggle_checklist()
                 });
-                update_format_menu_state(&menu_handle, &active_editor, &is_structured);
+                update_format_menu_state(&menu_handle, &active_editor);
             },
         );
     }
@@ -747,109 +638,97 @@ fn populate_menu<M>(
     // Format menu - inline styles
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         let menu_handle = menu_bar.clone();
         menu_bar.add(
             FORMAT_INLINE_BOLD,
             bold_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
-                let _ = with_structured_editor(&active_editor, &is_structured, true, |editor| {
-                    editor.toggle_bold()
-                });
-                update_format_menu_state(&menu_handle, &active_editor, &is_structured);
+                let _ = with_structured_editor(&active_editor, true, |editor| editor.toggle_bold());
+                update_format_menu_state(&menu_handle, &active_editor);
             },
         );
     }
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         let menu_handle = menu_bar.clone();
         menu_bar.add(
             FORMAT_INLINE_ITALIC,
             italic_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
-                let _ = with_structured_editor(&active_editor, &is_structured, true, |editor| {
-                    editor.toggle_italic()
-                });
-                update_format_menu_state(&menu_handle, &active_editor, &is_structured);
+                let _ =
+                    with_structured_editor(&active_editor, true, |editor| editor.toggle_italic());
+                update_format_menu_state(&menu_handle, &active_editor);
             },
         );
     }
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         let menu_handle = menu_bar.clone();
         menu_bar.add(
             FORMAT_INLINE_UNDERLINE,
             underline_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
-                let _ = with_structured_editor(&active_editor, &is_structured, true, |editor| {
+                let _ = with_structured_editor(&active_editor, true, |editor| {
                     editor.toggle_underline()
                 });
-                update_format_menu_state(&menu_handle, &active_editor, &is_structured);
+                update_format_menu_state(&menu_handle, &active_editor);
             },
         );
     }
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         let menu_handle = menu_bar.clone();
         menu_bar.add(
             FORMAT_INLINE_CODE,
             code_inline_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
-                let _ = with_structured_editor(&active_editor, &is_structured, true, |editor| {
-                    editor.toggle_code()
-                });
-                update_format_menu_state(&menu_handle, &active_editor, &is_structured);
+                let _ = with_structured_editor(&active_editor, true, |editor| editor.toggle_code());
+                update_format_menu_state(&menu_handle, &active_editor);
             },
         );
     }
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         let menu_handle = menu_bar.clone();
         menu_bar.add(
             FORMAT_INLINE_HIGHLIGHT,
             highlight_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
-                let _ = with_structured_editor(&active_editor, &is_structured, true, |editor| {
+                let _ = with_structured_editor(&active_editor, true, |editor| {
                     editor.toggle_highlight()
                 });
-                update_format_menu_state(&menu_handle, &active_editor, &is_structured);
+                update_format_menu_state(&menu_handle, &active_editor);
             },
         );
     }
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         let menu_handle = menu_bar.clone();
         menu_bar.add(
             FORMAT_INLINE_STRIKE,
             strike_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
-                let _ = with_structured_editor(&active_editor, &is_structured, true, |editor| {
+                let _ = with_structured_editor(&active_editor, true, |editor| {
                     editor.toggle_strikethrough()
                 });
-                update_format_menu_state(&menu_handle, &active_editor, &is_structured);
+                update_format_menu_state(&menu_handle, &active_editor);
             },
         );
     }
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         menu_bar.add(
             FORMAT_EDIT_LINK,
             edit_link_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
-                perform_edit_link(&active_editor, &is_structured);
+                perform_edit_link(&active_editor);
             },
         );
     }
@@ -857,120 +736,61 @@ fn populate_menu<M>(
     // Format menu - clear formatting
     {
         let active_editor = active_editor.clone();
-        let is_structured = is_structured.clone();
         let menu_handle = menu_bar.clone();
         menu_bar.add(
             FORMAT_CLEAR,
             clear_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
-                perform_clear_formatting(&active_editor, &is_structured);
-                update_format_menu_state(&menu_handle, &active_editor, &is_structured);
+                perform_clear_formatting(&active_editor);
+                update_format_menu_state(&menu_handle, &active_editor);
             },
         );
     }
 
-    update_format_menu_state(menu_bar, &active_editor, &is_structured);
-    register_paragraph_callback(menu_bar, &active_editor, &is_structured);
+    update_format_menu_state(menu_bar, &active_editor);
+    register_paragraph_callback(menu_bar, &active_editor);
 }
 
-fn perform_undo(
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    is_structured: &Rc<RefCell<bool>>,
-) {
-    let _ = with_structured_editor(active_editor, is_structured, true, |editor| {
+fn perform_undo(active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>) {
+    let _ = with_structured_editor(active_editor, true, |editor| {
         editor.undo();
     });
 }
 
-fn perform_redo(
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    is_structured: &Rc<RefCell<bool>>,
-) {
-    let _ = with_structured_editor(active_editor, is_structured, true, |editor| {
+fn perform_redo(active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>) {
+    let _ = with_structured_editor(active_editor, true, |editor| {
         editor.redo();
     });
 }
 
-fn perform_cut(
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    is_structured: &Rc<RefCell<bool>>,
-) {
-    if with_structured_editor(active_editor, is_structured, true, |editor| {
-        editor.cut_selection()
-    })
-    .is_some()
-    {
-        app::redraw();
-        return;
-    }
-
-    if let Some(Some(text)) = with_markdown_editor(active_editor, is_structured, true, |editor| {
-        editor.cut_selection()
-    }) {
-        if !text.is_empty() {
-            piki_gui::clipboard::copy_markdown_to_system(&text);
-        }
+fn perform_cut(active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>) {
+    if with_structured_editor(active_editor, true, |editor| editor.cut_selection()).is_some() {
         app::redraw();
     }
 }
 
-fn perform_copy(
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    is_structured: &Rc<RefCell<bool>>,
-) {
-    if with_structured_editor(active_editor, is_structured, false, |editor| {
-        editor.copy_selection()
-    })
-    .is_some()
-    {
-        return;
-    }
-
-    if let Some(Some(text)) = with_markdown_editor(active_editor, is_structured, false, |editor| {
-        editor.copy_selection()
-    }) && !text.is_empty()
-    {
-        piki_gui::clipboard::copy_markdown_to_system(&text);
-    }
+fn perform_copy(active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>) {
+    let _ = with_structured_editor(active_editor, false, |editor| editor.copy_selection());
 }
 
-fn perform_paste(
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    is_structured: &Rc<RefCell<bool>>,
-) {
-    if with_structured_editor(active_editor, is_structured, true, |editor| {
+fn perform_paste(active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>) {
+    let _ = with_structured_editor(active_editor, true, |editor| {
         editor.paste_from_clipboard();
-    })
-    .is_some()
-    {
-        return;
-    }
-
-    if with_markdown_editor(active_editor, is_structured, true, |editor| {
-        editor.paste_from_clipboard();
-    })
-    .is_some()
-    {}
+    });
 }
 
-fn perform_clear_formatting(
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    is_structured: &Rc<RefCell<bool>>,
-) {
-    if let Some(changed) = with_structured_editor(active_editor, is_structured, true, |editor| {
-        editor.clear_formatting()
-    }) && changed
+fn perform_clear_formatting(active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>) {
+    if let Some(changed) =
+        with_structured_editor(active_editor, true, |editor| editor.clear_formatting())
+        && changed
     {
         app::redraw();
     }
 }
 
-fn perform_edit_link(
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    is_structured: &Rc<RefCell<bool>>,
-) {
-    let init_data = with_structured_editor_ref(active_editor, is_structured, |editor| {
+fn perform_edit_link(active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>) {
+    let init_data = with_structured_editor_ref(active_editor, |editor| {
         if editor.is_readonly() {
             return None;
         }
@@ -1034,32 +854,25 @@ fn perform_edit_link(
     };
 
     let active_editor_save = Rc::clone(active_editor);
-    let is_structured_save = Rc::clone(is_structured);
     let link_pos_for_save = link_pos.clone();
     let remove_cb = if link_pos.is_some() {
         let active_editor_remove = Rc::clone(active_editor);
-        let is_structured_remove = Rc::clone(is_structured);
         let link_pos_remove = link_pos.clone();
         Some(move || {
             if let Some((block_idx, inline_idx)) = link_pos_remove.clone() {
-                let _ = with_structured_editor(
-                    &active_editor_remove,
-                    &is_structured_remove,
-                    true,
-                    |editor| {
-                        let changed = {
-                            let mut disp = editor.0.display.borrow_mut();
-                            let editor_mut = disp.editor_mut();
-                            editor_mut
-                                .remove_link_at(block_idx.clone(), inline_idx)
-                                .is_ok()
-                        };
-                        if changed {
-                            editor.0.notify_change();
-                            editor.0.emit_paragraph_state();
-                        }
-                    },
-                );
+                let _ = with_structured_editor(&active_editor_remove, true, |editor| {
+                    let changed = {
+                        let mut disp = editor.0.display.borrow_mut();
+                        let editor_mut = disp.editor_mut();
+                        editor_mut
+                            .remove_link_at(block_idx.clone(), inline_idx)
+                            .is_ok()
+                    };
+                    if changed {
+                        editor.0.notify_change();
+                        editor.0.emit_paragraph_state();
+                    }
+                });
             }
         })
     } else {
@@ -1069,32 +882,31 @@ fn perform_edit_link(
     link_editor::show_link_editor(
         opts,
         move |dest: String, txt: String| {
-            let _ =
-                with_structured_editor(&active_editor_save, &is_structured_save, true, |editor| {
-                    let changed = {
-                        let mut disp = editor.0.display.borrow_mut();
-                        let editor_mut = disp.editor_mut();
+            let _ = with_structured_editor(&active_editor_save, true, |editor| {
+                let changed = {
+                    let mut disp = editor.0.display.borrow_mut();
+                    let editor_mut = disp.editor_mut();
 
-                        if let Some((block_idx, inline_idx)) = link_pos_for_save.clone() {
-                            editor_mut
-                                .edit_link_at(block_idx.clone(), inline_idx, &dest, &txt)
-                                .is_ok()
-                        } else if !txt.is_empty() {
-                            if editor_mut.selection().is_some() {
-                                editor_mut.replace_selection_with_link(&dest, &txt).is_ok()
-                            } else {
-                                editor_mut.insert_link_at_cursor(&dest, &txt).is_ok()
-                            }
+                    if let Some((block_idx, inline_idx)) = link_pos_for_save.clone() {
+                        editor_mut
+                            .edit_link_at(block_idx.clone(), inline_idx, &dest, &txt)
+                            .is_ok()
+                    } else if !txt.is_empty() {
+                        if editor_mut.selection().is_some() {
+                            editor_mut.replace_selection_with_link(&dest, &txt).is_ok()
                         } else {
-                            false
+                            editor_mut.insert_link_at_cursor(&dest, &txt).is_ok()
                         }
-                    };
-
-                    if changed {
-                        editor.0.notify_change();
-                        editor.0.emit_paragraph_state();
+                    } else {
+                        false
                     }
-                });
+                };
+
+                if changed {
+                    editor.0.notify_change();
+                    editor.0.emit_paragraph_state();
+                }
+            });
         },
         remove_cb,
     );
@@ -1102,16 +914,12 @@ fn perform_edit_link(
 
 fn with_structured_editor<F, R>(
     active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    is_structured: &Rc<RefCell<bool>>,
     require_writable: bool,
     mut f: F,
 ) -> Option<R>
 where
     F: FnMut(&mut StructuredRichUI) -> R,
 {
-    if !*is_structured.borrow() {
-        return None;
-    }
     if let Ok(active_ptr) = active_editor.try_borrow() {
         let editor_rc = active_ptr.clone();
         drop(active_ptr);
@@ -1129,15 +937,11 @@ where
 
 fn with_structured_editor_ref<F, R>(
     active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    is_structured: &Rc<RefCell<bool>>,
     f: F,
 ) -> Option<R>
 where
     F: FnOnce(&StructuredRichUI) -> R,
 {
-    if !*is_structured.borrow() {
-        return None;
-    }
     if let Ok(active_ptr) = active_editor.try_borrow() {
         let editor_rc = active_ptr.clone();
         drop(active_ptr);
@@ -1145,33 +949,6 @@ where
             && let Some(structured) = editor.as_any().downcast_ref::<StructuredRichUI>()
         {
             return Some(f(structured));
-        }
-    }
-    None
-}
-
-fn with_markdown_editor<F, R>(
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    is_structured: &Rc<RefCell<bool>>,
-    require_writable: bool,
-    mut f: F,
-) -> Option<R>
-where
-    F: FnMut(&mut MarkdownEditor) -> R,
-{
-    if *is_structured.borrow() {
-        return None;
-    }
-    if let Ok(active_ptr) = active_editor.try_borrow() {
-        let editor_rc = active_ptr.clone();
-        drop(active_ptr);
-        if let Ok(mut editor) = editor_rc.try_borrow_mut() {
-            if require_writable && editor.is_readonly() {
-                return None;
-            }
-            if let Some(markdown) = editor.as_any_mut().downcast_mut::<MarkdownEditor>() {
-                return Some(f(markdown));
-            }
         }
     }
     None
@@ -1207,18 +984,13 @@ fn paragraph_label_for_block(block: &BlockType) -> Option<&'static str> {
 fn update_format_menu_state<M: MenuExt>(
     menu: &M,
     active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    is_structured: &Rc<RefCell<bool>>,
 ) {
-    let structured_active = *is_structured.borrow();
     let mut readonly = true;
     let mut current_label: Option<&'static str> = None;
 
-    if structured_active
-        && let Some((block, ro)) =
-            with_structured_editor_ref(active_editor, is_structured, |editor| {
-                (editor.current_block_type(), editor.is_readonly())
-            })
-    {
+    if let Some((block, ro)) = with_structured_editor_ref(active_editor, |editor| {
+        (editor.current_block_type(), editor.is_readonly())
+    }) {
         readonly = ro;
         if let Some(block_type) = block {
             current_label = paragraph_label_for_block(&block_type);
@@ -1227,7 +999,7 @@ fn update_format_menu_state<M: MenuExt>(
 
     for &label in PARAGRAPH_ITEMS {
         if let Some(mut item) = menu.find_item(label) {
-            if structured_active && !readonly {
+            if !readonly {
                 item.activate();
             } else {
                 item.deactivate();
@@ -1236,8 +1008,7 @@ fn update_format_menu_state<M: MenuExt>(
         }
     }
 
-    if structured_active
-        && let Some(label) = current_label
+    if let Some(label) = current_label
         && let Some(mut item) = menu.find_item(label)
     {
         item.set();
@@ -1245,7 +1016,7 @@ fn update_format_menu_state<M: MenuExt>(
 
     for &label in INLINE_ITEMS {
         if let Some(mut item) = menu.find_item(label) {
-            if structured_active && !readonly {
+            if !readonly {
                 item.activate();
             } else {
                 item.deactivate();
@@ -1254,7 +1025,7 @@ fn update_format_menu_state<M: MenuExt>(
     }
 
     if let Some(mut item) = menu.find_item(FORMAT_CLEAR) {
-        if structured_active && !readonly {
+        if !readonly {
             item.activate();
         } else {
             item.deactivate();
@@ -1265,146 +1036,27 @@ fn update_format_menu_state<M: MenuExt>(
 fn register_paragraph_callback<M: MenuExt + Clone + 'static>(
     menu: &M,
     active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    is_structured: &Rc<RefCell<bool>>,
 ) {
     let menu_rc = Rc::new(menu.clone());
     let active_editor_rc = active_editor.clone();
-    let is_structured_rc = is_structured.clone();
-    let _ = with_structured_editor(active_editor, is_structured, false, |editor| {
+    let _ = with_structured_editor(active_editor, false, |editor| {
         let menu_for_cb = menu_rc.clone();
         let active_for_cb = active_editor_rc.clone();
-        let structured_for_cb = is_structured_rc.clone();
         editor.on_paragraph_style_change(Box::new(move |_block_type| {
             println!("Paragraph style changed callback triggered");
             let menu_clone = menu_for_cb.clone();
             let active_clone = active_for_cb.clone();
-            let structured_clone = structured_for_cb.clone();
             app::awake_callback(move || {
-                update_format_menu_state(&*menu_clone, &active_clone, &structured_clone);
+                update_format_menu_state(&*menu_clone, &active_clone);
             });
         }));
     });
 
     let menu_for_init = menu_rc.clone();
     let active_for_init = active_editor_rc.clone();
-    let structured_for_init = is_structured_rc.clone();
     app::awake_callback(move || {
-        update_format_menu_state(&*menu_for_init, &active_for_init, &structured_for_init);
+        update_format_menu_state(&*menu_for_init, &active_for_init);
     });
-}
-
-fn instantiate_editor(
-    kind: EditorKind,
-    wind_ref: &Rc<RefCell<window::Window>>,
-    editor_x: i32,
-    editor_y: i32,
-    editor_w: i32,
-    editor_h: i32,
-) -> Rc<RefCell<dyn PageUI>> {
-    if let Ok(mut win) = wind_ref.try_borrow_mut() {
-        let cur_w = win.w();
-        let cur_h = win.h();
-        let nx = editor_x;
-        let bottom_status_h = 25;
-        let nh = (cur_h - (editor_y + bottom_status_h)).max(1);
-        let nw = (cur_w - (editor_x * 2)).max(1);
-
-        win.begin();
-        let editor: Rc<RefCell<dyn PageUI>> = match kind {
-            EditorKind::Structured => Rc::new(RefCell::new(StructuredRichUI::new(
-                nx, editor_y, nw, nh, true,
-            ))),
-            EditorKind::Markdown => {
-                Rc::new(RefCell::new(MarkdownEditor::new(nx, editor_y, nw, nh)))
-            }
-        };
-        editor
-            .borrow_mut()
-            .set_bg_color(enums::Color::from_rgb(255, 255, 245));
-        editor.borrow().set_resizable(&mut win);
-        win.end();
-        editor
-    } else {
-        let editor: Rc<RefCell<dyn PageUI>> = match kind {
-            EditorKind::Structured => Rc::new(RefCell::new(StructuredRichUI::new(
-                editor_x, editor_y, editor_w, editor_h, true,
-            ))),
-            EditorKind::Markdown => Rc::new(RefCell::new(MarkdownEditor::new(
-                editor_x, editor_y, editor_w, editor_h,
-            ))),
-        };
-        editor
-            .borrow_mut()
-            .set_bg_color(enums::Color::from_rgb(255, 255, 245));
-        editor
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn switch_editor(
-    target: EditorKind,
-    app_state: &Rc<RefCell<AppState>>,
-    autosave_state: &Rc<RefCell<AutoSaveState>>,
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    is_structured: &Rc<RefCell<bool>>,
-    statusbar: &Rc<RefCell<StatusBar>>,
-    wind_ref: &Rc<RefCell<window::Window>>,
-    editor_x: i32,
-    editor_y: i32,
-    editor_w: i32,
-    editor_h: i32,
-) -> bool {
-    let want_structured = matches!(target, EditorKind::Structured);
-    if want_structured == *is_structured.borrow() {
-        return false;
-    }
-
-    let scroll_pos = if let Ok(active_ptr) = active_editor.try_borrow() {
-        let editor_rc = active_ptr.clone();
-        drop(active_ptr);
-        if let Ok(editor) = editor_rc.try_borrow() {
-            editor.scroll_pos()
-        } else {
-            0
-        }
-    } else {
-        0
-    };
-
-    // Hide the old editor before creating the new one
-    if let Ok(active_ptr) = active_editor.try_borrow() {
-        let editor_rc = active_ptr.clone();
-        drop(active_ptr);
-        if let Ok(mut editor) = editor_rc.try_borrow_mut() {
-            editor.hide();
-        }
-    }
-
-    let new_editor = instantiate_editor(target, wind_ref, editor_x, editor_y, editor_w, editor_h);
-
-    {
-        if let Ok(mut active_mut) = active_editor.try_borrow_mut() {
-            *active_mut = new_editor.clone();
-        }
-    }
-    *is_structured.borrow_mut() = want_structured;
-
-    wire_editor_callbacks(active_editor, autosave_state, app_state, statusbar);
-
-    if let Ok(state) = app_state.try_borrow() {
-        let current_page = state.current_page.clone();
-        drop(state);
-        load_page_helper(
-            &current_page,
-            app_state,
-            autosave_state,
-            active_editor,
-            statusbar,
-            Some(scroll_pos),
-        );
-    }
-
-    true
 }
 
 /// The auto-generated name for a quick new note, e.g.
@@ -1560,7 +1212,6 @@ fn toggle_fullscreen<M: MenuExt>(
     wind_ref: &Rc<RefCell<window::Window>>,
     window_geometry: &Rc<RefCell<WindowGeometry>>,
     active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
-    is_structured: &Rc<RefCell<bool>>,
     statusbar: &Rc<RefCell<StatusBar>>,
     search_bar: &Rc<RefCell<SearchBar>>,
     menu_handle: &M,
@@ -1616,8 +1267,7 @@ fn toggle_fullscreen<M: MenuExt>(
             }
 
             // Apply padding and resize the editor to take full height
-            if *is_structured.borrow()
-                && let Ok(active_ptr) = active_editor.try_borrow()
+            if let Ok(active_ptr) = active_editor.try_borrow()
                 && let Ok(mut editor) = active_ptr.try_borrow_mut()
                 && let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>()
             {
@@ -1648,8 +1298,7 @@ fn toggle_fullscreen<M: MenuExt>(
             }
 
             // Restore default padding and resize editor to make room for statusbar
-            if *is_structured.borrow()
-                && let Ok(active_ptr) = active_editor.try_borrow()
+            if let Ok(active_ptr) = active_editor.try_borrow()
                 && let Ok(mut editor) = active_ptr.try_borrow_mut()
                 && let Some(structured) = editor.as_any_mut().downcast_mut::<StructuredRichUI>()
             {
