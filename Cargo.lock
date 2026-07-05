@@ -1301,8 +1301,6 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 [[package]]
 name = "rutle"
 version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8757be1f15770b00e124f496c761de699c549ae248cfa4198ace40bef8f824d2"
 dependencies = [
  "tdoc",
  "unicode-segmentation",

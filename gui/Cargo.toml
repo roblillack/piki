@@ -18,7 +18,7 @@ exclude = [
 
 [dependencies]
 piki-core = { version = "0.3.0", path = "../core" }
-rutle = "0.2.1"
+rutle = { version = "0.2.1", path = "../../rutle" }
 fltk = { version = "1.5.20", features = ["use-wayland"] }
 fltk-sys = "1.5.20"
 pulldown-cmark = "0.13.0"
