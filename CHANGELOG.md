@@ -14,9 +14,9 @@ While pre-1.0, the minor version is bumped for breaking changes.
   italic, code, links, …), even with Reveal Codes off: arrowing to the border of a
   bold word stops once "before" and once "inside" the style, letting you choose
   whether text you type there picks up the style. The caret shows which side it
-  will apply with a small trail at its foot. Toggle it under _View → Two carets at
-  style edges_ (on by default); the choice is remembered across restarts. (via
-  rutle)
+  will apply by leaning that way, with small angled tails at its top and bottom.
+  Toggle it under _View → Two carets at style edges_ (on by default); the choice is
+  remembered across restarts. (via rutle)
 - _Rename Note_ (`Cmd-S`/`Ctrl-S`) renames the currently open note: it moves the
   note's file on disk and carries the note's navigation history, picker recency,
   and remembered scroll position over to the new name. For a freshly created,
