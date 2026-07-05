@@ -8,8 +8,30 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- Returning to a recently visited note now resumes at the scroll position you
+  left it at, rather than jumping to the top — for the last 10 notes, and via any
+  navigation (links, the picker, back/forward). This memory is in-memory only and
+  is not persisted across restarts.
+- The note picker now remembers when each note was last opened and persists this
+  per wiki (in the application data directory, keyed by a hash of the wiki's
+  path). The recency ordering therefore survives restarts, and separate wikis
+  opened with `--directory` keep independent histories.
+
 ### Changed
 
+- The note picker has been reworked and now opens with `Cmd-O`/`Ctrl-O`
+  (previously "Go to Page" on `Cmd-P`/`Ctrl-P`). With an empty query it lists
+  notes by last-opened date; every row shows a one-line plaintext preview of the
+  note's first paragraphs (Markdown stripped, ellipsized to fit) alongside its
+  last-modification time. Keyboard interaction mirrors VS Code's quick-open: type
+  to filter, move with the arrow keys, or keep the modifier held after opening
+  and tap `O` again to step the selection down (`Shift` to go up) — releasing the
+  modifier opens the highlighted note. The currently open note starts selected.
+- User-facing wording now says "note" instead of "page": the _Page_ menu is now
+  _Note_ (with _New Note …_ and _Open Note …_), and the new-note dialog and the
+  status bar ("Note: …") follow suit.
 - The text rendering and editing engine has been carved out of Piki into a new
   shared crate, `rutle` (`rutle = "0.2.0"` on crates.io), and the `gui` crate
   now builds on it instead of its own homegrown implementation. This removes

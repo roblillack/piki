@@ -6,7 +6,9 @@ mod link_handler;
 mod markdown_editor;
 mod menu;
 mod page_picker;
+mod recency;
 pub mod responsive_scrollbar;
+mod scroll_memory;
 mod search_bar;
 mod statusbar;
 mod window_state;
@@ -18,6 +20,8 @@ use history::History;
 use piki_core::{DocumentStore, IndexPlugin, PluginRegistry, TodoPlugin};
 use piki_gui::page_ui::PageUI;
 use piki_gui::ui_adapters::StructuredRichUI;
+use recency::RecentPages;
+use scroll_memory::ScrollMemory;
 use search_bar::SearchBar;
 use statusbar::StatusBar;
 use std::cell::RefCell;
@@ -51,15 +55,45 @@ struct AppState {
     plugin_registry: PluginRegistry,
     current_page: String,
     history: History,
+    /// When each page was last opened, used by the page picker to order notes
+    /// and to resolve the "previous note" for a double Cmd-O/Ctrl-O.
+    recent_pages: RecentPages,
+    /// Where `recent_pages` is persisted (None if no data dir is available).
+    recent_pages_path: Option<PathBuf>,
+    /// In-memory scroll positions for recently visited notes, so returning to a
+    /// note resumes where the user left off.
+    scroll_positions: ScrollMemory,
 }
 
 impl AppState {
-    fn new(store: DocumentStore, plugin_registry: PluginRegistry, initial_page: String) -> Self {
+    fn new(
+        store: DocumentStore,
+        plugin_registry: PluginRegistry,
+        initial_page: String,
+        recent_pages_path: Option<PathBuf>,
+    ) -> Self {
+        let recent_pages = recent_pages_path
+            .as_deref()
+            .map(RecentPages::load)
+            .unwrap_or_default();
         AppState {
             store,
             plugin_registry,
             current_page: initial_page,
             history: History::new(),
+            recent_pages,
+            recent_pages_path,
+            scroll_positions: ScrollMemory::new(),
+        }
+    }
+
+    /// Record that `page` was just opened and persist the updated recency store.
+    fn mark_page_opened(&mut self, page: &str) {
+        self.recent_pages.mark_opened(page);
+        if let Some(path) = &self.recent_pages_path
+            && let Err(e) = self.recent_pages.save(path)
+        {
+            eprintln!("Failed to save recent pages: {e}");
         }
     }
 
@@ -127,13 +161,20 @@ fn load_page_helper(
     // switching pages (or creating a new one) never drops unsaved edits.
     save_current_page(app_state, autosave_state, active_editor, statusbar);
 
-    // If we're not restoring from history, update the scroll position of the current history entry
-    if restore_scroll.is_none() {
-        let scroll_pos = active_editor.borrow().borrow().scroll_pos();
-        app_state
-            .borrow_mut()
-            .history
-            .update_scroll_position(scroll_pos);
+    // Record the scroll position of the note we're leaving: into the current
+    // back/forward history entry (only for non-history navigation), and always
+    // into the recent-notes scroll memory so returning to it later — via a link
+    // or the picker — resumes where we were.
+    {
+        let leaving_scroll = active_editor.borrow().borrow().scroll_pos();
+        let mut state = app_state.borrow_mut();
+        if restore_scroll.is_none() {
+            state.history.update_scroll_position(leaving_scroll);
+        }
+        let leaving_page = state.current_page.clone();
+        state
+            .scroll_positions
+            .remember(&leaving_page, leaving_scroll);
     }
 
     // Check if this is a plugin page
@@ -165,19 +206,18 @@ fn load_page_helper(
                 editor_mut.set_readonly(is_plugin);
             }
 
-            // Restore scroll position if provided (from history navigation)
-            // Otherwise, scroll to top for normal navigation
-            let final_scroll_pos = if let Some(scroll_pos) = restore_scroll {
+            // Decide where to scroll: an explicit position from back/forward
+            // history wins; otherwise resume the remembered position for this
+            // note (if it is still one of the recent ones), falling back to top.
+            let target_scroll = restore_scroll
+                .or_else(|| app_state.borrow().scroll_positions.get(page_name))
+                .unwrap_or(0);
+            {
                 let active = active_editor.borrow();
                 let mut ed = (*active).borrow_mut();
-                ed.set_scroll_pos(scroll_pos);
-                scroll_pos
-            } else {
-                let active = active_editor.borrow();
-                let mut ed = (*active).borrow_mut();
-                ed.set_scroll_pos(0);
-                0
-            };
+                ed.set_scroll_pos(target_scroll);
+            }
+            let final_scroll_pos = target_scroll;
 
             // Drop the editor borrow before manipulating history
 
@@ -187,6 +227,13 @@ fn load_page_helper(
                     .borrow_mut()
                     .history
                     .push(page_name.to_string(), final_scroll_pos);
+            }
+
+            // Record the open so the page picker can order notes by recency and
+            // resolve the "previous note" for a double Cmd-O. Plugin pages (e.g.
+            // !index) are generated views that never appear in the picker list.
+            if !is_plugin {
+                app_state.borrow_mut().mark_page_opened(page_name);
             }
 
             // Reset autosave state for the new page
@@ -203,9 +250,9 @@ fn load_page_helper(
             let page_text = if let Some(plugin_name) = page_name.strip_prefix('!') {
                 format!("Plugin: {}", plugin_name)
             } else if content.is_empty() {
-                format!("Page: {} (new)", page_name)
+                format!("Note: {} (new)", page_name)
             } else {
-                format!("Page: {}", page_name)
+                format!("Note: {}", page_name)
             };
 
             statusbar.borrow_mut().set_page(&page_text);
@@ -363,10 +410,13 @@ fn main() {
     plugin_registry.register("index", Box::new(IndexPlugin));
     plugin_registry.register("todo", Box::new(TodoPlugin));
 
+    let recent_pages_path = window_state::recent_pages_file(&directory);
+
     let app_state = Rc::new(RefCell::new(AppState::new(
         store,
         plugin_registry,
         args.page.clone(),
+        recent_pages_path,
     )));
     let autosave_state = Rc::new(RefCell::new(AutoSaveState::new()));
 

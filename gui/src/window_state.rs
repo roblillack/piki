@@ -22,9 +22,31 @@ pub struct WindowGeometry {
     pub fullscreen: bool,
 }
 
-pub fn state_file_path() -> Option<PathBuf> {
+/// Path to a file named `name` inside the application's local data directory.
+/// Used for the window-state file and the page-picker recency store so they
+/// live side by side.
+pub fn data_file(name: &str) -> Option<PathBuf> {
     ProjectDirs::from(QUALIFIER, ORGANIZATION, APPLICATION)
-        .map(|dirs| dirs.data_local_dir().join(STATE_FILE_NAME))
+        .map(|dirs| dirs.data_local_dir().join(name))
+}
+
+pub fn state_file_path() -> Option<PathBuf> {
+    data_file(STATE_FILE_NAME)
+}
+
+/// Path to the page-picker recency store for a specific wiki directory.
+///
+/// Recency is scoped per wiki: the filename embeds a hash of the (canonical)
+/// wiki path so opening notes in one wiki never reorders another wiki's picker.
+pub fn recent_pages_file(wiki_dir: &Path) -> Option<PathBuf> {
+    use std::hash::{Hash, Hasher};
+
+    let canonical = wiki_dir
+        .canonicalize()
+        .unwrap_or_else(|_| wiki_dir.to_path_buf());
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    canonical.hash(&mut hasher);
+    data_file(&format!("recent_pages_{:016x}.toml", hasher.finish()))
 }
 
 pub fn load_state(path: &Path) -> Option<WindowGeometry> {
