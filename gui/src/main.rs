@@ -3,7 +3,6 @@ mod autosave;
 pub mod fltk_draw_context;
 mod history;
 mod link_handler;
-mod markdown_editor;
 mod menu;
 mod page_picker;
 mod recency;
@@ -526,7 +525,6 @@ fn main() {
         editor_x, editor_y, editor_w, editor_h, true,
     )));
     let active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>> = Rc::new(RefCell::new(rich_editor));
-    let is_structured: Rc<RefCell<bool>> = Rc::new(RefCell::new(true));
 
     // Create status bar at the bottom using the custom StatusBar widget
     let statusbar = Rc::new(RefCell::new(StatusBar::new(
@@ -562,15 +560,10 @@ fn main() {
         app_state.clone(),
         autosave_state.clone(),
         active_editor.clone(),
-        is_structured.clone(),
         statusbar.clone(),
         wind_ref.clone(),
         window_geometry.clone(),
         search_bar.clone(),
-        editor_x,
-        editor_y,
-        editor_w,
-        editor_h,
     );
 
     #[cfg(not(target_os = "macos"))]
@@ -578,15 +571,10 @@ fn main() {
         app_state.clone(),
         autosave_state.clone(),
         active_editor.clone(),
-        is_structured.clone(),
         statusbar.clone(),
         wind_ref.clone(),
         window_geometry.clone(),
         search_bar.clone(),
-        editor_x,
-        editor_y,
-        editor_w,
-        editor_h,
     );
 
     // Configure editor UI

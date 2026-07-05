@@ -2,7 +2,7 @@ use std::io::Cursor;
 
 use tdoc::{Document, html, markdown};
 
-use crate::markdown_converter::{document_to_html, document_to_markdown, markdown_to_document};
+use crate::markdown_converter::{document_to_html, document_to_markdown};
 use crate::rtf;
 
 #[derive(Debug)]
@@ -137,14 +137,6 @@ pub fn copy_structured_to_system(doc: &Document) {
     let markdown = document_to_markdown(doc);
     let html = document_to_html(doc);
     place_on_clipboard(&markdown, &html);
-}
-
-/// Copy raw Markdown text (from the plain Markdown editor) to the system
-/// clipboard, rendering HTML for rich-text targets while keeping the original
-/// Markdown text as the plain-text alternative.
-pub fn copy_markdown_to_system(markdown: &str) {
-    let html = document_to_html(&markdown_to_document(markdown));
-    place_on_clipboard(markdown, &html);
 }
 
 /// Write `html` (with `markdown` as the plain-text alternative) to the system
