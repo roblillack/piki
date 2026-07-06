@@ -15,7 +15,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   bold word stops once "before" and once "inside" the style, letting you choose
   whether text you type there picks up the style. The caret shows which side it
   will apply by leaning that way, with small angled tails at its top and bottom.
-  (via rutle)
+  (via rutle) (#26)
 - _Rename Note_ (`Cmd-S`/`Ctrl-S`) renames the currently open note: it moves the
   note's file on disk and carries the note's navigation history, picker recency,
   and remembered scroll position over to the new name. For a freshly created,
@@ -34,6 +34,12 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Changed
 
+- User-facing wording now says "note" instead of "page": the _Page_ menu is now
+  _Note_ (with _New Note …_ and _Open Note …_), and the new-note dialog and the
+  status bar ("Note: …") follow suit. The rename now carries through the rest of
+  the app as well — the `!index` and `!todo` plugin views and the `piki` CLI help
+  read "notes", and the `piki-gui` startup flag is now `--note`/`-n` (was
+  `--page`/`-p`). (#35)
 - _New Note_ (`Cmd-N`/`Ctrl-N`) no longer asks for a name up front. It now
   immediately creates and opens an auto-named note (e.g.
   `untitled_2026-07-04_153412.md`) so a quick thought can be captured without
@@ -49,9 +55,6 @@ While pre-1.0, the minor version is bumped for breaking changes.
   to filter, move with the arrow keys, or keep the modifier held after opening
   and tap `O` again to step the selection down (`Shift` to go up) — releasing the
   modifier opens the highlighted note. The currently open note starts selected.
-- User-facing wording now says "note" instead of "page": the _Page_ menu is now
-  _Note_ (with _New Note …_ and _Open Note …_), and the new-note dialog and the
-  status bar ("Note: …") follow suit.
 - The text rendering and editing engine has been carved out of Piki into a new
   shared crate, `rutle` (`rutle = "0.2.0"` on crates.io), and the `gui` crate
   now builds on it instead of its own homegrown implementation. This removes
