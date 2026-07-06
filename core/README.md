@@ -14,7 +14,7 @@ This crate provides the shared functionality used by both the CLI and GUI fronte
 ## Features
 
 - **Document Store**: Manages Markdown files on the filesystem
-- **Plugin System**: Extensible architecture for dynamic pages
+- **Plugin System**: Extensible architecture for dynamic notes
 - **Git-friendly**: Works seamlessly with version-controlled directories
 - **Cross-platform**: Works on Windows, macOS, Linux, and BSD
 - **No Dependencies on UI**: Pure Rust library with no GUI dependencies
@@ -34,14 +34,14 @@ The core library provides:
 
 - **Document Management**: Reading, writing, and organizing Markdown files
 - **Plugin System**: Built-in `!index` plugin and extensible plugin API for dynamic content
-- **Link Resolution**: Handling both Markdown links (`[text](page.md)`) and wiki-style links (`[[PageName]]`)
+- **Link Resolution**: Handling both Markdown links (`[text](note.md)`) and wiki-style links (`[[NoteName]]`)
 - **File Operations**: Safe file I/O with parent directory creation
 
 ## Plugin System
 
-The plugin system allows for dynamic pages with a `!` prefix. Built-in plugins include:
+The plugin system allows for dynamic notes with a `!` prefix. Built-in plugins include:
 
-- `!index` - Lists all pages in the wiki
+- `!index` - Lists all notes in the wiki
 
 Plugins are read-only and generate content dynamically rather than being stored on disk.
 

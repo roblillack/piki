@@ -44,12 +44,12 @@ piki-gui -d /path/to/wiki
 | Shortcut              | Action            |
 | --------------------- | ----------------- |
 | **Navigation**        |                   |
-| `Cmd+N`               | New page          |
-| `Cmd+P`               | Open page picker  |
+| `Cmd+N`               | New note          |
+| `Cmd+O`               | Open note picker  |
 | `Cmd+[`               | Back              |
 | `Cmd+]`               | Forward           |
 | `Cmd+Option+F`        | Jump to frontpage |
-| `Cmd+Option+I`        | Open page index   |
+| `Cmd+Option+I`        | Open note index   |
 | **Editing**           |                   |
 | `Cmd+Z`               | Undo              |
 | `Cmd+Shift+Z`         | Redo              |
@@ -85,17 +85,17 @@ Note: On Linux/Windows, use `Ctrl` instead of `Cmd`.
 
 The editor supports multiple link formats:
 
-- Standard Markdown: `[text](page.md)`
-- Wiki-style: `[[PageName]]`
-- Nested paths: `[[folder/page]]`
+- Standard Markdown: `[text](note.md)`
+- Wiki-style: `[[NoteName]]`
+- Nested paths: `[[folder/note]]`
 
-All links are clickable for quick navigation between pages.
+All links are clickable for quick navigation between notes.
 
 ### Plugin System
 
-- **Dynamic pages** with `!` prefix
-- Built-in **`!index`** plugin lists all pages
-- Plugin pages are read-only
+- **Dynamic notes** with `!` prefix
+- Built-in **`!index`** plugin lists all notes
+- Plugin notes are read-only
 - Extensible for custom dynamic content
 
 ## Platform Support

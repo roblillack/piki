@@ -1,11 +1,11 @@
 use super::{
-    AppState, AutoSaveState, load_page_helper, navigate_back, navigate_forward, page_picker,
-    rename_current_page, search_bar::SearchBar, statusbar::StatusBar, window_state::WindowGeometry,
+    AppState, AutoSaveState, load_note_helper, navigate_back, navigate_forward, note_picker,
+    rename_current_note, search_bar::SearchBar, statusbar::StatusBar, window_state::WindowGeometry,
 };
 // Only the non-macOS in-app Quit item saves explicitly; on macOS the system
 // Quit routes through the window Close event, which already saves.
 #[cfg(not(target_os = "macos"))]
-use super::save_current_page;
+use super::save_current_note;
 use chrono::Local;
 use fltk::{
     app, button, dialog,
@@ -15,7 +15,7 @@ use fltk::{
     window,
 };
 use piki_gui::link_editor::{self, LinkEditOptions};
-use piki_gui::page_ui::PageUI;
+use piki_gui::note_ui::NoteUI;
 use piki_gui::ui_adapters::StructuredRichUI;
 use rutle::structured_document::{BlockType, InlineContent};
 use std::cell::RefCell;
@@ -75,7 +75,7 @@ const INLINE_ITEMS: &[&str] = &[
 pub fn setup_menu(
     app_state: Rc<RefCell<AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
-    active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    active_editor: Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     statusbar: Rc<RefCell<StatusBar>>,
     wind_ref: Rc<RefCell<window::Window>>,
     window_geometry: Rc<RefCell<WindowGeometry>>,
@@ -99,7 +99,7 @@ pub fn setup_menu(
 pub fn setup_menu(
     app_state: Rc<RefCell<AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
-    active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    active_editor: Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     statusbar: Rc<RefCell<StatusBar>>,
     wind_ref: Rc<RefCell<window::Window>>,
     window_geometry: Rc<RefCell<WindowGeometry>>,
@@ -124,7 +124,7 @@ fn populate_menu<M>(
     menu_bar: &mut M,
     app_state: Rc<RefCell<AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
-    active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    active_editor: Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     statusbar: Rc<RefCell<StatusBar>>,
     wind_ref: Rc<RefCell<window::Window>>,
     window_geometry: Rc<RefCell<WindowGeometry>>,
@@ -139,7 +139,7 @@ fn populate_menu<M>(
     };
     let new_shortcut = cmd | 'n';
     let rename_shortcut = cmd | 's';
-    let gotopage_shortcut = cmd | 'o';
+    let goto_note_shortcut = cmd | 'o';
 
     let back_shortcut = if cfg!(target_os = "macos") {
         Shortcut::Command | '['
@@ -183,7 +183,7 @@ fn populate_menu<M>(
     // Write room shortcut: Ctrl/Cmd-Shift-F
     let fullscreen_shortcut = cmd | Shortcut::Shift | 'f';
 
-    // Page menu
+    // Note menu
     // New Note creates an auto-named `untitled_…` note and opens it immediately,
     // so a quick thought can be captured without first inventing a name; the note
     // is given a real name later with Rename Note (Cmd-S).
@@ -197,7 +197,7 @@ fn populate_menu<M>(
             new_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
-                load_page_helper(
+                load_note_helper(
                     &default_new_note_name(),
                     &app_state,
                     &autosave_state,
@@ -239,11 +239,11 @@ fn populate_menu<M>(
         let wind_ref = wind_ref.clone();
         menu_bar.add(
             "Note/_Open Note …",
-            gotopage_shortcut,
+            goto_note_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
                 if let Ok(w) = wind_ref.try_borrow() {
-                    page_picker::show_page_picker(
+                    note_picker::show_note_picker(
                         app_state.clone(),
                         autosave_state.clone(),
                         active_editor.clone(),
@@ -295,7 +295,7 @@ fn populate_menu<M>(
             frontpage_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
-                load_page_helper(
+                load_note_helper(
                     "frontpage",
                     &app_state,
                     &autosave_state,
@@ -319,7 +319,7 @@ fn populate_menu<M>(
         let active_editor = active_editor.clone();
         let statusbar = statusbar.clone();
         menu_bar.add(label, index_shortcut, menu::MenuFlag::Normal, move |_| {
-            load_page_helper(
+            load_note_helper(
                 "!index",
                 &app_state,
                 &autosave_state,
@@ -342,7 +342,7 @@ fn populate_menu<M>(
             menu::MenuFlag::Normal,
             move |_| {
                 // Save the open note before leaving.
-                save_current_page(&app_state, &autosave_state, &active_editor, &statusbar);
+                save_current_note(&app_state, &autosave_state, &active_editor, &statusbar);
                 app::quit();
             },
         );
@@ -752,35 +752,35 @@ fn populate_menu<M>(
     register_paragraph_callback(menu_bar, &active_editor);
 }
 
-fn perform_undo(active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>) {
+fn perform_undo(active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>) {
     let _ = with_structured_editor(active_editor, true, |editor| {
         editor.undo();
     });
 }
 
-fn perform_redo(active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>) {
+fn perform_redo(active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>) {
     let _ = with_structured_editor(active_editor, true, |editor| {
         editor.redo();
     });
 }
 
-fn perform_cut(active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>) {
+fn perform_cut(active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>) {
     if with_structured_editor(active_editor, true, |editor| editor.cut_selection()).is_some() {
         app::redraw();
     }
 }
 
-fn perform_copy(active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>) {
+fn perform_copy(active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>) {
     let _ = with_structured_editor(active_editor, false, |editor| editor.copy_selection());
 }
 
-fn perform_paste(active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>) {
+fn perform_paste(active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>) {
     let _ = with_structured_editor(active_editor, true, |editor| {
         editor.paste_from_clipboard();
     });
 }
 
-fn perform_clear_formatting(active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>) {
+fn perform_clear_formatting(active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>) {
     if let Some(changed) =
         with_structured_editor(active_editor, true, |editor| editor.clear_formatting())
         && changed
@@ -789,7 +789,7 @@ fn perform_clear_formatting(active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>
     }
 }
 
-fn perform_edit_link(active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>) {
+fn perform_edit_link(active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>) {
     let init_data = with_structured_editor_ref(active_editor, |editor| {
         if editor.is_readonly() {
             return None;
@@ -913,7 +913,7 @@ fn perform_edit_link(active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>) {
 }
 
 fn with_structured_editor<F, R>(
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     require_writable: bool,
     mut f: F,
 ) -> Option<R>
@@ -936,7 +936,7 @@ where
 }
 
 fn with_structured_editor_ref<F, R>(
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     f: F,
 ) -> Option<R>
 where
@@ -983,7 +983,7 @@ fn paragraph_label_for_block(block: &BlockType) -> Option<&'static str> {
 
 fn update_format_menu_state<M: MenuExt>(
     menu: &M,
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
 ) {
     let mut readonly = true;
     let mut current_label: Option<&'static str> = None;
@@ -1035,7 +1035,7 @@ fn update_format_menu_state<M: MenuExt>(
 
 fn register_paragraph_callback<M: MenuExt + Clone + 'static>(
     menu: &M,
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
 ) {
     let menu_rc = Rc::new(menu.clone());
     let active_editor_rc = active_editor.clone();
@@ -1073,16 +1073,16 @@ fn is_untitled(name: &str) -> bool {
 }
 
 /// Prompt for a new name for the currently open note and rename it in place
-/// (see [`rename_current_page`]). This is how a quick, auto-named note gets a
+/// (see [`rename_current_note`]). This is how a quick, auto-named note gets a
 /// real name, but it works on any note.
 fn show_rename_dialog(
     app_state: Rc<RefCell<AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
-    active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    active_editor: Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     statusbar: Rc<RefCell<StatusBar>>,
     wind_ref: Rc<RefCell<window::Window>>,
 ) {
-    let current_name = app_state.borrow().current_page.clone();
+    let current_name = app_state.borrow().current_note.clone();
 
     // Read-only plugin views (e.g. !index) have no file to rename.
     if current_name.starts_with('!') {
@@ -1149,7 +1149,7 @@ fn show_rename_dialog(
                 return;
             }
 
-            match rename_current_page(
+            match rename_current_note(
                 &name,
                 &app_state,
                 &autosave_state,
@@ -1211,7 +1211,7 @@ fn calculate_fullscreen_padding(window_width: i32, font_size: i32) -> i32 {
 fn toggle_fullscreen<M: MenuExt>(
     wind_ref: &Rc<RefCell<window::Window>>,
     window_geometry: &Rc<RefCell<WindowGeometry>>,
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     statusbar: &Rc<RefCell<StatusBar>>,
     search_bar: &Rc<RefCell<SearchBar>>,
     menu_handle: &M,

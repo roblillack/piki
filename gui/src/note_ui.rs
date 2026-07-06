@@ -3,12 +3,12 @@ use fltk::{enums::Color, window};
 use rutle::structured_document::BlockType;
 use std::any::Any;
 
-/// A minimal UI abstraction layer for a page editor/viewer.
+/// A minimal UI abstraction layer for a note editor/viewer.
 ///
 /// It unifies the interactions needed by main.rs so different
 /// implementations (e.g. StructuredRichUI) can be swapped without
 /// changing app logic.
-pub trait PageUI: ContentProvider + ContentLoader + 'static {
+pub trait NoteUI: ContentProvider + ContentLoader + 'static {
     // Subscribe to content change notifications (debounced by the app).
     fn on_change(&mut self, f: Box<dyn FnMut() + 'static>);
 

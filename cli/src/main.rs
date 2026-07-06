@@ -37,7 +37,7 @@ enum Commands {
         /// Name of the note to edit
         name: Option<String>,
     },
-    /// Generate an index of all pages
+    /// Generate an index of all notes
     Index,
     /// Show the commit log
     Log {
@@ -53,7 +53,7 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         command: Vec<String>,
     },
-    /// List all todos from all pages
+    /// List all todos from all notes
     Todo,
     /// View a note
     View {
@@ -516,7 +516,7 @@ fn resolve_link_target(
 
     // Prefer the `.md` version of the target, falling back to the raw path
     // (e.g. for links to assets). We append `.md` rather than using
-    // `with_extension`, which would mangle dotted page names like
+    // `with_extension`, which would mangle dotted note names like
     // "sprint-q2.6" into "sprint-q2.md".
     let mut candidates = Vec::new();
     if !has_md_extension(path_part) {
@@ -664,11 +664,11 @@ fn print_help_with_aliases(config: &Config) {
     println!("Commands:");
     println!("  edit [name] - edit a note");
     println!("  help        - show this help");
-    println!("  index       - generate an index of all pages");
+    println!("  index       - generate an index of all notes");
     println!("  log         - show the commit log");
     println!("  ls          - list notes");
     println!("  run [cmd]   - run a shell command inside the notes directory");
-    println!("  todo        - list all todos from all pages");
+    println!("  todo        - list all todos from all notes");
     println!("  view [name] - view a note");
 
     if !config.aliases.is_empty() {

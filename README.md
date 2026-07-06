@@ -59,7 +59,7 @@ echo "# John Doe's Brain" > frontpage.md
 piki-gui
 ```
 
-The GUI will open with your frontpage. Start editing, create links, and navigate between pages.
+The GUI will open with your frontpage. Start editing, create links, and navigate between notes.
 
 ### 3. Or Use the CLI
 
@@ -214,15 +214,15 @@ piki-gui -d /path/to/wiki
 
 **Link Formats**
 
-- Standard Markdown: `[text](page.md)`
-- Wiki-style: `[[PageName]]`
-- Nested paths: `[[folder/page]]`
+- Standard Markdown: `[text](note.md)`
+- Wiki-style: `[[NoteName]]`
+- Nested paths: `[[folder/note]]`
 
 **Plugin System**
 
-- Dynamic pages with `!` prefix
-- Built-in `!index` plugin lists all pages
-- Plugin pages are read-only
+- Dynamic notes with `!` prefix
+- Built-in `!index` plugin lists all notes
+- Plugin notes are read-only
 - Extensible for custom dynamic content
 
 ## Git Integration
@@ -282,8 +282,8 @@ Fast startup, minimal dependencies, straightforward workflows. A tool that gets 
 Contributions are welcome! Some ideas:
 
 - [ ] Package managers (Homebrew, apt, Chocolatey, AUR)
-- [ ] Full-text search across all pages
-- [ ] Backlinks and page graph
+- [ ] Full-text search across all notes
+- [ ] Backlinks and note graph
 - [ ] Custom syntax highlighting themes
 - [ ] Mobile companion app
 - [ ] Web server mode (read-only)

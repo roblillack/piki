@@ -17,17 +17,17 @@ pub struct DocumentStore {
 /// Returns true if the name already ends with a (case-insensitive) `.md`
 /// extension.
 ///
-/// Unlike `Path::extension`, this treats any other dots in the page name
+/// Unlike `Path::extension`, this treats any other dots in the note name
 /// (e.g. "sprint-q2.6") as part of the name rather than a file extension.
 pub fn has_md_extension(name: &str) -> bool {
     let bytes = name.as_bytes();
     bytes.len() >= 3 && bytes[bytes.len() - 3..].eq_ignore_ascii_case(b".md")
 }
 
-/// Append a `.md` extension to a page name unless it already has one.
+/// Append a `.md` extension to a note name unless it already has one.
 ///
 /// This intentionally avoids `Path::set_extension`, which would mistake a dot
-/// inside the page name for a file extension (turning "sprint-q2.6" into the
+/// inside the note name for a file extension (turning "sprint-q2.6" into the
 /// extension-less "sprint-q2.6" or, worse, "sprint-q2.md").
 pub fn ensure_md_extension(name: &str) -> String {
     if has_md_extension(name) {
@@ -42,12 +42,12 @@ impl DocumentStore {
         DocumentStore { base_path }
     }
 
-    /// Resolve the on-disk path for a page name (with or without a `.md`
+    /// Resolve the on-disk path for a note name (with or without a `.md`
     /// extension), without reading the file. Used e.g. to move a note when
     /// renaming it.
     ///
     /// We deliberately do not rely on `Path::extension`, which would treat the
-    /// trailing part of a dotted page name (e.g. "sprint-q2.6") as the
+    /// trailing part of a dotted note name (e.g. "sprint-q2.6") as the
     /// extension and skip adding `.md`.
     pub fn path_for(&self, name: &str) -> PathBuf {
         self.base_path.join(ensure_md_extension(name))
@@ -172,7 +172,7 @@ mod tests {
 
         let store = DocumentStore::new(temp_dir.clone());
 
-        // A page name with a dot (e.g. "sprint-q2.6") must still get `.md`
+        // A note name with a dot (e.g. "sprint-q2.6") must still get `.md`
         // appended rather than treating ".6" as the extension.
         fs::write(temp_dir.join("sprint-q2.6.md"), "hello").unwrap();
         let doc = store.load("sprint-q2.6").unwrap();
@@ -256,7 +256,7 @@ mod tests {
         fs::create_dir_all(&temp_dir).unwrap();
 
         let store = DocumentStore::new(temp_dir.clone());
-        let mut doc = store.load("nested/dir/page").unwrap();
+        let mut doc = store.load("nested/dir/note").unwrap();
         doc.content = "Test content".to_string();
 
         store.save(&doc).unwrap();
@@ -280,15 +280,15 @@ mod tests {
         // Create some test files
         fs::write(temp_dir.join("root.md"), "root").unwrap();
         fs::create_dir_all(temp_dir.join("dir1")).unwrap();
-        fs::write(temp_dir.join("dir1/page1.md"), "page1").unwrap();
+        fs::write(temp_dir.join("dir1/note1.md"), "note1").unwrap();
         fs::create_dir_all(temp_dir.join("dir1/subdir")).unwrap();
-        fs::write(temp_dir.join("dir1/subdir/page2.md"), "page2").unwrap();
+        fs::write(temp_dir.join("dir1/subdir/note2.md"), "note2").unwrap();
 
         let docs = store.list_all_documents().unwrap();
 
         assert!(docs.contains(&"root".to_string()));
-        assert!(docs.contains(&"dir1/page1".to_string()));
-        assert!(docs.contains(&"dir1/subdir/page2".to_string()));
+        assert!(docs.contains(&"dir1/note1".to_string()));
+        assert!(docs.contains(&"dir1/subdir/note2".to_string()));
         assert_eq!(docs.len(), 3);
 
         // Cleanup

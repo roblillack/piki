@@ -4,7 +4,7 @@ pub mod fltk_draw_context;
 mod history;
 mod link_handler;
 mod menu;
-mod page_picker;
+mod note_picker;
 mod recency;
 pub mod responsive_scrollbar;
 mod scroll_memory;
@@ -17,9 +17,9 @@ use clap::Parser;
 use fltk::{prelude::*, *};
 use history::History;
 use piki_core::{DocumentStore, IndexPlugin, PluginRegistry, TodoPlugin};
-use piki_gui::page_ui::PageUI;
+use piki_gui::note_ui::NoteUI;
 use piki_gui::ui_adapters::StructuredRichUI;
-use recency::RecentPages;
+use recency::RecentNotes;
 use scroll_memory::ScrollMemory;
 use search_bar::SearchBar;
 use statusbar::StatusBar;
@@ -44,21 +44,21 @@ struct Args {
     #[arg(short = 'd', long = "directory", value_name = "DIRECTORY")]
     directory: Option<PathBuf>,
 
-    /// Initial page to load (default: frontpage)
+    /// Initial note to load (default: frontpage)
     #[arg(short, long, default_value = "frontpage")]
-    page: String,
+    note: String,
 }
 
 struct AppState {
     store: DocumentStore,
     plugin_registry: PluginRegistry,
-    current_page: String,
+    current_note: String,
     history: History,
-    /// When each page was last opened, used by the page picker to order notes
+    /// When each note was last opened, used by the note picker to order notes
     /// and to resolve the "previous note" for a double Cmd-O/Ctrl-O.
-    recent_pages: RecentPages,
-    /// Where `recent_pages` is persisted (None if no data dir is available).
-    recent_pages_path: Option<PathBuf>,
+    recent_notes: RecentNotes,
+    /// Where `recent_notes` is persisted (None if no data dir is available).
+    recent_notes_path: Option<PathBuf>,
     /// In-memory scroll positions for recently visited notes, so returning to a
     /// note resumes where the user left off.
     scroll_positions: ScrollMemory,
@@ -68,81 +68,81 @@ impl AppState {
     fn new(
         store: DocumentStore,
         plugin_registry: PluginRegistry,
-        initial_page: String,
-        recent_pages_path: Option<PathBuf>,
+        initial_note: String,
+        recent_notes_path: Option<PathBuf>,
     ) -> Self {
-        let recent_pages = recent_pages_path
+        let recent_notes = recent_notes_path
             .as_deref()
-            .map(RecentPages::load)
+            .map(RecentNotes::load)
             .unwrap_or_default();
         AppState {
             store,
             plugin_registry,
-            current_page: initial_page,
+            current_note: initial_note,
             history: History::new(),
-            recent_pages,
-            recent_pages_path,
+            recent_notes,
+            recent_notes_path,
             scroll_positions: ScrollMemory::new(),
         }
     }
 
-    /// Record that `page` was just opened and persist the updated recency store.
-    fn mark_page_opened(&mut self, page: &str) {
-        self.recent_pages.mark_opened(page);
-        if let Some(path) = &self.recent_pages_path
-            && let Err(e) = self.recent_pages.save(path)
+    /// Record that `note` was just opened and persist the updated recency store.
+    fn mark_note_opened(&mut self, note: &str) {
+        self.recent_notes.mark_opened(note);
+        if let Some(path) = &self.recent_notes_path
+            && let Err(e) = self.recent_notes.save(path)
         {
-            eprintln!("Failed to save recent pages: {e}");
+            eprintln!("Failed to save recent notes: {e}");
         }
     }
 
     /// Update all in-session state that refers to `old` to point at `new` after
-    /// a note has been renamed: the current-page pointer, back/forward history,
+    /// a note has been renamed: the current-note pointer, back/forward history,
     /// the picker's recency ordering, and remembered scroll positions. The
-    /// on-disk file move is handled by `rename_current_page`.
-    fn rename_page(&mut self, old: &str, new: &str) {
-        if self.current_page == old {
-            self.current_page = new.to_string();
+    /// on-disk file move is handled by `rename_current_note`.
+    fn rename_note(&mut self, old: &str, new: &str) {
+        if self.current_note == old {
+            self.current_note = new.to_string();
         }
-        self.history.rename_page(old, new);
-        self.recent_pages.rename(old, new);
+        self.history.rename_note(old, new);
+        self.recent_notes.rename(old, new);
         self.scroll_positions.rename(old, new);
-        if let Some(path) = &self.recent_pages_path
-            && let Err(e) = self.recent_pages.save(path)
+        if let Some(path) = &self.recent_notes_path
+            && let Err(e) = self.recent_notes.save(path)
         {
-            eprintln!("Failed to save recent pages: {e}");
+            eprintln!("Failed to save recent notes: {e}");
         }
     }
 
-    fn load_page(&mut self, page_name: &str) -> Result<String, String> {
-        // Check if this is a plugin page (starts with !)
-        if let Some(plugin_name) = page_name.strip_prefix('!') {
+    fn load_note(&mut self, note_name: &str) -> Result<String, String> {
+        // Check if this is a plugin note (starts with !)
+        if let Some(plugin_name) = note_name.strip_prefix('!') {
             // Generate content using the plugin
-            self.current_page = page_name.to_string();
+            self.current_note = note_name.to_string();
             return self.plugin_registry.generate(plugin_name, &self.store);
         }
 
         // Normal file loading
-        match self.store.load(page_name) {
+        match self.store.load(note_name) {
             Ok(doc) => {
-                self.current_page = page_name.to_string();
+                self.current_note = note_name.to_string();
                 Ok(doc.content)
             }
             Err(e) => Err(e),
         }
     }
 }
-/// Flush any pending changes of the currently open page to disk immediately.
+/// Flush any pending changes of the currently open note to disk immediately.
 ///
 /// This is the "save when walking away" safeguard: it runs before navigating to
-/// another page (links, history, page picker, new page) and when the window is
+/// another note (links, history, note picker, new note) and when the window is
 /// closing, so edits are never lost to the debounced autosave timer. Saving is a
-/// no-op when the content is unchanged or the page is a read-only plugin page
+/// no-op when the content is unchanged or the note is a read-only plugin note
 /// (handled inside `AutoSaveState::trigger_save`).
-fn save_current_page(
+fn save_current_note(
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     statusbar: &Rc<RefCell<StatusBar>>,
 ) {
     if let (Ok(ed_ptr), Ok(mut as_state), Ok(app_st)) = (
@@ -175,12 +175,12 @@ fn save_current_page(
 /// brand-new untitled note the user has not typed into has no file yet, so the
 /// move is skipped and the next autosave simply writes to the new name. Returns
 /// an error (surfaced by the dialog) when the target name is already taken or
-/// the move fails; read-only plugin pages ("!…") cannot be renamed.
-fn rename_current_page(
+/// the move fails; read-only plugin notes ("!…") cannot be renamed.
+fn rename_current_note(
     new_name: &str,
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     statusbar: &Rc<RefCell<StatusBar>>,
 ) -> Result<(), String> {
     let new_name = new_name.trim();
@@ -188,7 +188,7 @@ fn rename_current_page(
         return Err("Please enter a name.".to_string());
     }
 
-    let old_name = app_state.borrow().current_page.clone();
+    let old_name = app_state.borrow().current_note.clone();
     if new_name == old_name {
         return Ok(());
     }
@@ -198,7 +198,7 @@ fn rename_current_page(
 
     // Flush current content to the old file first, so a not-yet-autosaved edit
     // is not lost and there is a file to move.
-    save_current_page(app_state, autosave_state, active_editor, statusbar);
+    save_current_note(app_state, autosave_state, active_editor, statusbar);
 
     let (old_path, new_path) = {
         let st = app_state.borrow();
@@ -219,28 +219,28 @@ fn rename_current_page(
 
     // Point all in-session state at the new name. The editor already holds the
     // content, so we deliberately do not reload it.
-    app_state.borrow_mut().rename_page(&old_name, new_name);
+    app_state.borrow_mut().rename_note(&old_name, new_name);
     if let Ok(mut as_state) = autosave_state.try_borrow_mut() {
-        as_state.current_page = new_name.to_string();
+        as_state.current_note = new_name.to_string();
     }
     statusbar
         .borrow_mut()
-        .set_page(&format!("Note: {new_name}"));
+        .set_note(&format!("Note: {new_name}"));
 
     Ok(())
 }
 
-fn load_page_helper(
-    page_name: &str,
+fn load_note_helper(
+    note_name: &str,
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     statusbar: &Rc<RefCell<StatusBar>>,
     restore_scroll: Option<i32>,
 ) {
-    // Save the page we're leaving before its content is replaced below, so
-    // switching pages (or creating a new one) never drops unsaved edits.
-    save_current_page(app_state, autosave_state, active_editor, statusbar);
+    // Save the note we're leaving before its content is replaced below, so
+    // switching notes (or creating a new one) never drops unsaved edits.
+    save_current_note(app_state, autosave_state, active_editor, statusbar);
 
     // Record the scroll position of the note we're leaving: into the current
     // back/forward history entry (only for non-history navigation), and always
@@ -252,26 +252,26 @@ fn load_page_helper(
         if restore_scroll.is_none() {
             state.history.update_scroll_position(leaving_scroll);
         }
-        let leaving_page = state.current_page.clone();
+        let leaving_note = state.current_note.clone();
         state
             .scroll_positions
-            .remember(&leaving_page, leaving_scroll);
+            .remember(&leaving_note, leaving_scroll);
     }
 
-    // Check if this is a plugin page
-    let is_plugin = page_name.starts_with('!');
+    // Check if this is a plugin note
+    let is_plugin = note_name.starts_with('!');
 
-    // Load content through AppState::load_page (handles plugins)
-    let content_result = app_state.borrow_mut().load_page(page_name);
+    // Load content through AppState::load_note (handles plugins)
+    let content_result = app_state.borrow_mut().load_note(note_name);
 
     match content_result {
         Ok(content) => {
-            // For non-plugin pages, get the modification time
+            // For non-plugin notes, get the modification time
             let modified_time = if !is_plugin {
                 app_state
                     .borrow()
                     .store
-                    .load(page_name)
+                    .load(note_name)
                     .ok()
                     .and_then(|doc| doc.modified_time)
             } else {
@@ -283,7 +283,7 @@ fn load_page_helper(
                 let mut editor_mut = active.borrow_mut();
                 editor_mut.set_content_from_markdown(&content);
 
-                // Set read-only mode for plugin pages, editable for regular pages
+                // Set read-only mode for plugin notes, editable for regular notes
                 editor_mut.set_readonly(is_plugin);
             }
 
@@ -291,7 +291,7 @@ fn load_page_helper(
             // history wins; otherwise resume the remembered position for this
             // note (if it is still one of the recent ones), falling back to top.
             let target_scroll = restore_scroll
-                .or_else(|| app_state.borrow().scroll_positions.get(page_name))
+                .or_else(|| app_state.borrow().scroll_positions.get(note_name))
                 .unwrap_or(0);
             {
                 let active = active_editor.borrow();
@@ -302,24 +302,24 @@ fn load_page_helper(
 
             // Drop the editor borrow before manipulating history
 
-            // If normal navigation (not history), add new page to history
+            // If normal navigation (not history), add new note to history
             if restore_scroll.is_none() {
                 app_state
                     .borrow_mut()
                     .history
-                    .push(page_name.to_string(), final_scroll_pos);
+                    .push(note_name.to_string(), final_scroll_pos);
             }
 
-            // Record the open so the page picker can order notes by recency and
-            // resolve the "previous note" for a double Cmd-O. Plugin pages (e.g.
+            // Record the open so the note picker can order notes by recency and
+            // resolve the "previous note" for a double Cmd-O. Plugin notes (e.g.
             // !index) are generated views that never appear in the picker list.
             if !is_plugin {
-                app_state.borrow_mut().mark_page_opened(page_name);
+                app_state.borrow_mut().mark_note_opened(note_name);
             }
 
-            // Reset autosave state for the new page
+            // Reset autosave state for the new note
             if let Ok(mut as_state) = autosave_state.try_borrow_mut() {
-                as_state.reset_for_page(page_name, &content);
+                as_state.reset_for_note(note_name, &content);
 
                 // Set last_save_time to file's modification time if it exists
                 if let Some(mtime) = modified_time {
@@ -327,16 +327,16 @@ fn load_page_helper(
                 }
             }
 
-            // Determine page status text based on page type
-            let page_text = if let Some(plugin_name) = page_name.strip_prefix('!') {
+            // Determine note status text based on note type
+            let note_text = if let Some(plugin_name) = note_name.strip_prefix('!') {
                 format!("Plugin: {}", plugin_name)
             } else if content.is_empty() {
-                format!("Note: {} (new)", page_name)
+                format!("Note: {} (new)", note_name)
             } else {
-                format!("Note: {}", page_name)
+                format!("Note: {}", note_name)
             };
 
-            statusbar.borrow_mut().set_page(&page_text);
+            statusbar.borrow_mut().set_note(&note_text);
 
             // Set initial save status based on modification time
             if let Ok(as_state) = autosave_state.try_borrow() {
@@ -350,7 +350,7 @@ fn load_page_helper(
             app::redraw();
         }
         Err(e) => {
-            statusbar.borrow_mut().set_page(&format!("Error: {}", e));
+            statusbar.borrow_mut().set_note(&format!("Error: {}", e));
             statusbar.borrow_mut().set_status("");
             app::redraw();
         }
@@ -360,7 +360,7 @@ fn load_page_helper(
 fn navigate_back(
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     statusbar: &Rc<RefCell<StatusBar>>,
 ) {
     // Update current entry's scroll position before navigating
@@ -370,18 +370,18 @@ fn navigate_back(
         .history
         .update_scroll_position(scroll_pos);
 
-    // Try to navigate back and extract values before calling load_page_helper
+    // Try to navigate back and extract values before calling load_note_helper
     let target = {
         let mut state = app_state.borrow_mut();
         state
             .history
             .go_back()
-            .map(|entry| (entry.page_name.clone(), entry.scroll_position))
+            .map(|entry| (entry.note_name.clone(), entry.scroll_position))
     }; // Borrow is dropped here
 
-    if let Some((page_name, scroll_position)) = target {
-        load_page_helper(
-            &page_name,
+    if let Some((note_name, scroll_position)) = target {
+        load_note_helper(
+            &note_name,
             app_state,
             autosave_state,
             active_editor,
@@ -394,7 +394,7 @@ fn navigate_back(
 fn navigate_forward(
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     statusbar: &Rc<RefCell<StatusBar>>,
 ) {
     // Update current entry's scroll position before navigating
@@ -404,18 +404,18 @@ fn navigate_forward(
         .history
         .update_scroll_position(scroll_pos);
 
-    // Try to navigate forward and extract values before calling load_page_helper
+    // Try to navigate forward and extract values before calling load_note_helper
     let target = {
         let mut state = app_state.borrow_mut();
         state
             .history
             .go_forward()
-            .map(|entry| (entry.page_name.clone(), entry.scroll_position))
+            .map(|entry| (entry.note_name.clone(), entry.scroll_position))
     }; // Borrow is dropped here
 
-    if let Some((page_name, scroll_position)) = target {
-        load_page_helper(
-            &page_name,
+    if let Some((note_name, scroll_position)) = target {
+        load_note_helper(
+            &note_name,
             app_state,
             autosave_state,
             active_editor,
@@ -491,13 +491,13 @@ fn main() {
     plugin_registry.register("index", Box::new(IndexPlugin));
     plugin_registry.register("todo", Box::new(TodoPlugin));
 
-    let recent_pages_path = window_state::recent_pages_file(&directory);
+    let recent_notes_path = window_state::recent_notes_file(&directory);
 
     let app_state = Rc::new(RefCell::new(AppState::new(
         store,
         plugin_registry,
-        args.page.clone(),
-        recent_pages_path,
+        args.note.clone(),
+        recent_notes_path,
     )));
     let autosave_state = Rc::new(RefCell::new(AutoSaveState::new()));
 
@@ -521,10 +521,10 @@ fn main() {
     let editor_x = editor_padding;
     let editor_w = wind.w() - 2 * editor_padding;
     let editor_h = editor_height;
-    let rich_editor: Rc<RefCell<dyn PageUI>> = Rc::new(RefCell::new(StructuredRichUI::new(
+    let rich_editor: Rc<RefCell<dyn NoteUI>> = Rc::new(RefCell::new(StructuredRichUI::new(
         editor_x, editor_y, editor_w, editor_h, true,
     )));
-    let active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>> = Rc::new(RefCell::new(rich_editor));
+    let active_editor: Rc<RefCell<Rc<RefCell<dyn NoteUI>>>> = Rc::new(RefCell::new(rich_editor));
 
     // Create status bar at the bottom using the custom StatusBar widget
     let statusbar = Rc::new(RefCell::new(StatusBar::new(
@@ -788,7 +788,7 @@ fn main() {
             }
             enums::Event::Close => {
                 // Flush the open note before the window goes away.
-                save_current_page(
+                save_current_note(
                     &app_state_for_close,
                     &autosave_for_close,
                     &active_editor_for_resize,
@@ -849,15 +849,15 @@ fn main() {
         statusbar.borrow_mut().hide();
     }
 
-    // Clicking the page status opens the page picker
+    // Clicking the note status opens the note picker
     {
         let app_state = app_state.clone();
         let autosave_state = autosave_state.clone();
         let active_editor = active_editor.clone();
         let statusbar_for_click = statusbar.clone();
         let wind_for_click = wind.clone();
-        statusbar.borrow_mut().on_page_click(move |_| {
-            page_picker::show_page_picker(
+        statusbar.borrow_mut().on_note_click(move |_| {
+            note_picker::show_note_picker(
                 app_state.clone(),
                 autosave_state.clone(),
                 active_editor.clone(),
@@ -867,9 +867,9 @@ fn main() {
         });
     }
 
-    // Load initial page
-    load_page_helper(
-        &args.page,
+    // Load initial note
+    load_note_helper(
+        &args.note,
         &app_state,
         &autosave_state,
         &active_editor,
@@ -930,7 +930,7 @@ fn main() {
 }
 
 fn wire_editor_callbacks(
-    active_editor: &Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
     app_state: &Rc<RefCell<AppState>>,
     statusbar: &Rc<RefCell<StatusBar>>,
@@ -996,7 +996,7 @@ fn wire_editor_callbacks(
         });
     }));
 
-    // Link click handler via PageUI uses active editor
+    // Link click handler via NoteUI uses active editor
     let app_state_links = app_state.clone();
     let autosave_links = autosave_state.clone();
     let statusbar_links = statusbar.clone();
@@ -1006,7 +1006,7 @@ fn wire_editor_callbacks(
         let active_clone = active_editor.clone();
         cur.on_link_click(Box::new(move |link_dest: String| {
             // External links (http(s)://, mailto:, ...) open in the system
-            // browser/handler instead of being loaded as a wiki page.
+            // browser/handler instead of being loaded as a wiki note.
             if link_handler::is_external_link(&link_dest) {
                 let statusbar = statusbar_links.clone();
                 app::awake_callback(move || {
@@ -1025,7 +1025,7 @@ fn wire_editor_callbacks(
             let editor_ref = active_clone.clone();
             let statusbar = statusbar_links.clone();
             app::awake_callback(move || {
-                load_page_helper(
+                load_note_helper(
                     &link_dest,
                     &app_state,
                     &autosave_state,
@@ -1037,7 +1037,7 @@ fn wire_editor_callbacks(
         }));
     }
 
-    // Hover handler to show link destinations in the page status bar
+    // Hover handler to show link destinations in the note status bar
     let current_for_hover = active_editor.borrow().clone();
     {
         let mut cur = current_for_hover.borrow_mut();
@@ -1052,14 +1052,14 @@ fn wire_editor_callbacks(
                     Some(dest) => {
                         let dest = dest.clone();
                         if base_label_for_cb.borrow().is_none() {
-                            let current = statusbar_for_cb.borrow().page_status_widget().label();
+                            let current = statusbar_for_cb.borrow().note_status_widget().label();
                             *base_label_for_cb.borrow_mut() = Some(current);
                         }
-                        statusbar_for_cb.borrow_mut().set_page(&dest);
+                        statusbar_for_cb.borrow_mut().set_note(&dest);
                     }
                     None => {
                         if let Some(orig) = base_label_for_cb.borrow_mut().take() {
-                            statusbar_for_cb.borrow_mut().set_page(&orig);
+                            statusbar_for_cb.borrow_mut().set_note(&orig);
                         }
                     }
                 }

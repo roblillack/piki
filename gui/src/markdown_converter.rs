@@ -2,7 +2,7 @@
 //!
 //! rutle works on `tdoc::Document` directly and leaves (de)serialization to
 //! `tdoc`. These thin wrappers are the entry points piki-gui needs for the
-//! clipboard and page load/save.
+//! clipboard and note load/save.
 
 use std::io::Cursor;
 

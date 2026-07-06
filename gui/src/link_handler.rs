@@ -42,16 +42,16 @@ pub fn extract_links(content: &str) -> Vec<Link> {
         }
     }
 
-    // Also support wiki-style [[page]] links
+    // Also support wiki-style [[note]] links
     let wiki_link_re = Regex::new(r"\[\[([^\]]+)\]\]").unwrap();
     for cap in wiki_link_re.captures_iter(content) {
         if let Some(matched) = cap.get(0) {
-            let page = cap.get(1).unwrap().as_str().to_string();
+            let note = cap.get(1).unwrap().as_str().to_string();
             links.push(Link {
                 start: matched.start(),
                 end: matched.end(),
-                destination: page.clone(),
-                text: page,
+                destination: note.clone(),
+                text: note,
             });
         }
     }
@@ -68,11 +68,11 @@ pub fn find_link_at_position(links: &[Link], pos: usize) -> Option<&Link> {
 }
 
 /// Returns true if the destination is an external link that should be opened
-/// in the system browser/handler rather than loaded as a wiki page.
+/// in the system browser/handler rather than loaded as a wiki note.
 ///
 /// Recognises URLs with an explicit authority (e.g. `http://`, `https://`,
 /// `ftp://`, `file://`) as well as authority-less schemes like `mailto:` and
-/// `tel:`. Plain page names (including ones that happen to contain a colon,
+/// `tel:`. Plain note names (including ones that happen to contain a colon,
 /// such as `Notes: Meeting`) are treated as internal.
 pub fn is_external_link(destination: &str) -> bool {
     let dest = destination.trim_start();
@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn test_mixed_links() {
-        let content = "A [markdown](page1) and [[wiki]] link.";
+        let content = "A [markdown](note1) and [[wiki]] link.";
         let links = extract_links(content);
         assert_eq!(links.len(), 2);
     }
@@ -137,9 +137,9 @@ mod tests {
         assert!(is_external_link("mailto:user@example.com"));
         assert!(is_external_link("tel:+1234567890"));
 
-        // Internal: plain page names, including ones containing a colon
+        // Internal: plain note names, including ones containing a colon
         assert!(!is_external_link("frontpage"));
-        assert!(!is_external_link("some/page.md"));
+        assert!(!is_external_link("some/note.md"));
         assert!(!is_external_link("[[WikiPage]]"));
         assert!(!is_external_link("Notes: Meeting"));
         assert!(!is_external_link("C:\\path\\file"));

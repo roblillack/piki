@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::time::SystemTime;
 
 use fltk::{self, draw, enums::Font, prelude::*, window};
-use piki_gui::page_ui::PageUI;
+use piki_gui::note_ui::NoteUI;
 
 use crate::autosave::AutoSaveState;
 
@@ -68,7 +68,7 @@ type StrCallback = Rc<RefCell<dyn FnMut(&str)>>;
 
 /// One entry in the picker list.
 struct Row {
-    /// Page name / path used to open the note.
+    /// Note name / path used to open the note.
     name: String,
     /// Short plaintext preview parsed from the first paragraphs of the note.
     abbrev: String,
@@ -145,7 +145,7 @@ fn text_width(s: &str) -> f64 {
 }
 
 /// `@` starts a format code in FLTK browsers, and `\t` separates columns.
-/// Double any `@` so page names / previews containing it (e.g. email
+/// Double any `@` so note names / previews containing it (e.g. email
 /// addresses) render literally, and drop stray tabs.
 fn escape(s: &str) -> String {
     s.replace('@', "@@").replace('\t', " ")
@@ -295,10 +295,10 @@ fn fuzzy_order(rows: &[Row], query: &str) -> Vec<usize> {
 
 /// Modal "Open Note" picker: fuzzy filtering, recency ordering, previews and
 /// last-modified timestamps, with keyboard navigation.
-pub fn show_page_picker(
+pub fn show_note_picker(
     app_state: Rc<RefCell<super::AppState>>,
     autosave_state: Rc<RefCell<AutoSaveState>>,
-    active_editor: Rc<RefCell<Rc<RefCell<dyn PageUI>>>>,
+    active_editor: Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     statusbar: Rc<RefCell<super::statusbar::StatusBar>>,
     parent: &window::Window,
 ) {
@@ -318,10 +318,10 @@ pub fn show_page_picker(
     // Gather every note plus the metadata the list shows. We read each file once
     // here for its content (preview) and modification time; personal wikis are
     // small enough that this is cheap.
-    let (rows, current_page) = {
+    let (rows, current_note) = {
         let state = app_state.borrow();
         let names = state.store.list_all_documents().unwrap_or_default();
-        let current = state.current_page.clone();
+        let current = state.current_note.clone();
         let rows: Vec<Row> = names
             .into_iter()
             .map(|name| {
@@ -331,7 +331,7 @@ pub fn show_page_picker(
                 Row {
                     abbrev: abbreviate(&content, 200),
                     date: mtime.map(format_timestamp).unwrap_or_default(),
-                    last_open: state.recent_pages.last_opened(&name),
+                    last_open: state.recent_notes.last_opened(&name),
                     modified: mtime.and_then(millis_since_epoch),
                     name,
                 }
@@ -401,7 +401,7 @@ pub fn show_page_picker(
         }))
     };
 
-    // Page names in current display order, parallel to the browser lines. The
+    // Note names in current display order, parallel to the browser lines. The
     // browser text is formatted (columns + preview), so accepting a selection
     // maps the 1-based line back to a name through this list.
     let results: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
@@ -413,7 +413,7 @@ pub fn show_page_picker(
         let mut list = list.clone();
         let rows = rows.clone();
         let results = results.clone();
-        let current_page = current_page.clone();
+        let current_note = current_note.clone();
         Rc::new(RefCell::new(move |query: &str| {
             draw::set_font(Font::Helvetica, ROW_TEXT_SIZE);
             let q = query.trim();
@@ -432,7 +432,7 @@ pub fn show_page_picker(
 
             if !names.is_empty() {
                 let target = if q.is_empty() {
-                    Some(current_page.as_str())
+                    Some(current_note.as_str())
                 } else {
                     None
                 };
@@ -475,7 +475,7 @@ pub fn show_page_picker(
                 && let Some(name) = results.borrow().get((idx - 1) as usize).cloned()
             {
                 (close_picker.borrow_mut())();
-                super::load_page_helper(
+                super::load_note_helper(
                     &name,
                     &app_state,
                     &autosave_state,

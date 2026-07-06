@@ -1,4 +1,4 @@
-// Search Bar Widget for in-page search
+// Search Bar Widget for in-note search
 // A floating search bar with input, prev/next buttons, and match count display
 
 use fltk::{app, button, enums::*, frame, group, input, prelude::*};
