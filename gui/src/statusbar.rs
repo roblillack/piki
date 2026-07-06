@@ -12,13 +12,13 @@ fn brighten_color(color: enums::Color, factor: f32) -> enums::Color {
     enums::Color::from_rgb(new_r, new_g, new_b)
 }
 
-/// Custom status bar widget that manages two child widgets (page status and save status)
+/// Custom status bar widget that manages two child widgets (note status and save status)
 /// and automatically handles layout and rendering
 pub struct StatusBar {
     // Background frame
     background: frame::Frame,
-    // Left side: page status (button for clicking)
-    page_status: button::Button,
+    // Left side: note status (button for clicking)
+    note_status: button::Button,
     // Right side: save status (frame for display)
     save_status: frame::Frame,
     // Colors
@@ -45,18 +45,18 @@ impl StatusBar {
         background.set_frame(enums::FrameType::FlatBox);
         background.set_color(bg_color);
 
-        // Create page status button (left side)
-        let mut page_status = button::Button::new(x + 5, y, w / 2 - 10, h, None);
-        page_status.set_frame(enums::FrameType::FlatBox);
-        page_status.set_align(enums::Align::Left | enums::Align::Inside);
-        page_status.set_label_size(app::font_size() - 1);
-        page_status.set_color(bg_color);
-        page_status.set_label_color(text_color);
+        // Create note status button (left side)
+        let mut note_status = button::Button::new(x + 5, y, w / 2 - 10, h, None);
+        note_status.set_frame(enums::FrameType::FlatBox);
+        note_status.set_align(enums::Align::Left | enums::Align::Inside);
+        note_status.set_label_size(app::font_size() - 1);
+        note_status.set_color(bg_color);
+        note_status.set_label_color(text_color);
 
-        // Add hover effect for page status
-        let mut but2 = page_status.clone();
+        // Add hover effect for note status
+        let mut but2 = note_status.clone();
         let hover_bg = hover_color;
-        page_status.handle(move |_, evt| match evt {
+        note_status.handle(move |_, evt| match evt {
             enums::Event::Enter => {
                 but2.set_color(hover_bg);
                 but2.redraw();
@@ -80,7 +80,7 @@ impl StatusBar {
 
         StatusBar {
             background,
-            page_status,
+            note_status,
             save_status,
             bg_color,
             text_color,
@@ -94,14 +94,14 @@ impl StatusBar {
         self.bg_color = color;
         self.hover_color = brighten_color(color, 1.2); // 20% brighter
         self.background.set_color(color);
-        self.page_status.set_color(color);
+        self.note_status.set_color(color);
         self.save_status.set_color(color);
 
         // Update the hover handler with the new colors
-        let mut but2 = self.page_status.clone();
+        let mut but2 = self.note_status.clone();
         let bg = color;
         let hover_bg = self.hover_color;
-        self.page_status.handle(move |_, evt| match evt {
+        self.note_status.handle(move |_, evt| match evt {
             enums::Event::Enter => {
                 but2.set_color(hover_bg);
                 but2.redraw();
@@ -119,13 +119,13 @@ impl StatusBar {
     /// Set the text color of the status bar
     pub fn set_text_color(&mut self, color: enums::Color) {
         self.text_color = color;
-        self.page_status.set_label_color(color);
+        self.note_status.set_label_color(color);
         self.save_status.set_label_color(color);
     }
 
-    /// Set the page status text (left side)
-    pub fn set_page(&mut self, text: &str) {
-        self.page_status.set_label(text);
+    /// Set the note status text (left side)
+    pub fn set_note(&mut self, text: &str) {
+        self.note_status.set_label(text);
     }
 
     /// Set the save status text (right side)
@@ -133,9 +133,9 @@ impl StatusBar {
         self.save_status.set_label(text);
     }
 
-    /// Set the tooltip for the page status (left side)
-    pub fn set_page_tooltip(&mut self, tooltip: &str) {
-        self.page_status.set_tooltip(tooltip);
+    /// Set the tooltip for the note status (left side)
+    pub fn set_note_tooltip(&mut self, tooltip: &str) {
+        self.note_status.set_tooltip(tooltip);
     }
 
     /// Set the tooltip for the save status (right side)
@@ -143,15 +143,15 @@ impl StatusBar {
         self.save_status.set_tooltip(tooltip);
     }
 
-    /// Set the hover color for the page status button
+    /// Set the hover color for the note status button
     pub fn set_hover_color(&mut self, color: enums::Color) {
         self.hover_color = color;
 
         // Update the hover handler with the new hover color
-        let mut but2 = self.page_status.clone();
+        let mut but2 = self.note_status.clone();
         let bg = self.bg_color;
         let hover_bg = color;
-        self.page_status.handle(move |_, evt| match evt {
+        self.note_status.handle(move |_, evt| match evt {
             enums::Event::Enter => {
                 but2.set_color(hover_bg);
                 but2.redraw();
@@ -166,9 +166,9 @@ impl StatusBar {
         });
     }
 
-    /// Register a callback for when the page status is clicked
-    pub fn on_page_click<F: FnMut(&mut button::Button) + 'static>(&mut self, cb: F) {
-        self.page_status.set_callback(cb);
+    /// Register a callback for when the note status is clicked
+    pub fn on_note_click<F: FnMut(&mut button::Button) + 'static>(&mut self, cb: F) {
+        self.note_status.set_callback(cb);
     }
 
     /// Register a callback for when the save status is clicked
@@ -186,9 +186,9 @@ impl StatusBar {
         });
     }
 
-    /// Get a reference to the page status widget (for external manipulation)
-    pub fn page_status_widget(&self) -> button::Button {
-        self.page_status.clone()
+    /// Get a reference to the note status widget (for external manipulation)
+    pub fn note_status_widget(&self) -> button::Button {
+        self.note_status.clone()
     }
 
     /// Get a reference to the save status widget (for external manipulation)
@@ -199,7 +199,7 @@ impl StatusBar {
     /// Resize the status bar and update child positions
     pub fn resize(&mut self, x: i32, y: i32, w: i32, h: i32) {
         self.background.resize(x, y, w, h);
-        self.page_status.resize(x + 5, y, w / 2 - 10, h);
+        self.note_status.resize(x + 5, y, w / 2 - 10, h);
         self.save_status.resize(x + 5 + w / 2, y, w / 2 - 10, h);
     }
 
@@ -226,14 +226,14 @@ impl StatusBar {
     /// Hide the status bar
     pub fn hide(&mut self) {
         self.background.hide();
-        self.page_status.hide();
+        self.note_status.hide();
         self.save_status.hide();
     }
 
     /// Show the status bar
     pub fn show(&mut self) {
         self.background.show();
-        self.page_status.show();
+        self.note_status.show();
         self.save_status.show();
     }
 

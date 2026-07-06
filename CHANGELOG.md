@@ -69,7 +69,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   directly. The FLTK integration layer — `fltk_structured_rich_display.rs` and
   the FLTK draw context — implements rutle's `RenderContext` trait and drives
   its `Renderer` straight from the crate, and the small Markdown/HTML `tdoc`
-  conversion wrappers Piki still needs for the clipboard and page load/save now
+  conversion wrappers Piki still needs for the clipboard and note load/save now
   live in `gui`'s own `markdown_converter` module. Rendering, selection, reveal
   codes, styled links, and table display are unchanged. As part of the shared
   core, rutle's layout cache no longer invalidates on an unchanged

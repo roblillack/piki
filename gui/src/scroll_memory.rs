@@ -10,7 +10,7 @@ const CAPACITY: usize = 10;
 
 #[derive(Default)]
 pub struct ScrollMemory {
-    /// (page name, scroll position), most-recently-remembered first.
+    /// (note name, scroll position), most-recently-remembered first.
     entries: Vec<(String, i32)>,
 }
 
@@ -19,19 +19,19 @@ impl ScrollMemory {
         Self::default()
     }
 
-    /// Record `pos` for `page`, promoting it to most-recent and evicting the
+    /// Record `pos` for `note`, promoting it to most-recent and evicting the
     /// least-recently-remembered note once more than [`CAPACITY`] are tracked.
-    pub fn remember(&mut self, page: &str, pos: i32) {
-        self.entries.retain(|(name, _)| name != page);
-        self.entries.insert(0, (page.to_string(), pos));
+    pub fn remember(&mut self, note: &str, pos: i32) {
+        self.entries.retain(|(name, _)| name != note);
+        self.entries.insert(0, (note.to_string(), pos));
         self.entries.truncate(CAPACITY);
     }
 
-    /// The remembered scroll position for `page`, if it is still tracked.
-    pub fn get(&self, page: &str) -> Option<i32> {
+    /// The remembered scroll position for `note`, if it is still tracked.
+    pub fn get(&self, note: &str) -> Option<i32> {
         self.entries
             .iter()
-            .find(|(name, _)| name == page)
+            .find(|(name, _)| name == note)
             .map(|(_, pos)| *pos)
     }
 

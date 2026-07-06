@@ -2,14 +2,14 @@ use crate::content::{ContentLoader, ContentProvider};
 use crate::fltk_draw_context::FltkDrawContext;
 use crate::fltk_structured_rich_display::FltkStructuredRichDisplay;
 use crate::markdown_converter::document_to_markdown;
-use crate::page_ui::PageUI;
+use crate::note_ui::NoteUI;
 use fltk::{app, enums::Color, prelude::*, window};
 use rutle::editor::Editor;
 use rutle::renderer::SearchMatch;
 use rutle::structured_document::BlockType;
 use std::any::Any;
 
-/// PageUI adapter for rutle's `Renderer` + FLTK Group wrapper
+/// NoteUI adapter for rutle's `Renderer` + FLTK Group wrapper
 pub struct StructuredRichUI(pub FltkStructuredRichDisplay);
 
 impl StructuredRichUI {
@@ -265,7 +265,7 @@ impl ContentProvider for StructuredRichUI {
 impl ContentLoader for StructuredRichUI {
     fn set_content_from_markdown(&mut self, markdown: &str) {
         let mut disp = self.0.display.borrow_mut();
-        // Loading a different page starts a fresh undo history (set_document resets it).
+        // Loading a different note starts a fresh undo history (set_document resets it).
         let doc = crate::markdown_converter::markdown_to_document(markdown);
         disp.editor_mut().set_document(doc);
         disp.set_scroll(0);
@@ -274,7 +274,7 @@ impl ContentLoader for StructuredRichUI {
     }
 }
 
-impl PageUI for StructuredRichUI {
+impl NoteUI for StructuredRichUI {
     fn on_change(&mut self, f: Box<dyn FnMut() + 'static>) {
         self.0.set_change_callback(Some(f));
     }

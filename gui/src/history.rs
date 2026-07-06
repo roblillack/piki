@@ -4,14 +4,14 @@ const MAX_HISTORY_SIZE: usize = 100;
 
 #[derive(Debug, Clone)]
 pub struct HistoryEntry {
-    pub page_name: String,
+    pub note_name: String,
     pub scroll_position: i32,
 }
 
 impl HistoryEntry {
-    pub fn new(page_name: String, scroll_position: i32) -> Self {
+    pub fn new(note_name: String, scroll_position: i32) -> Self {
         HistoryEntry {
-            page_name,
+            note_name,
             scroll_position,
         }
     }
@@ -31,9 +31,9 @@ impl History {
         }
     }
 
-    /// Add a new page to history
+    /// Add a new note to history
     /// This clears any forward history and adds the new entry
-    pub fn push(&mut self, page_name: String, scroll_position: i32) {
+    pub fn push(&mut self, note_name: String, scroll_position: i32) {
         // If we're in the middle of history, truncate everything after current position
         if let Some(idx) = self.current_index {
             self.entries.truncate(idx + 1);
@@ -41,7 +41,7 @@ impl History {
 
         // Add new entry
         self.entries
-            .push(HistoryEntry::new(page_name, scroll_position));
+            .push(HistoryEntry::new(note_name, scroll_position));
 
         // Limit history size
         if self.entries.len() > MAX_HISTORY_SIZE {
@@ -55,10 +55,10 @@ impl History {
     /// Rename every entry that points at `old` to `new`, so back/forward
     /// navigation follows a note that was renamed instead of resurrecting its
     /// former (now non-existent) name as an empty note.
-    pub fn rename_page(&mut self, old: &str, new: &str) {
+    pub fn rename_note(&mut self, old: &str, new: &str) {
         for entry in &mut self.entries {
-            if entry.page_name == old {
-                entry.page_name = new.to_string();
+            if entry.note_name == old {
+                entry.note_name = new.to_string();
             }
         }
     }
@@ -132,40 +132,40 @@ mod tests {
     fn test_push_and_navigate() {
         let mut history = History::new();
 
-        history.push("page1".to_string(), 0);
-        history.push("page2".to_string(), 10);
-        history.push("page3".to_string(), 20);
+        history.push("note1".to_string(), 0);
+        history.push("note2".to_string(), 10);
+        history.push("note3".to_string(), 20);
 
-        assert_eq!(history.current().unwrap().page_name, "page3");
+        assert_eq!(history.current().unwrap().note_name, "note3");
         assert!(history.can_go_back());
         assert!(!history.can_go_forward());
 
         history.go_back();
-        assert_eq!(history.current().unwrap().page_name, "page2");
+        assert_eq!(history.current().unwrap().note_name, "note2");
         assert_eq!(history.current().unwrap().scroll_position, 10);
         assert!(history.can_go_back());
         assert!(history.can_go_forward());
 
         history.go_forward();
-        assert_eq!(history.current().unwrap().page_name, "page3");
+        assert_eq!(history.current().unwrap().note_name, "note3");
     }
 
     #[test]
     fn test_push_clears_forward_history() {
         let mut history = History::new();
 
-        history.push("page1".to_string(), 0);
-        history.push("page2".to_string(), 0);
-        history.push("page3".to_string(), 0);
+        history.push("note1".to_string(), 0);
+        history.push("note2".to_string(), 0);
+        history.push("note3".to_string(), 0);
         history.go_back();
         history.go_back();
 
-        // Now at page1, with page2 and page3 ahead
-        assert_eq!(history.current().unwrap().page_name, "page1");
+        // Now at note1, with note2 and note3 ahead
+        assert_eq!(history.current().unwrap().note_name, "note1");
 
-        // Push new page should clear page2 and page3
-        history.push("page4".to_string(), 0);
-        assert_eq!(history.current().unwrap().page_name, "page4");
+        // Push new note should clear note2 and note3
+        history.push("note4".to_string(), 0);
+        assert_eq!(history.current().unwrap().note_name, "note4");
         assert!(!history.can_go_forward());
     }
 
@@ -175,37 +175,37 @@ mod tests {
 
         // Add more than MAX_HISTORY_SIZE entries
         for i in 0..150 {
-            history.push(format!("page{}", i), i);
+            history.push(format!("note{}", i), i);
         }
 
         // Should only keep the last 100
         assert_eq!(history.entries.len(), MAX_HISTORY_SIZE);
-        assert_eq!(history.current().unwrap().page_name, "page149");
+        assert_eq!(history.current().unwrap().note_name, "note149");
     }
 
     #[test]
-    fn test_rename_page_updates_all_matching_entries() {
+    fn test_rename_note_updates_all_matching_entries() {
         let mut history = History::new();
         history.push("untitled_x".to_string(), 0);
         history.push("other".to_string(), 0);
         history.push("untitled_x".to_string(), 0);
 
-        history.rename_page("untitled_x", "real-name");
+        history.rename_note("untitled_x", "real-name");
 
         // Every occurrence of the old name follows the rename; other entries are
         // untouched.
-        assert_eq!(history.current().unwrap().page_name, "real-name");
+        assert_eq!(history.current().unwrap().note_name, "real-name");
         history.go_back();
-        assert_eq!(history.current().unwrap().page_name, "other");
+        assert_eq!(history.current().unwrap().note_name, "other");
         history.go_back();
-        assert_eq!(history.current().unwrap().page_name, "real-name");
+        assert_eq!(history.current().unwrap().note_name, "real-name");
     }
 
     #[test]
     fn test_update_scroll_position() {
         let mut history = History::new();
 
-        history.push("page1".to_string(), 0);
+        history.push("note1".to_string(), 0);
         assert_eq!(history.current().unwrap().scroll_position, 0);
 
         history.update_scroll_position(42);

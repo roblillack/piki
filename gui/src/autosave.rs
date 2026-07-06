@@ -15,8 +15,8 @@ pub struct AutoSaveState {
     pub pending_save: bool,
     /// Original content to detect changes
     pub original_content: String,
-    /// Current page being edited
-    pub current_page: String,
+    /// Current note being edited
+    pub current_note: String,
 }
 
 impl AutoSaveState {
@@ -27,7 +27,7 @@ impl AutoSaveState {
             is_saving: false,
             pending_save: false,
             original_content: String::new(),
-            current_page: String::new(),
+            current_note: String::new(),
         }
     }
 
@@ -37,9 +37,9 @@ impl AutoSaveState {
         self.pending_save = true;
     }
 
-    /// Reset state when loading a new page
-    pub fn reset_for_page(&mut self, page_name: &str, content: &str) {
-        self.current_page = page_name.to_string();
+    /// Reset state when loading a new note
+    pub fn reset_for_note(&mut self, note_name: &str, content: &str) {
+        self.current_note = note_name.to_string();
         self.original_content = content.to_string();
         self.last_change_time = None;
         self.last_save_time = None;
@@ -47,9 +47,9 @@ impl AutoSaveState {
         self.pending_save = false;
     }
 
-    /// Check if the current page should be saved (not a plugin page)
+    /// Check if the current note should be saved (not a plugin note)
     pub fn should_save(&self) -> bool {
-        !self.current_page.starts_with('!')
+        !self.current_note.starts_with('!')
     }
 
     /// Get the status text for display
@@ -73,7 +73,7 @@ impl AutoSaveState {
         editor: &T,
         store: &DocumentStore,
     ) -> Result<(), String> {
-        // Don't save plugin pages
+        // Don't save plugin notes
         if !self.should_save() {
             self.pending_save = false;
             return Ok(());
@@ -98,7 +98,7 @@ impl AutoSaveState {
         self.pending_save = false;
 
         // Load the document to get the correct path
-        let doc_result = store.load(&self.current_page);
+        let doc_result = store.load(&self.current_note);
 
         let result = match doc_result {
             Ok(mut doc) => {
@@ -202,16 +202,16 @@ mod tests {
     }
 
     #[test]
-    fn test_should_save_plugin_page() {
+    fn test_should_save_plugin_note() {
         let mut state = AutoSaveState::new();
-        state.reset_for_page("!index", "");
+        state.reset_for_note("!index", "");
         assert!(!state.should_save());
     }
 
     #[test]
-    fn test_should_save_normal_page() {
+    fn test_should_save_normal_note() {
         let mut state = AutoSaveState::new();
-        state.reset_for_page("frontpage", "");
+        state.reset_for_note("frontpage", "");
         assert!(state.should_save());
     }
 

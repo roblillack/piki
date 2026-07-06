@@ -7,7 +7,7 @@ pub mod fltk_structured_rich_display;
 pub mod link_editor;
 pub mod link_handler;
 pub mod markdown_converter;
-pub mod page_ui;
+pub mod note_ui;
 pub mod responsive_scrollbar;
 pub mod rtf;
 pub mod ui_adapters;
