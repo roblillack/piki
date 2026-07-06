@@ -30,7 +30,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
 - The note picker now remembers when each note was last opened and persists this
   per wiki (in the application data directory, keyed by a hash of the wiki's
   path). The recency ordering therefore survives restarts, and separate wikis
-  opened with `--directory` keep independent histories.
+  opened with `--directory` keep independent histories. (#31)
 
 ### Changed
 
@@ -54,7 +54,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   last-modification time. Keyboard interaction mirrors VS Code's quick-open: type
   to filter, move with the arrow keys, or keep the modifier held after opening
   and tap `O` again to step the selection down (`Shift` to go up) — releasing the
-  modifier opens the highlighted note. The currently open note starts selected.
+  modifier opens the highlighted note. The currently open note starts selected. (#31)
 - The text rendering and editing engine has been carved out of Piki into a new
   shared crate, `rutle` (`rutle = "0.2.0"` on crates.io), and the `gui` crate
   now builds on it instead of its own homegrown implementation. This removes
