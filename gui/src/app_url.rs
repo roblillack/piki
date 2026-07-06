@@ -20,10 +20,11 @@ mod imp {
     use objc2::{AnyThread, MainThreadMarker, define_class, msg_send, sel};
     use objc2_foundation::{NSAppleEventDescriptor, NSAppleEventManager};
 
+    /// App-level navigation closure, invoked with each opened `piki://` URL.
+    type UrlHandler = Box<dyn FnMut(String)>;
+
     thread_local! {
-        /// App-level navigation closure, invoked with each opened `piki://` URL.
-        static URL_HANDLER: RefCell<Option<Box<dyn FnMut(String)>>> =
-            const { RefCell::new(None) };
+        static URL_HANDLER: RefCell<Option<UrlHandler>> = const { RefCell::new(None) };
         /// Keeps the Objective-C handler object alive: `NSAppleEventManager` does
         /// not retain its handler, so it must outlive `register`.
         static HANDLER: RefCell<Option<Retained<PikiUrlHandler>>> = const { RefCell::new(None) };

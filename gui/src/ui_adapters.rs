@@ -345,31 +345,6 @@ fn heading_anchor_map(doc: &tdoc::Document) -> Vec<(usize, String)> {
         .collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn heading_anchor_map_slugs_and_dedup() {
-        // Top-level headings (in tdoc `#`/`##`/`###` are all top-level blocks),
-        // interleaved with a paragraph and with duplicate heading texts.
-        let md = "# Overview\n\nsome text\n\n## Details\n\n## Details\n\n# Overview\n";
-        let doc = crate::markdown_converter::markdown_to_document(md);
-
-        let map = heading_anchor_map(&doc);
-        let slugs: Vec<&str> = map.iter().map(|(_, s)| s.as_str()).collect();
-        assert_eq!(slugs, ["overview", "details", "details-1", "overview-1"]);
-
-        // Every returned index really points at a heading block.
-        for (idx, _) in &map {
-            assert!(matches!(
-                rutle::tree_walk::effective_block_type(&doc, &TreePath::root(*idx)),
-                BlockType::Heading { .. }
-            ));
-        }
-    }
-}
-
 impl ContentProvider for StructuredRichUI {
     fn get_content(&self) -> String {
         let disp = self.0.display.borrow();
@@ -448,5 +423,30 @@ impl NoteUI for StructuredRichUI {
 
     fn take_focus(&mut self) {
         let _ = self.0.group.take_focus();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn heading_anchor_map_slugs_and_dedup() {
+        // Top-level headings (in tdoc `#`/`##`/`###` are all top-level blocks),
+        // interleaved with a paragraph and with duplicate heading texts.
+        let md = "# Overview\n\nsome text\n\n## Details\n\n## Details\n\n# Overview\n";
+        let doc = crate::markdown_converter::markdown_to_document(md);
+
+        let map = heading_anchor_map(&doc);
+        let slugs: Vec<&str> = map.iter().map(|(_, s)| s.as_str()).collect();
+        assert_eq!(slugs, ["overview", "details", "details-1", "overview-1"]);
+
+        // Every returned index really points at a heading block.
+        for (idx, _) in &map {
+            assert!(matches!(
+                rutle::tree_walk::effective_block_type(&doc, &TreePath::root(*idx)),
+                BlockType::Heading { .. }
+            ));
+        }
     }
 }
