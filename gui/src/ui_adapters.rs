@@ -7,7 +7,12 @@ use fltk::{app, enums::Color, prelude::*, window};
 use rutle::editor::Editor;
 use rutle::renderer::SearchMatch;
 use rutle::structured_document::BlockType;
+use rutle::tree_path::{DocumentPosition, PathSegment, TreePath};
 use std::any::Any;
+
+/// Vertical breathing room, in pixels, kept above a heading when scrolling to a
+/// section so it does not sit flush against the top edge of the viewport.
+const ANCHOR_TOP_MARGIN: i32 = 12;
 
 /// NoteUI adapter for rutle's `Renderer` + FLTK Group wrapper
 pub struct StructuredRichUI(pub FltkStructuredRichDisplay);
@@ -136,6 +141,67 @@ impl StructuredRichUI {
         Some(disp.editor().current_block_type())
     }
 
+    /// The anchor slug of the heading the caret is currently inside, or `None`
+    /// when the caret is not in a heading. Duplicate headings are disambiguated
+    /// exactly as [`Self::scroll_to_anchor`] resolves them, so the slug links
+    /// back to *this* heading and not an earlier namesake.
+    pub fn current_heading_anchor(&self) -> Option<String> {
+        let disp = self.0.display.borrow();
+        let cursor = disp.editor().cursor();
+        // A heading is always a top-level leaf, so its caret path starts with a
+        // `Paragraph(i)` segment that indexes `Document.paragraphs`.
+        let para = match cursor.path.segments().first() {
+            Some(PathSegment::Paragraph(i)) => *i,
+            _ => return None,
+        };
+        heading_anchor_map(disp.editor().document())
+            .into_iter()
+            .find(|(idx, _)| *idx == para)
+            .map(|(_, anchor)| anchor)
+    }
+
+    /// Scroll so the heading whose anchor slug equals `anchor` sits near the top
+    /// of the viewport. Returns `false` if no heading matches.
+    pub fn scroll_to_anchor(&mut self, anchor: &str) -> bool {
+        let target = {
+            let disp = self.0.display.borrow();
+            heading_anchor_map(disp.editor().document())
+                .into_iter()
+                .find(|(_, a)| a == anchor)
+                .map(|(idx, _)| idx)
+        };
+        match target {
+            Some(idx) => self.scroll_to_block(idx),
+            None => false,
+        }
+    }
+
+    /// Scroll so top-level block `block_index` sits near the top of the viewport.
+    ///
+    /// The renderer exposes no public block→pixel mapping, so this moves the
+    /// caret into the target block and reuses the caret→pixel bridge
+    /// (`cursor_content_y`) after a layout pass. Returns `false` if the index is
+    /// out of range.
+    pub fn scroll_to_block(&mut self, block_index: usize) -> bool {
+        let mut ctx = FltkDrawContext::new(true, true);
+        let mut disp = self.0.display.borrow_mut();
+        if block_index >= disp.editor().document().paragraphs.len() {
+            return false;
+        }
+        disp.editor_mut()
+            .set_cursor(DocumentPosition::new(block_index, 0));
+        // Lay out with real font metrics so `cursor_content_y` is populated.
+        disp.ensure_cursor_visible(&mut ctx);
+        if let Some((content_y, _line_h)) = disp.cursor_content_y(&mut ctx) {
+            let max_scroll = (disp.content_height() - disp.h()).max(0);
+            let target = (content_y - ANCHOR_TOP_MARGIN).max(0).min(max_scroll);
+            disp.set_scroll(target);
+        }
+        drop(disp);
+        self.0.group.redraw();
+        true
+    }
+
     /// Set horizontal padding (for write room mode)
     pub fn set_horizontal_padding(&mut self, padding: i32) {
         self.0.display.borrow_mut().set_horizontal_padding(padding);
@@ -251,6 +317,55 @@ impl StructuredRichUI {
             true
         } else {
             false
+        }
+    }
+}
+
+/// Map each top-level heading to its unique anchor slug, in document order.
+///
+/// Uses rutle's tree helpers so link resolution stays in lockstep with how the
+/// editor classifies blocks, and delegates slug/duplicate handling to
+/// [`crate::section_link`] so generation and resolution share one algorithm.
+fn heading_anchor_map(doc: &tdoc::Document) -> Vec<(usize, String)> {
+    let mut indices = Vec::new();
+    let mut texts = Vec::new();
+    for i in 0..doc.paragraphs.len() {
+        let path = TreePath::root(i);
+        if matches!(
+            rutle::tree_walk::effective_block_type(doc, &path),
+            BlockType::Heading { .. }
+        ) {
+            texts.push(rutle::tree_walk::leaf_plain_text(doc, &path));
+            indices.push(i);
+        }
+    }
+    indices
+        .into_iter()
+        .zip(crate::section_link::heading_anchors(&texts))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn heading_anchor_map_slugs_and_dedup() {
+        // Top-level headings (in tdoc `#`/`##`/`###` are all top-level blocks),
+        // interleaved with a paragraph and with duplicate heading texts.
+        let md = "# Overview\n\nsome text\n\n## Details\n\n## Details\n\n# Overview\n";
+        let doc = crate::markdown_converter::markdown_to_document(md);
+
+        let map = heading_anchor_map(&doc);
+        let slugs: Vec<&str> = map.iter().map(|(_, s)| s.as_str()).collect();
+        assert_eq!(slugs, ["overview", "details", "details-1", "overview-1"]);
+
+        // Every returned index really points at a heading block.
+        for (idx, _) in &map {
+            assert!(matches!(
+                rutle::tree_walk::effective_block_type(&doc, &TreePath::root(*idx)),
+                BlockType::Heading { .. }
+            ));
         }
     }
 }

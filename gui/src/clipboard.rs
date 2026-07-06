@@ -127,6 +127,22 @@ fn document_from_html(html_content: &str) -> Result<Document, ClipboardDocumentE
         .map_err(|err| ClipboardDocumentError::Parse(err.to_string()))
 }
 
+/// Copy plain text (e.g. a section link URL) to the system clipboard.
+///
+/// Prefers arboard so the text lands on the real system pasteboard, falling back
+/// to FLTK's clipboard when arboard is unavailable.
+pub fn copy_text_to_system(text: &str) {
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    {
+        use arboard::Clipboard;
+        match Clipboard::new().and_then(|mut clipboard| clipboard.set_text(text.to_string())) {
+            Ok(()) => return,
+            Err(err) => eprintln!("[piki] Failed to copy text to clipboard: {err}"),
+        }
+    }
+    fltk::app::copy(text);
+}
+
 /// Copy a structured selection to the system clipboard.
 ///
 /// Places HTML on the clipboard for rich-text-aware targets, with the Markdown

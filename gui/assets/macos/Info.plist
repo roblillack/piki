@@ -9,7 +9,7 @@
 	<key>CFBundleExecutable</key>
 	<string>piki-gui</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.vizzlo.piki</string>
+	<string>net.roblillack.piki</string>
 	<key>CFBundleIconFile</key>
 	<string>piki</string>
 	<key>CFBundlePackageType</key>
@@ -26,5 +26,18 @@
 	<string>NSApplication</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2025–2026 Robert Lillack</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>net.roblillack.piki.section-link</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>piki</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

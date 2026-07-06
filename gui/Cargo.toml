@@ -45,6 +45,12 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
     "NSURL",
     "NSAttributedString",
     "NSBundle",
+    # Receiving `piki://` URLs via the GetURL Apple Event (see app_url.rs). Only
+    # the generated types are needed here; the event-manager methods are sent
+    # with `msg_send!`, so the (heavier) `objc2-core-services` feature that gates
+    # the generated method bindings is deliberately not enabled.
+    "NSAppleEventManager",
+    "NSAppleEventDescriptor",
 ] }
 objc2-app-kit = { version = "0.3", default-features = false, features = [
     "std",

@@ -10,6 +10,7 @@ pub mod markdown_converter;
 pub mod note_ui;
 pub mod responsive_scrollbar;
 pub mod rtf;
+pub mod section_link;
 pub mod ui_adapters;
 
 // The structured editor/layout core lives in the shared `rutle` crate; piki-gui
