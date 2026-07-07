@@ -148,6 +148,21 @@ impl AppState {
         }
     }
 
+    /// Drop all in-session state that refers to `note` after its file has been
+    /// deleted: its back/forward history entries, the picker's recency entry,
+    /// and any remembered scroll position. The on-disk file removal is handled
+    /// by `delete_current_note`.
+    fn forget_note(&mut self, note: &str) {
+        self.history.remove_note(note);
+        self.recent_notes.remove(note);
+        self.scroll_positions.remove(note);
+        if let Some(path) = &self.recent_notes_path
+            && let Err(e) = self.recent_notes.save(path)
+        {
+            eprintln!("Failed to save recent notes: {e}");
+        }
+    }
+
     fn load_note(&mut self, note_name: &str) -> Result<String, String> {
         // Check if this is a plugin note (starts with !)
         if let Some(plugin_name) = note_name.strip_prefix('!') {
@@ -265,6 +280,64 @@ fn rename_current_note(
     // link) so a note shared under its old name keeps working after a rename.
     let content = active_editor.borrow().borrow().get_content();
     notify_share_view(new_name, &content);
+
+    Ok(())
+}
+
+/// Delete the currently open note: remove its file from disk, navigate away to
+/// the frontpage, and purge every trace of it from the in-session state. Backs
+/// the "Delete Note …" menu item (the caller shows the confirmation dialog).
+///
+/// Read-only plugin views ("!…") have no file and cannot be deleted. Before
+/// navigating, the pending autosave is neutralized so the "save on leave" step
+/// inside `load_note_helper` cannot re-create the file we just removed. Returns
+/// an error (surfaced by the caller) only when the on-disk removal fails; a
+/// never-saved note simply has no file and is treated as already gone.
+fn delete_current_note(
+    app_state: &Rc<RefCell<AppState>>,
+    autosave_state: &Rc<RefCell<AutoSaveState>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
+    statusbar: &Rc<RefCell<StatusBar>>,
+) -> Result<(), String> {
+    let note = app_state.borrow().current_note.clone();
+    if note.starts_with('!') {
+        return Err("This note cannot be deleted.".to_string());
+    }
+
+    // Remove the file first, so a failure aborts before we touch any state.
+    {
+        let st = app_state.borrow();
+        st.store.delete(&note)?;
+    }
+
+    // Neutralize the pending autosave so the navigation below does not re-create
+    // the file we just deleted: point the autosave at the deleted note with its
+    // current editor content as the "on-disk" baseline, making the save-on-leave
+    // a no-op (equal content) with nothing pending.
+    if let Ok(mut as_state) = autosave_state.try_borrow_mut() {
+        let content = active_editor.borrow().borrow().get_content();
+        as_state.reset_for_note(&note, &content);
+    }
+
+    // Leave the now-deleted note by loading the frontpage.
+    load_note_helper(
+        "frontpage",
+        app_state,
+        autosave_state,
+        active_editor,
+        statusbar,
+        None,
+        None,
+    );
+
+    // Now that we are no longer on it, purge every trace of the deleted note
+    // from history / recency / scroll memory — including the scroll entry the
+    // navigation above re-recorded for the note we just left.
+    app_state.borrow_mut().forget_note(&note);
+
+    statusbar
+        .borrow_mut()
+        .set_status(&format!("Deleted note '{note}'."));
 
     Ok(())
 }

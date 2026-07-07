@@ -63,6 +63,28 @@ impl History {
         }
     }
 
+    /// Remove every entry pointing at `note` (used when a note is deleted) so
+    /// back/forward navigation cannot resurrect it as an empty new note. The
+    /// current position tracks the nearest surviving entry at or before it,
+    /// falling back to the first remaining entry (or `None` if the history
+    /// becomes empty).
+    pub fn remove_note(&mut self, note: &str) {
+        let old_current = self.current_index.unwrap_or(0);
+        let mut new_current: Option<usize> = None;
+        let mut kept: Vec<HistoryEntry> = Vec::with_capacity(self.entries.len());
+        for (i, entry) in std::mem::take(&mut self.entries).into_iter().enumerate() {
+            if entry.note_name == note {
+                continue;
+            }
+            kept.push(entry);
+            if i <= old_current {
+                new_current = Some(kept.len() - 1);
+            }
+        }
+        self.current_index = (!kept.is_empty()).then(|| new_current.unwrap_or(0));
+        self.entries = kept;
+    }
+
     /// Update the scroll position of the current entry
     pub fn update_scroll_position(&mut self, scroll_position: i32) {
         if let Some(idx) = self.current_index
@@ -199,6 +221,50 @@ mod tests {
         assert_eq!(history.current().unwrap().note_name, "other");
         history.go_back();
         assert_eq!(history.current().unwrap().note_name, "real-name");
+    }
+
+    #[test]
+    fn test_remove_note_drops_entries_and_tracks_current() {
+        let mut history = History::new();
+        history.push("a".to_string(), 0);
+        history.push("b".to_string(), 0);
+        history.push("c".to_string(), 0);
+        // Currently on "c" (last).
+        history.remove_note("b");
+
+        // "b" is gone; the cursor stays on "c" and back now lands on "a".
+        assert_eq!(history.current().unwrap().note_name, "c");
+        history.go_back();
+        assert_eq!(history.current().unwrap().note_name, "a");
+        assert!(!history.can_go_back());
+    }
+
+    #[test]
+    fn test_remove_note_when_current_is_removed() {
+        let mut history = History::new();
+        history.push("a".to_string(), 0);
+        history.push("b".to_string(), 0);
+        history.push("c".to_string(), 0);
+        history.go_back(); // now on "b"
+
+        history.remove_note("b");
+
+        // The removed current falls back to the nearest surviving entry before
+        // it ("a"), with "c" still reachable forward.
+        assert_eq!(history.current().unwrap().note_name, "a");
+        history.go_forward();
+        assert_eq!(history.current().unwrap().note_name, "c");
+    }
+
+    #[test]
+    fn test_remove_note_all_entries_leaves_empty() {
+        let mut history = History::new();
+        history.push("only".to_string(), 0);
+        history.remove_note("only");
+
+        assert!(history.current().is_none());
+        assert!(!history.can_go_back());
+        assert!(!history.can_go_forward());
     }
 
     #[test]

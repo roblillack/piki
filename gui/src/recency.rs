@@ -69,6 +69,12 @@ impl RecentNotes {
             self.opened.insert(new.to_string(), time);
         }
     }
+
+    /// Forget `note`'s recency entry (used when a note is deleted) so it no
+    /// longer appears in the picker's ordering. No-op if it was never opened.
+    pub fn remove(&mut self, note: &str) {
+        self.opened.remove(note);
+    }
 }
 
 #[cfg(test)]
@@ -100,6 +106,19 @@ mod tests {
         let mut r = RecentNotes::default();
         r.rename("missing", "new");
         assert_eq!(r.last_opened("new"), None);
+    }
+
+    #[test]
+    fn remove_forgets_entry() {
+        let mut r = RecentNotes::default();
+        r.mark_opened("gone");
+        assert!(r.last_opened("gone").is_some());
+
+        r.remove("gone");
+        assert_eq!(r.last_opened("gone"), None);
+
+        // Removing an unknown note is a no-op.
+        r.remove("never");
     }
 
     #[test]

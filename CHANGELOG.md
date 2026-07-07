@@ -12,6 +12,11 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Added
 
+- **Delete a note.** _Note → Delete Note …_ removes the current note's file from
+  disk after a confirmation dialog (Cancel is the default, so the destructive
+  action is never the accidental choice), then returns to the frontpage. It has
+  no keyboard shortcut on purpose. Read-only plugin views (e.g. the index) cannot
+  be deleted.
 - **Live Note Sharing.** _View → Live Note Sharing_
   (`Cmd-Shift-L`/`Ctrl-Shift-L`) starts a local, loopback-only webserver that
   renders the currently visible note as a clean, live-reloading HTML page and
