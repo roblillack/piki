@@ -10,3 +10,14 @@ resolver = "3"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/roblillack/piki"
+
+[workspace.metadata.release]
+# All three crates ship as one product: they share a version and are bumped and
+# published together. The single combined GitHub release (with binaries + notes)
+# is driven by one `v{{version}}` tag, so per-crate tags are disabled here and
+# the tag + CHANGELOG roll are owned by the `piki` (cli) crate — see
+# cli/Cargo.toml's [package.metadata.release]. `cargo release <level>` from the
+# workspace root then bumps all three, rolls the changelog, publishes to
+# crates.io, and pushes the tag that fires the release CI job.
+shared-version = true
+tag = false
