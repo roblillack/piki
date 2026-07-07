@@ -119,7 +119,18 @@ impl FltkStructuredRichDisplay {
                 }
 
                 // Draw the display
-                disp.draw(&mut FltkDrawContext::from_widget_ptr(w));
+                let mut ctx = FltkDrawContext::from_widget_ptr(w);
+                disp.draw(&mut ctx);
+
+                // Keep the macOS press-and-hold accent popup anchored to the
+                // caret. Layout is current right after `draw`, so report the
+                // caret's window position (bottom edge) to FLTK here; between
+                // redraws the caret doesn't move, so the stored value stays valid.
+                #[cfg(target_os = "macos")]
+                if let Some((cx, cy)) = disp.cursor_screen_position(&mut ctx) {
+                    let height = disp.cursor_content_y(&mut ctx).map_or(0, |(_, h)| h);
+                    crate::accents_menu::report_caret(cx, cy + height, height);
+                }
 
                 // Draw children (scrollbar)
                 w.draw_children();
@@ -2060,6 +2071,11 @@ impl FltkStructuredRichDisplay {
                 widget_resize.redraw();
             }
         });
+
+        // On macOS, opt this custom editor widget into the press-and-hold accent
+        // popup (é, ë, …), which FLTK otherwise enables only for its built-in
+        // input/text widgets. See `accents_menu` for why this is needed.
+        crate::accents_menu::enable(&mut widget);
 
         FltkStructuredRichDisplay {
             group: widget,

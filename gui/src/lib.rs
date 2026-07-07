@@ -1,4 +1,5 @@
 // Library exports for piki
+pub mod accents_menu;
 pub mod clipboard;
 pub mod content;
 pub mod context_menu;

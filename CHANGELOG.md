@@ -44,6 +44,10 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Fixed
 
+- **macOS "press and hold" now works in the editor.** Holding a key such as `e`
+  opens the accented-character popup (é, ë, è, ê, …) right at the caret, so you can
+  type accents without a dead-key layout. FLTK enables this only for its built-in
+  text widgets, so Piki's custom editor previously just repeated the key.
 - Turning a plain paragraph into a list or checklist item now merges it into an
   adjacent same-kind list instead of leaving a second, separate list beside it —
   so prepending a new entry by turning the paragraph above an existing checklist
