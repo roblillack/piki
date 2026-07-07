@@ -42,6 +42,12 @@ impl ScrollMemory {
             *name = new.to_string();
         }
     }
+
+    /// Stop tracking `note`'s scroll position (used when a note is deleted).
+    /// No-op if it is not tracked.
+    pub fn remove(&mut self, note: &str) {
+        self.entries.retain(|(name, _)| name != note);
+    }
 }
 
 #[cfg(test)]
@@ -96,6 +102,19 @@ mod tests {
         m.rename("missing", "new");
         assert_eq!(m.get("new"), None);
         assert_eq!(m.get("a"), Some(1));
+    }
+
+    #[test]
+    fn remove_stops_tracking() {
+        let mut m = ScrollMemory::new();
+        m.remember("a", 1);
+        m.remember("b", 2);
+        m.remove("a");
+        assert_eq!(m.get("a"), None);
+        assert_eq!(m.get("b"), Some(2));
+        // Removing an untracked note is a no-op.
+        m.remove("missing");
+        assert_eq!(m.get("b"), Some(2));
     }
 
     #[test]
