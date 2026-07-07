@@ -272,7 +272,9 @@ fn render_fragment(markdown: &str) -> String {
 /// token so the reload script starts in sync.
 fn render_page(note: &str, markdown: &str, version: &str) -> String {
     let body = render_fragment(markdown);
-    let mut page = String::with_capacity(body.len() + STYLESHEET.len() + RELOAD_SCRIPT.len() + 512);
+    let mut page = String::with_capacity(
+        body.len() + STYLESHEET.len() + RELOAD_SCRIPT.len() + COLUMN_SCRIPT.len() + 512,
+    );
     page.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\" />\n");
     page.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n");
     page.push_str("<title>");
@@ -284,10 +286,21 @@ fn render_page(note: &str, markdown: &str, version: &str) -> String {
     page.push_str(&body);
     page.push_str("\n</div>\n");
     page.push_str("<div id=\"piki-status\" hidden>Live sharing has ended.</div>\n");
+    // Subtle footer with attribution and a 1-col / 2-col layout toggle. It lives
+    // outside #piki-doc so it (and the chosen layout) survives live-reload
+    // content swaps; the choice is persisted in localStorage across notes.
+    page.push_str("<footer id=\"piki-footer\">Shared by Piki v");
+    page.push_str(env!("CARGO_PKG_VERSION"));
+    page.push_str(
+        " &bull; <a href=\"#\" class=\"piki-col active\" data-cols=\"1\">1 col</a> \
+         <a href=\"#\" class=\"piki-col\" data-cols=\"2\">2 cols</a></footer>\n",
+    );
     page.push_str("<script>window.__pikiInitialVersion = ");
     page.push_str(&json_string(version));
     page.push_str(";</script>\n<script>");
     page.push_str(RELOAD_SCRIPT);
+    page.push_str("</script>\n<script>");
+    page.push_str(COLUMN_SCRIPT);
     page.push_str("</script>\n</body>\n</html>\n");
     page
 }
@@ -614,6 +627,31 @@ const RELOAD_SCRIPT: &str = r#"(function () {
   poll();
 })();"#;
 
+/// Wires the footer's 1-col / 2-col toggle: applies the saved preference on
+/// load, reflects the active choice, and persists changes. The layout itself is
+/// driven by the `cols-2` class on `<body>` (see the stylesheet), which survives
+/// live-reload content swaps because only `#piki-doc` is replaced.
+const COLUMN_SCRIPT: &str = r#"(function () {
+  function apply(n) {
+    document.body.classList.toggle("cols-2", n === 2);
+    try { localStorage.setItem("pikiCols", String(n)); } catch (e) {}
+    var links = document.querySelectorAll(".piki-col");
+    for (var i = 0; i < links.length; i++) {
+      links[i].classList.toggle("active", links[i].getAttribute("data-cols") === String(n));
+    }
+  }
+  var saved = 1;
+  try { if (localStorage.getItem("pikiCols") === "2") saved = 2; } catch (e) {}
+  apply(saved);
+  var links = document.querySelectorAll(".piki-col");
+  for (var i = 0; i < links.length; i++) {
+    links[i].addEventListener("click", function (e) {
+      e.preventDefault();
+      apply(parseInt(this.getAttribute("data-cols"), 10));
+    });
+  }
+})();"#;
+
 /// Self-contained stylesheet, modeled on VS Code's Markdown preview (the look
 /// of tdoc's own `html::write_document`), with automatic dark mode. The
 /// first-child rule is scoped to `#piki-doc` because the content lives in that
@@ -725,6 +763,47 @@ img { max-width: 100%; }
   background-color: #cf222e;
 }
 
+/* Subtle fixed footer with attribution and the column toggle. The body's
+   bottom padding leaves room for it. */
+#piki-footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 6px 16px;
+  font-size: 12px;
+  text-align: right;
+  color: #8b949e;
+  background-color: rgba(255, 255, 255, 0.92);
+  border-top: 1px solid #d8dee4;
+}
+#piki-footer a.piki-col { color: #0969da; text-decoration: none; cursor: pointer; }
+#piki-footer a.piki-col:hover { text-decoration: underline; }
+#piki-footer a.piki-col.active {
+  color: inherit;
+  text-decoration: underline;
+  cursor: default;
+}
+
+/* Two-column reading mode: widen the column and flow the document into two
+   balanced columns, avoiding awkward breaks across headings and blocks. */
+body.cols-2 { max-width: 1400px; }
+body.cols-2 #piki-doc { column-count: 2; column-gap: 48px; }
+/* Keep a heading with the content that follows it, so a column break never
+   orphans a heading at the foot of a column. `avoid-column` is the value
+   Firefox honors in multicol; the `-webkit-`/`page-break-` forms cover
+   WebKit/Blink and older engines. */
+#piki-doc h1, #piki-doc h2, #piki-doc h3,
+#piki-doc h4, #piki-doc h5, #piki-doc h6 {
+  break-after: avoid;
+  break-after: avoid-column;
+  -webkit-column-break-after: avoid;
+  page-break-after: avoid;
+  break-inside: avoid;
+}
+#piki-doc pre, #piki-doc blockquote, #piki-doc table, #piki-doc li,
+#piki-doc img { break-inside: avoid; }
+
 @media (prefers-color-scheme: dark) {
   body { color: #e6edf3; background-color: #0d1117; }
   a { color: #4493f8; }
@@ -736,6 +815,13 @@ img { max-width: 100%; }
   tr:nth-child(2n) { background-color: #161b22; }
   mark { background-color: #bb8009; color: #1f2328; }
   hr { background-color: #30363d; }
+  #piki-footer {
+    color: #8b949e;
+    background-color: rgba(13, 17, 23, 0.92);
+    border-top-color: #30363d;
+  }
+  #piki-footer a.piki-col { color: #4493f8; }
+  #piki-footer a.piki-col.active { color: inherit; }
 }
 "##;
 
@@ -818,6 +904,24 @@ mod tests {
         assert_eq!(query_param("raw=1", "raw"), Some("1".into()));
         assert_eq!(query_param("note=x&raw=1", "raw"), Some("1".into()));
         assert_eq!(query_param("note=x", "raw"), None);
+    }
+
+    #[test]
+    fn page_has_footer_with_version_and_column_toggle() {
+        let page = render_page("frontpage", "# Hi\n", "g1");
+        assert!(page.contains("id=\"piki-footer\""), "{page}");
+        assert!(
+            page.contains(concat!("Shared by Piki v", env!("CARGO_PKG_VERSION"))),
+            "{page}"
+        );
+        assert!(page.contains("data-cols=\"1\""), "{page}");
+        assert!(page.contains("data-cols=\"2\""), "{page}");
+        // The layout hook the toggle drives must be present in the stylesheet,
+        // including the rule that keeps headings with their following content.
+        assert!(page.contains("body.cols-2"), "{page}");
+        assert!(page.contains("avoid-column"), "{page}");
+        // The footer is page-level, not part of the swappable fragment.
+        assert!(!render_fragment("# Hi\n").contains("piki-footer"));
     }
 
     #[test]
