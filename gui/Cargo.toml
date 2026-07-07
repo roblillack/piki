@@ -18,7 +18,7 @@ exclude = [
 
 [dependencies]
 piki-core = { version = "0.4.0", path = "../core" }
-rutle = "0.3.0"
+rutle = "0.3.2"
 fltk = { version = "1.5.20", features = ["use-wayland"] }
 fltk-sys = "1.5.20"
 pulldown-cmark = "0.13.0"
@@ -31,7 +31,7 @@ toml = "0.9"
 unicode-segmentation = "1.10"
 chrono = "0.4.42"
 arboard = "3.4"
-tdoc = { version="0.11.0", default-features=false }
+tdoc = { version="0.11.2", default-features=false }
 rtf-parser = "0.4"
 webbrowser = { version = "1.2.1", features = ["disable-wsl"] }
 

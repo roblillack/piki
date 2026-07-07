@@ -19,7 +19,19 @@ While pre-1.0, the minor version is bumped for breaking changes.
   so it is clickable from other apps too and reopens Piki at the right section.
   Pasting such a URL into the link editor normalizes it back to a plain
   `note#section` wiki link. Repeated heading titles are disambiguated so a link
-  always resolves to the intended one.
+  always resolves to the intended one. (#36)
+
+### Fixed
+
+- Editing and saving a note no longer corrupts its Markdown in several cases
+  where the text round-tripped incorrectly (via `rutle 0.3.2` and `tdoc 0.11.2`):
+  a styled span that fully contains a shorter differently-styled one
+  (`**bold and <u>underlined</u>**`) is no longer split into pieces, and neither
+  are two adjacent runs that share an outer style (`~~**durch**gestrichen~~`);
+  intra-word italics (`un*frigging*believable`) and adjacent same-style spans are
+  parsed and re-emitted faithfully; code blocks and code spans no longer gain
+  stray blank lines or lose their content; and empty paragraphs (blank lines
+  between blocks) are preserved instead of collapsing. (#37)
 
 ## [0.4.0] - 2026-07-06
 
