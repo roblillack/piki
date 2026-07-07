@@ -41,6 +41,8 @@ const FORMAT_EDIT_LINK: &str = "Format/Edit Link…";
 
 const FORMAT_CLEAR: &str = "Format/Clear formatting";
 
+const EDIT_COPY_SECTION_LINK: &str = "Edit/Copy Link to Section";
+
 const VIEW_FULLSCREEN: &str = "View/Fullscreen";
 
 // Default padding for normal mode
@@ -204,6 +206,7 @@ fn populate_menu<M>(
                     &active_editor,
                     &statusbar,
                     None,
+                    None,
                 );
             },
         );
@@ -302,6 +305,7 @@ fn populate_menu<M>(
                     &active_editor,
                     &statusbar,
                     None,
+                    None,
                 );
             },
         );
@@ -325,6 +329,7 @@ fn populate_menu<M>(
                 &autosave_state,
                 &active_editor,
                 &statusbar,
+                None,
                 None,
             );
         });
@@ -405,6 +410,25 @@ fn populate_menu<M>(
             menu::MenuFlag::Normal,
             move |_| {
                 perform_paste(&active_editor);
+            },
+        );
+    }
+
+    // Copy Link to Section (Cmd/Ctrl-Shift-K): copy a `piki://note#section` link
+    // to the heading the caret is in. Always enabled — the app only reliably
+    // refreshes menu state on clicks/edits, not on plain caret moves, so the
+    // action re-checks the caret live and guides the user via the status bar
+    // when it is not in a heading, rather than risk being wrongly greyed out.
+    {
+        let app_state = app_state.clone();
+        let active_editor = active_editor.clone();
+        let statusbar = statusbar.clone();
+        menu_bar.add(
+            EDIT_COPY_SECTION_LINK,
+            cmd | Shortcut::Shift | 'k',
+            menu::MenuFlag::Normal,
+            move |_| {
+                perform_copy_section_link(&app_state, &active_editor, &statusbar);
             },
         );
     }
@@ -910,6 +934,46 @@ fn perform_edit_link(active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>) {
         },
         remove_cb,
     );
+}
+
+/// Copy a `piki://note#section` link to the heading the caret is in.
+///
+/// The URL form is chosen so the copied link is a real, OS-recognized URL that
+/// also works from other apps; pasting it into Piki's link editor normalizes it
+/// back to the internal `note#section` form. Shows a hint in the status bar when
+/// the caret is not inside a heading, and is a no-op on read-only plugin views
+/// (which have no stable note path to link to).
+fn perform_copy_section_link(
+    app_state: &Rc<RefCell<AppState>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
+    statusbar: &Rc<RefCell<StatusBar>>,
+) {
+    let note = app_state.borrow().current_note.clone();
+    if note.starts_with('!') {
+        statusbar
+            .borrow_mut()
+            .set_status("Section links aren't available for this view.");
+        return;
+    }
+
+    let anchor =
+        with_structured_editor_ref(active_editor, |editor| editor.current_heading_anchor())
+            .flatten();
+
+    match anchor {
+        Some(anchor) => {
+            let url = piki_gui::section_link::build_piki_url(&note, Some(&anchor));
+            piki_gui::clipboard::copy_text_to_system(&url);
+            statusbar
+                .borrow_mut()
+                .set_status(&format!("Copied section link: {url}"));
+        }
+        None => {
+            statusbar
+                .borrow_mut()
+                .set_status("Place the cursor in a heading to copy a section link.");
+        }
+    }
 }
 
 fn with_structured_editor<F, R>(

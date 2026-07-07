@@ -10,6 +10,14 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Added
 
+- **Link to a section heading.** With the caret in a heading, _Copy Link to
+  Section_ (`Cmd-Shift-K`/`Ctrl-Shift-K`) copies a link to that heading; clicking
+  such a link opens the note and scrolls straight to the heading. The link is
+  copied as a `piki://…#section` URL — a scheme Piki now registers with the OS —
+  so it is clickable from other apps too and reopens Piki at the right section.
+  Pasting such a URL into the link editor normalizes it back to a plain
+  `note#section` wiki link. Repeated heading titles are disambiguated so a link
+  always resolves to the intended one.
 - Editing now offers **two caret positions at the edges of styled text** (bold,
   italic, code, links, …), even with Reveal Codes off: arrowing to the border of a
   bold word stops once "before" and once "inside" the style, letting you choose

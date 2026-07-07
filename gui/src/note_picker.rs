@@ -482,6 +482,7 @@ pub fn show_note_picker(
                     &active_editor,
                     &statusbar,
                     None,
+                    None,
                 );
             }
         }))

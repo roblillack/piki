@@ -1,4 +1,5 @@
 mod app_icon;
+mod app_url;
 mod autosave;
 pub mod fltk_draw_context;
 mod history;
@@ -18,6 +19,7 @@ use fltk::{prelude::*, *};
 use history::History;
 use piki_core::{DocumentStore, IndexPlugin, PluginRegistry, TodoPlugin};
 use piki_gui::note_ui::NoteUI;
+use piki_gui::section_link;
 use piki_gui::ui_adapters::StructuredRichUI;
 use recency::RecentNotes;
 use scroll_memory::ScrollMemory;
@@ -237,6 +239,7 @@ fn load_note_helper(
     active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     statusbar: &Rc<RefCell<StatusBar>>,
     restore_scroll: Option<i32>,
+    fragment: Option<&str>,
 ) {
     // Save the note we're leaving before its content is replaced below, so
     // switching notes (or creating a new one) never drops unsaved edits.
@@ -287,18 +290,34 @@ fn load_note_helper(
                 editor_mut.set_readonly(is_plugin);
             }
 
-            // Decide where to scroll: an explicit position from back/forward
-            // history wins; otherwise resume the remembered position for this
-            // note (if it is still one of the recent ones), falling back to top.
-            let target_scroll = restore_scroll
-                .or_else(|| app_state.borrow().scroll_positions.get(note_name))
-                .unwrap_or(0);
-            {
+            // Decide where to scroll. A section fragment (from a section link)
+            // wins and scrolls to the matching heading; otherwise an explicit
+            // position from back/forward history wins, then the remembered
+            // position for this note (if it is still one of the recent ones),
+            // falling back to the top.
+            let did_anchor = fragment
+                .filter(|f| !f.is_empty())
+                .map(|frag| {
+                    let active = active_editor.borrow();
+                    let mut ed = active.borrow_mut();
+                    ed.as_any_mut()
+                        .downcast_mut::<StructuredRichUI>()
+                        .map(|structured| structured.scroll_to_anchor(frag))
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+
+            let final_scroll_pos = if did_anchor {
+                active_editor.borrow().borrow().scroll_pos()
+            } else {
+                let target_scroll = restore_scroll
+                    .or_else(|| app_state.borrow().scroll_positions.get(note_name))
+                    .unwrap_or(0);
                 let active = active_editor.borrow();
                 let mut ed = (*active).borrow_mut();
                 ed.set_scroll_pos(target_scroll);
-            }
-            let final_scroll_pos = target_scroll;
+                target_scroll
+            };
 
             // Drop the editor borrow before manipulating history
 
@@ -387,6 +406,7 @@ fn navigate_back(
             active_editor,
             statusbar,
             Some(scroll_position),
+            None,
         );
     }
 }
@@ -421,6 +441,7 @@ fn navigate_forward(
             active_editor,
             statusbar,
             Some(scroll_position),
+            None,
         );
     }
 }
@@ -875,6 +896,7 @@ fn main() {
         &active_editor,
         &statusbar,
         None,
+        None,
     );
 
     // Wire callbacks for active editor
@@ -925,6 +947,37 @@ fn main() {
     // Replace FLTK's default about box with a proper macOS about panel (real
     // name, version, icon, description and homepage link).
     app_icon::set_macos_about();
+
+    // Handle `piki://note#section` URLs opened from other apps / the OS: strip
+    // the scheme, split off the section, and navigate (scrolling to the heading).
+    {
+        let app_state = app_state.clone();
+        let autosave_state = autosave_state.clone();
+        let active_editor = active_editor.clone();
+        let statusbar = statusbar.clone();
+        app_url::set_open_url_handler(move |url: String| {
+            let target = section_link::normalize_link_target(&url);
+            let (note, fragment) = section_link::split_target(&target);
+            let note = note.to_string();
+            let fragment = fragment.map(str::to_string);
+            let app_state = app_state.clone();
+            let autosave_state = autosave_state.clone();
+            let active_editor = active_editor.clone();
+            let statusbar = statusbar.clone();
+            app::awake_callback(move || {
+                load_note_helper(
+                    &note,
+                    &app_state,
+                    &autosave_state,
+                    &active_editor,
+                    &statusbar,
+                    None,
+                    fragment.as_deref(),
+                );
+            });
+        });
+        app_url::register();
+    }
 
     app.run().unwrap();
 }
@@ -1005,12 +1058,19 @@ fn wire_editor_callbacks(
         let mut cur = current_for_links.borrow_mut();
         let active_clone = active_editor.clone();
         cur.on_link_click(Box::new(move |link_dest: String| {
-            // External links (http(s)://, mailto:, ...) open in the system
-            // browser/handler instead of being loaded as a wiki note.
-            if link_handler::is_external_link(&link_dest) {
+            // A `piki:` URL is our own scheme (e.g. a section link pasted in as-is
+            // or arriving from another app): normalize it to the internal
+            // `note#section` form and navigate in-app instead of handing it to
+            // the browser. Non-`piki:` destinations are returned unchanged.
+            let normalized = section_link::normalize_link_target(&link_dest);
+
+            // Genuine external links (http(s)://, mailto:, ...) open in the system
+            // browser/handler. Normalization only strips the `piki:` scheme, so a
+            // real external URL is untouched here and still detected as external.
+            if link_handler::is_external_link(&normalized) {
                 let statusbar = statusbar_links.clone();
                 app::awake_callback(move || {
-                    if let Err(e) = webbrowser::open(&link_dest) {
+                    if let Err(e) = webbrowser::open(&normalized) {
                         statusbar
                             .borrow_mut()
                             .set_status(&format!("Failed to open link: {}", e));
@@ -1020,18 +1080,25 @@ fn wire_editor_callbacks(
                 return;
             }
 
+            // Internal link: split off an optional `#section` fragment so we can
+            // scroll to that heading after the note loads.
+            let (note, fragment) = section_link::split_target(&normalized);
+            let note = note.to_string();
+            let fragment = fragment.map(str::to_string);
+
             let app_state = app_state_links.clone();
             let autosave_state = autosave_links.clone();
             let editor_ref = active_clone.clone();
             let statusbar = statusbar_links.clone();
             app::awake_callback(move || {
                 load_note_helper(
-                    &link_dest,
+                    &note,
                     &app_state,
                     &autosave_state,
                     &editor_ref,
                     &statusbar,
                     None,
+                    fragment.as_deref(),
                 );
             });
         }));

@@ -862,11 +862,16 @@ impl FltkStructuredRichDisplay {
                                 return true;
                             }
 
-                            // Ctrl/Cmd+K: Open link editor dialog
+                            // Ctrl/Cmd+K: Open link editor dialog. Exclude Shift
+                            // so Cmd/Ctrl-Shift-K stays free for "Copy Link to
+                            // Section" (handled by the menu bar) instead of
+                            // opening this dialog.
                             #[cfg(target_os = "macos")]
-                            let cmd_modifier = state.contains(Shortcut::Command);
+                            let cmd_modifier = state.contains(Shortcut::Command)
+                                && !state.contains(Shortcut::Shift);
                             #[cfg(not(target_os = "macos"))]
-                            let cmd_modifier = state.contains(Shortcut::Ctrl);
+                            let cmd_modifier =
+                                state.contains(Shortcut::Ctrl) && !state.contains(Shortcut::Shift);
 
                             if cmd_modifier
                                 && (key == Key::from_char('k') || key == Key::from_char('K'))

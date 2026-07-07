@@ -67,14 +67,25 @@ where
         save_btn.deactivate();
     }
 
-    // Live validation callbacks
+    // Live validation callbacks. The target field additionally normalizes a
+    // pasted `piki://…` section URL down to the internal `note#fragment` form,
+    // so a link copied via Cmd-Shift-K (or from another app) becomes a plain
+    // wiki link when dropped in here.
+    let require_text = initial_text_required;
     {
         let mut save_btn_v = save_btn.clone();
-        let tgt_v = target_input.clone();
         let txt_v = text_input_w.clone();
-        let require_text = initial_text_required;
-        let validate_cb = move |_i: &mut input::Input| {
-            let target_ok = !tgt_v.value().trim().is_empty();
+        target_input.set_trigger(CallbackTrigger::Changed);
+        target_input.set_callback(move |i| {
+            let current = i.value();
+            let normalized = crate::section_link::normalize_link_target(&current);
+            // set_value on a programmatic change does not re-fire this callback,
+            // and the normalized value is no longer a `piki:` URL, so this
+            // converges even if it did.
+            if normalized != current {
+                i.set_value(&normalized);
+            }
+            let target_ok = !i.value().trim().is_empty();
             let text_ok = if require_text {
                 !txt_v.value().trim().is_empty()
             } else {
@@ -85,11 +96,25 @@ where
             } else {
                 save_btn_v.deactivate();
             }
-        };
-        target_input.set_trigger(CallbackTrigger::Changed);
-        target_input.set_callback(validate_cb.clone());
+        });
+    }
+    {
+        let mut save_btn_v = save_btn.clone();
+        let tgt_v = target_input.clone();
         text_input_w.set_trigger(CallbackTrigger::Changed);
-        text_input_w.set_callback(validate_cb);
+        text_input_w.set_callback(move |i| {
+            let target_ok = !tgt_v.value().trim().is_empty();
+            let text_ok = if require_text {
+                !i.value().trim().is_empty()
+            } else {
+                true
+            };
+            if target_ok && text_ok {
+                save_btn_v.activate();
+            } else {
+                save_btn_v.deactivate();
+            }
+        });
     }
 
     // Wire Save/Remove/Cancel
