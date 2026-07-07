@@ -6,13 +6,6 @@ members = [
 ]
 resolver = "3"
 
-# TEMPORARY / DO NOT COMMIT: local preview of unreleased rutle changes (default
-# paragraph_spacing = 12 and the list trailing-spacing fix). Points at the
-# sibling checkout, so it only builds where ../rutle exists (breaks a clean
-# clone / CI). Revert this once rutle is published and the gui dep is bumped.
-[patch.crates-io]
-rutle = { path = "../rutle" }
-
 [workspace.package]
 edition = "2024"
 license = "MIT"
