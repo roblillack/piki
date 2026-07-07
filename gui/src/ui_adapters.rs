@@ -356,7 +356,17 @@ impl ContentLoader for StructuredRichUI {
     fn set_content_from_markdown(&mut self, markdown: &str) {
         let mut disp = self.0.display.borrow_mut();
         // Loading a different note starts a fresh undo history (set_document resets it).
-        let doc = crate::markdown_converter::markdown_to_document(markdown);
+        let mut doc = crate::markdown_converter::markdown_to_document(markdown);
+        // A brand-new note loads as an empty document (no paragraphs). rutle's
+        // block-level commands (headings, lists, quotes) act on existing leaves,
+        // so with nothing to convert the first Cmd-Alt-1 would silently no-op
+        // until a character was typed and deleted. Seed one empty paragraph so
+        // formatting works immediately; document_to_markdown maps a lone empty
+        // paragraph back to the empty string, so an untouched new note stays
+        // empty on disk.
+        if doc.paragraphs.is_empty() {
+            doc.add_paragraph(tdoc::Paragraph::new_text());
+        }
         disp.editor_mut().set_document(doc);
         disp.set_scroll(0);
         drop(disp);
@@ -448,5 +458,32 @@ mod tests {
                 BlockType::Heading { .. }
             ));
         }
+    }
+
+    /// A brand-new note has no paragraphs, so rutle's block-level commands have
+    /// no leaf to convert: `set_block_type` is a silent no-op. This is the bug
+    /// the seeded empty paragraph in `set_content_from_markdown` fixes.
+    #[test]
+    fn block_type_is_a_no_op_on_an_empty_document() {
+        let mut editor = Editor::with_tdoc(tdoc::Document::new());
+        let _ = editor.set_block_type(BlockType::Heading { level: 1 });
+        assert_eq!(editor.current_block_type(), BlockType::Paragraph);
+    }
+
+    /// With the seeded empty paragraph a fresh note carries a leaf, so the very
+    /// first Cmd-Alt-1 converts it to a heading without needing a keystroke.
+    #[test]
+    fn seeded_empty_paragraph_accepts_a_heading() {
+        let mut doc = tdoc::Document::new();
+        assert!(doc.paragraphs.is_empty());
+        doc.add_paragraph(tdoc::Paragraph::new_text());
+
+        let mut editor = Editor::with_tdoc(doc);
+        assert!(
+            editor
+                .set_block_type(BlockType::Heading { level: 1 })
+                .is_ok()
+        );
+        assert_eq!(editor.current_block_type(), BlockType::Heading { level: 1 });
     }
 }
