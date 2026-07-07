@@ -1,18 +1,22 @@
 #![allow(dead_code)]
 
+use crate::position_memory::NotePosition;
+
 const MAX_HISTORY_SIZE: usize = 100;
 
 #[derive(Debug, Clone)]
 pub struct HistoryEntry {
     pub note_name: String,
-    pub scroll_position: i32,
+    /// Where the user was in this note (scroll offset + caret) when they last
+    /// left it, restored when back/forward navigates here again.
+    pub position: NotePosition,
 }
 
 impl HistoryEntry {
-    pub fn new(note_name: String, scroll_position: i32) -> Self {
+    pub fn new(note_name: String, position: NotePosition) -> Self {
         HistoryEntry {
             note_name,
-            scroll_position,
+            position,
         }
     }
 }
@@ -33,15 +37,14 @@ impl History {
 
     /// Add a new note to history
     /// This clears any forward history and adds the new entry
-    pub fn push(&mut self, note_name: String, scroll_position: i32) {
+    pub fn push(&mut self, note_name: String, position: NotePosition) {
         // If we're in the middle of history, truncate everything after current position
         if let Some(idx) = self.current_index {
             self.entries.truncate(idx + 1);
         }
 
         // Add new entry
-        self.entries
-            .push(HistoryEntry::new(note_name, scroll_position));
+        self.entries.push(HistoryEntry::new(note_name, position));
 
         // Limit history size
         if self.entries.len() > MAX_HISTORY_SIZE {
@@ -63,12 +66,12 @@ impl History {
         }
     }
 
-    /// Update the scroll position of the current entry
-    pub fn update_scroll_position(&mut self, scroll_position: i32) {
+    /// Update the remembered position (scroll offset + caret) of the current entry
+    pub fn update_position(&mut self, position: NotePosition) {
         if let Some(idx) = self.current_index
             && let Some(entry) = self.entries.get_mut(idx)
         {
-            entry.scroll_position = scroll_position;
+            entry.position = position;
         }
     }
 
@@ -127,14 +130,23 @@ impl History {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rutle::tree_path::DocumentPosition;
+
+    /// A scroll-only position, for tests that only exercise navigation ordering.
+    fn scroll(n: i32) -> NotePosition {
+        NotePosition {
+            scroll: n,
+            cursor: None,
+        }
+    }
 
     #[test]
     fn test_push_and_navigate() {
         let mut history = History::new();
 
-        history.push("note1".to_string(), 0);
-        history.push("note2".to_string(), 10);
-        history.push("note3".to_string(), 20);
+        history.push("note1".to_string(), scroll(0));
+        history.push("note2".to_string(), scroll(10));
+        history.push("note3".to_string(), scroll(20));
 
         assert_eq!(history.current().unwrap().note_name, "note3");
         assert!(history.can_go_back());
@@ -142,7 +154,7 @@ mod tests {
 
         history.go_back();
         assert_eq!(history.current().unwrap().note_name, "note2");
-        assert_eq!(history.current().unwrap().scroll_position, 10);
+        assert_eq!(history.current().unwrap().position.scroll, 10);
         assert!(history.can_go_back());
         assert!(history.can_go_forward());
 
@@ -154,9 +166,9 @@ mod tests {
     fn test_push_clears_forward_history() {
         let mut history = History::new();
 
-        history.push("note1".to_string(), 0);
-        history.push("note2".to_string(), 0);
-        history.push("note3".to_string(), 0);
+        history.push("note1".to_string(), scroll(0));
+        history.push("note2".to_string(), scroll(0));
+        history.push("note3".to_string(), scroll(0));
         history.go_back();
         history.go_back();
 
@@ -164,7 +176,7 @@ mod tests {
         assert_eq!(history.current().unwrap().note_name, "note1");
 
         // Push new note should clear note2 and note3
-        history.push("note4".to_string(), 0);
+        history.push("note4".to_string(), scroll(0));
         assert_eq!(history.current().unwrap().note_name, "note4");
         assert!(!history.can_go_forward());
     }
@@ -175,7 +187,7 @@ mod tests {
 
         // Add more than MAX_HISTORY_SIZE entries
         for i in 0..150 {
-            history.push(format!("note{}", i), i);
+            history.push(format!("note{}", i), scroll(i));
         }
 
         // Should only keep the last 100
@@ -186,9 +198,9 @@ mod tests {
     #[test]
     fn test_rename_note_updates_all_matching_entries() {
         let mut history = History::new();
-        history.push("untitled_x".to_string(), 0);
-        history.push("other".to_string(), 0);
-        history.push("untitled_x".to_string(), 0);
+        history.push("untitled_x".to_string(), scroll(0));
+        history.push("other".to_string(), scroll(0));
+        history.push("untitled_x".to_string(), scroll(0));
 
         history.rename_note("untitled_x", "real-name");
 
@@ -202,13 +214,18 @@ mod tests {
     }
 
     #[test]
-    fn test_update_scroll_position() {
+    fn test_update_position() {
         let mut history = History::new();
 
-        history.push("note1".to_string(), 0);
-        assert_eq!(history.current().unwrap().scroll_position, 0);
+        history.push("note1".to_string(), scroll(0));
+        assert_eq!(history.current().unwrap().position.scroll, 0);
 
-        history.update_scroll_position(42);
-        assert_eq!(history.current().unwrap().scroll_position, 42);
+        // Updating writes both the scroll offset and the caret onto the entry.
+        let updated = NotePosition {
+            scroll: 42,
+            cursor: Some(DocumentPosition::new(1, 3)),
+        };
+        history.update_position(updated.clone());
+        assert_eq!(history.current().unwrap().position, updated);
     }
 }
