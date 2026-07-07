@@ -111,7 +111,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   intra-word italics (`un*frigging*believable`) and adjacent same-style spans are
   parsed and re-emitted faithfully; code blocks and code spans no longer gain
   stray blank lines or lose their content; and empty paragraphs (blank lines
-  between blocks) are preserved instead of collapsing.
+  between blocks) are preserved instead of collapsing. (#37)
 - Dragging the scrollbar thumb now tracks the mouse correctly. On long notes the
   thumb was far larger than the target FLTK actually let you grab, so a drag
   registered as a click in the trough and the view jumped the wrong way; the thumb
