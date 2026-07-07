@@ -34,6 +34,7 @@ arboard = "3.4"
 tdoc = { version="0.11.2", default-features=false }
 rtf-parser = "0.4"
 webbrowser = { version = "1.2.1", features = ["disable-wsl"] }
+tiny_http = "0.12.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

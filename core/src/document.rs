@@ -42,6 +42,11 @@ impl DocumentStore {
         DocumentStore { base_path }
     }
 
+    /// The root directory this store reads notes from.
+    pub fn base_path(&self) -> &std::path::Path {
+        &self.base_path
+    }
+
     /// Resolve the on-disk path for a note name (with or without a `.md`
     /// extension), without reading the file. Used e.g. to move a note when
     /// renaming it.

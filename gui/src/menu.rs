@@ -1,6 +1,7 @@
 use super::{
     AppState, AutoSaveState, load_note_helper, navigate_back, navigate_forward, note_picker,
-    rename_current_note, search_bar::SearchBar, statusbar::StatusBar, window_state::WindowGeometry,
+    rename_current_note, search_bar::SearchBar, start_sharing, statusbar::StatusBar, stop_sharing,
+    window_state::WindowGeometry,
 };
 // Only the non-macOS in-app Quit item saves explicitly; on macOS the system
 // Quit routes through the window Close event, which already saves.
@@ -15,7 +16,9 @@ use fltk::{
     window,
 };
 use piki_gui::link_editor::{self, LinkEditOptions};
+use piki_gui::live_share::LiveShare;
 use piki_gui::note_ui::NoteUI;
+use piki_gui::on_air_bar::OnAirBar;
 use piki_gui::ui_adapters::StructuredRichUI;
 use rutle::structured_document::{BlockType, InlineContent};
 use std::cell::RefCell;
@@ -44,6 +47,7 @@ const FORMAT_CLEAR: &str = "Format/Clear formatting";
 const EDIT_COPY_SECTION_LINK: &str = "Edit/Copy Link to Section";
 
 const VIEW_FULLSCREEN: &str = "View/Fullscreen";
+const VIEW_SHARE: &str = "View/Live Note Sharing";
 
 // Default padding for normal mode
 const DEFAULT_PADDING: i32 = 25;
@@ -82,6 +86,8 @@ pub fn setup_menu(
     wind_ref: Rc<RefCell<window::Window>>,
     window_geometry: Rc<RefCell<WindowGeometry>>,
     search_bar: Rc<RefCell<SearchBar>>,
+    live_share: Rc<RefCell<Option<LiveShare>>>,
+    on_air: Rc<RefCell<OnAirBar>>,
 ) {
     let mut menu_bar = menu::SysMenuBar::default();
     populate_menu(
@@ -93,6 +99,8 @@ pub fn setup_menu(
         wind_ref,
         window_geometry,
         search_bar,
+        live_share,
+        on_air,
     );
 }
 
@@ -106,6 +114,8 @@ pub fn setup_menu(
     wind_ref: Rc<RefCell<window::Window>>,
     window_geometry: Rc<RefCell<WindowGeometry>>,
     search_bar: Rc<RefCell<SearchBar>>,
+    live_share: Rc<RefCell<Option<LiveShare>>>,
+    on_air: Rc<RefCell<OnAirBar>>,
 ) -> menu::MenuBar {
     let mut menu_bar = menu::MenuBar::new(0, 0, 660, 25, None);
     populate_menu(
@@ -117,6 +127,8 @@ pub fn setup_menu(
         wind_ref,
         window_geometry,
         search_bar,
+        live_share,
+        on_air,
     );
     menu_bar
 }
@@ -131,6 +143,8 @@ fn populate_menu<M>(
     wind_ref: Rc<RefCell<window::Window>>,
     window_geometry: Rc<RefCell<WindowGeometry>>,
     search_bar: Rc<RefCell<SearchBar>>,
+    live_share: Rc<RefCell<Option<LiveShare>>>,
+    on_air: Rc<RefCell<OnAirBar>>,
 ) where
     M: MenuExt + Clone + 'static,
 {
@@ -498,6 +512,7 @@ fn populate_menu<M>(
         let active_editor = active_editor.clone();
         let statusbar = statusbar.clone();
         let search_bar = search_bar.clone();
+        let on_air = on_air.clone();
         let menu_handle = menu_bar.clone();
         menu_bar.add(
             VIEW_FULLSCREEN,
@@ -510,6 +525,7 @@ fn populate_menu<M>(
                     &active_editor,
                     &statusbar,
                     &search_bar,
+                    &on_air,
                     &menu_handle,
                 );
             },
@@ -523,6 +539,57 @@ fn populate_menu<M>(
         } else {
             item.clear();
         }
+    }
+
+    // Live Note Sharing: start/stop a localhost webserver that shows the
+    // currently visible note as a live-reloading HTML page (see
+    // `piki_gui::live_share`). A toggle so its check-mark reflects whether the
+    // ON AIR bar is up.
+    {
+        let app_state = app_state.clone();
+        let active_editor = active_editor.clone();
+        let live_share = live_share.clone();
+        let on_air = on_air.clone();
+        let search_bar = search_bar.clone();
+        let statusbar = statusbar.clone();
+        let wind_ref = wind_ref.clone();
+        let menu_handle = menu_bar.clone();
+        menu_bar.add(
+            VIEW_SHARE,
+            cmd | Shortcut::Shift | 'l',
+            menu::MenuFlag::Toggle,
+            move |_| {
+                if live_share.borrow().is_some() {
+                    stop_sharing(
+                        &live_share,
+                        &on_air,
+                        &search_bar,
+                        &active_editor,
+                        &statusbar,
+                        &wind_ref,
+                    );
+                } else {
+                    start_sharing(
+                        &app_state,
+                        &active_editor,
+                        &live_share,
+                        &on_air,
+                        &search_bar,
+                        &statusbar,
+                        &wind_ref,
+                    );
+                }
+                // Reflect the real state — starting may have failed (e.g. the
+                // server could not bind) even though FLTK flipped the check.
+                if let Some(mut item) = menu_handle.find_item(VIEW_SHARE) {
+                    if live_share.borrow().is_some() {
+                        item.set();
+                    } else {
+                        item.clear();
+                    }
+                }
+            },
+        );
     }
 
     // Format menu - paragraph styles
@@ -1278,6 +1345,7 @@ fn toggle_fullscreen<M: MenuExt>(
     active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     statusbar: &Rc<RefCell<StatusBar>>,
     search_bar: &Rc<RefCell<SearchBar>>,
+    on_air: &Rc<RefCell<OnAirBar>>,
     menu_handle: &M,
 ) {
     let entering_fullscreen = !window_geometry.borrow().fullscreen;
@@ -1304,6 +1372,15 @@ fn toggle_fullscreen<M: MenuExt>(
         0
     };
 
+    // The ON AIR bar (when sharing) stays pinned to the top; everything below
+    // is offset by its height.
+    let on_air_visible = on_air.try_borrow().map(|b| b.visible()).unwrap_or(false);
+    let on_air_height = if on_air_visible {
+        on_air.try_borrow().map(|b| b.height()).unwrap_or(0)
+    } else {
+        0
+    };
+
     if let Ok(mut win) = wind_ref.try_borrow_mut() {
         if entering_fullscreen {
             // Determine which screen the window is on using its center point
@@ -1320,6 +1397,15 @@ fn toggle_fullscreen<M: MenuExt>(
             let font_size = 14; // Default body text font size from theme
             let padding = calculate_fullscreen_padding(screen_w, font_size);
 
+            // Keep the ON AIR bar pinned to the top if sharing.
+            if on_air_visible && let Ok(mut bar) = on_air.try_borrow_mut() {
+                #[cfg(target_os = "macos")]
+                let editor_y = 0;
+                #[cfg(not(target_os = "macos"))]
+                let editor_y = 25;
+                bar.resize(0, editor_y, screen_w);
+            }
+
             // Resize search bar if visible
             if search_bar_visible && let Ok(mut sb) = search_bar.try_borrow_mut() {
                 // On macOS, editor_y is 0; otherwise it's 25 for menu bar
@@ -1327,7 +1413,7 @@ fn toggle_fullscreen<M: MenuExt>(
                 let editor_y = 0;
                 #[cfg(not(target_os = "macos"))]
                 let editor_y = 25;
-                sb.resize(0, editor_y, screen_w);
+                sb.resize(0, editor_y + on_air_height, screen_w);
             }
 
             // Apply padding and resize the editor to take full height
@@ -1337,12 +1423,12 @@ fn toggle_fullscreen<M: MenuExt>(
             {
                 structured.set_horizontal_padding(padding);
                 // Expand editor to full screen height (no statusbar)
-                // Account for search bar if visible
+                // Account for the ON AIR and search bars if visible
                 #[cfg(target_os = "macos")]
                 let editor_y = 0;
                 #[cfg(not(target_os = "macos"))]
                 let editor_y = 25;
-                let editor_top = editor_y + search_bar_height;
+                let editor_top = editor_y + on_air_height + search_bar_height;
                 structured.resize(0, editor_top, screen_w, screen_h - editor_top);
             }
 
@@ -1352,13 +1438,22 @@ fn toggle_fullscreen<M: MenuExt>(
             // Exit fullscreen mode
             win.fullscreen(false);
 
+            // Keep the ON AIR bar pinned to the top if sharing.
+            if on_air_visible && let Ok(mut bar) = on_air.try_borrow_mut() {
+                #[cfg(target_os = "macos")]
+                let editor_y = 0;
+                #[cfg(not(target_os = "macos"))]
+                let editor_y = 25;
+                bar.resize(0, editor_y, win.width());
+            }
+
             // Resize search bar if visible
             if search_bar_visible && let Ok(mut sb) = search_bar.try_borrow_mut() {
                 #[cfg(target_os = "macos")]
                 let editor_y = 0;
                 #[cfg(not(target_os = "macos"))]
                 let editor_y = 25;
-                sb.resize(0, editor_y, win.width());
+                sb.resize(0, editor_y + on_air_height, win.width());
             }
 
             // Restore default padding and resize editor to make room for statusbar
@@ -1368,12 +1463,12 @@ fn toggle_fullscreen<M: MenuExt>(
             {
                 structured.set_horizontal_padding(DEFAULT_PADDING);
                 // Resize editor to window height minus statusbar
-                // Account for search bar if visible
+                // Account for the ON AIR and search bars if visible
                 #[cfg(target_os = "macos")]
                 let editor_y = 0;
                 #[cfg(not(target_os = "macos"))]
                 let editor_y = 25;
-                let editor_top = editor_y + search_bar_height;
+                let editor_top = editor_y + on_air_height + search_bar_height;
                 structured.resize(
                     0,
                     editor_top,

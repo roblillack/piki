@@ -16,6 +16,7 @@ Piki helps you manage a personal knowledge base using plain Markdown files store
 - **Local-first**: Your notes are plain Markdown files on your filesystem
 - **Git-friendly**: Version control your wiki with Git (optional)
 - **Dual interface**: Use the CLI for quick edits or the GUI for rich text editing
+- **Live sharing**: Present the current note as a live-updating local web page — great for video calls
 - **Cross-platform**: Works on Windows, macOS, Linux, and BSD
 - **Lightweight**: GUI built with FLTK featuring a custom rich-text editor
 - **Fast**: Written in Rust for performance and reliability
@@ -205,6 +206,26 @@ piki-gui -d /path/to/wiki
 | `Cmd+Shift+9`         | Checklist         |
 | `Option+Up`           | Move paragraph up   |
 | `Option+Down`         | Move paragraph down |
+| **View**              |                     |
+| `Cmd+Shift+L`         | Live Note Sharing   |
+
+**Live Note Sharing**
+
+Turn the note you're viewing into a clean, self-updating web page — ideal for
+showing your notes while screen sharing in a video call.
+
+- Start it from **View → Live Note Sharing** (`Cmd+Shift+L`). A red "ON AIR" bar
+  appears with the shareable link and a Stop button, and the note opens in your
+  browser.
+- Edits show up in the browser within about a second (live reload).
+- The web view stays on its own note and never follows your in-app navigation,
+  so you can keep a "public" note on screen while taking notes in a private one.
+  The link in the ON AIR bar always points at the note you're currently viewing.
+- Links are followable in the browser, the page follows the viewer's light/dark
+  system theme, and a footer toggle switches between one and two columns to make
+  better use of a widescreen.
+- The server binds `127.0.0.1` only, so it's reachable from your machine
+  alone — remote participants just see your screen-shared tab, never the server.
 
 **Auto-Save**
 

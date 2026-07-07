@@ -18,7 +18,9 @@ use clap::Parser;
 use fltk::{prelude::*, *};
 use history::History;
 use piki_core::{DocumentStore, IndexPlugin, PluginRegistry, TodoPlugin};
+use piki_gui::live_share::LiveShare;
 use piki_gui::note_ui::NoteUI;
+use piki_gui::on_air_bar::OnAirBar;
 use piki_gui::section_link;
 use piki_gui::ui_adapters::StructuredRichUI;
 use recency::RecentNotes;
@@ -30,6 +32,36 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
 use window_state::WindowGeometry;
+
+/// Top of the content region, below the platform menu bar (0 on macOS, which
+/// uses the system menu bar; 25 elsewhere for the in-window menu bar). The ON
+/// AIR bar, search bar, and editor stack downward from here.
+#[cfg(target_os = "macos")]
+const CONTENT_TOP: i32 = 0;
+#[cfg(not(target_os = "macos"))]
+const CONTENT_TOP: i32 = 25;
+
+/// Callback invoked with `(note, markdown)` whenever the current note changes.
+type ShareHook = Box<dyn Fn(&str, &str)>;
+
+thread_local! {
+    /// Invoked after the currently open note (or its content) changes, so an
+    /// active Live Note Sharing session can update what it serves and the URL
+    /// shown in the ON AIR bar. Installed once in `main` and only ever touched
+    /// on the FLTK main thread. Doing this via a hook avoids threading the
+    /// share handles through `load_note_helper` and its many call sites.
+    static SHARE_HOOK: RefCell<Option<ShareHook>> = const { RefCell::new(None) };
+}
+
+/// Notify an active sharing session that `note` is now the current note, with
+/// the given live `markdown`. A no-op when sharing is off.
+fn notify_share_view(note: &str, markdown: &str) {
+    SHARE_HOOK.with(|hook| {
+        if let Some(cb) = hook.borrow().as_ref() {
+            cb(note, markdown);
+        }
+    });
+}
 
 // Timeout to save window state after resize/move
 const WINDOW_STATE_SAVE_TIMEOUT_SECS: f64 = 3.0;
@@ -229,6 +261,11 @@ fn rename_current_note(
         .borrow_mut()
         .set_note(&format!("Note: {new_name}"));
 
+    // Point any live-sharing session at the new name (and refresh the ON AIR
+    // link) so a note shared under its old name keeps working after a rename.
+    let content = active_editor.borrow().borrow().get_content();
+    notify_share_view(new_name, &content);
+
     Ok(())
 }
 
@@ -366,6 +403,10 @@ fn load_note_helper(
                 statusbar.borrow_mut().set_status("");
             }
 
+            // Keep any live-sharing session pointed at the note now on screen,
+            // so the ON AIR link and the served content follow it.
+            notify_share_view(note_name, &content);
+
             app::redraw();
         }
         Err(e) => {
@@ -446,6 +487,130 @@ fn navigate_forward(
     }
 }
 
+/// Lay out the stacked content widgets for a normal (non-fullscreen) window:
+/// the ON AIR bar (if sharing), the search bar (if open) below it, then the
+/// editor filling the rest above the status bar. Fullscreen has its own layout
+/// in `menu::toggle_fullscreen`.
+fn relayout_content(
+    win_w: i32,
+    win_h: i32,
+    on_air: &Rc<RefCell<OnAirBar>>,
+    search_bar: &Rc<RefCell<SearchBar>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
+    statusbar: &Rc<RefCell<StatusBar>>,
+) {
+    let on_air_h = {
+        let bar = on_air.borrow();
+        if bar.visible() { bar.height() } else { 0 }
+    };
+    let search_h = if search_bar.borrow().visible() {
+        search_bar::BAR_HEIGHT
+    } else {
+        0
+    };
+    let statusbar_h = {
+        let sb = statusbar.borrow();
+        if sb.visible() { sb.height() } else { 0 }
+    };
+
+    if on_air_h > 0 {
+        on_air.borrow_mut().resize(0, CONTENT_TOP, win_w);
+    }
+    let search_top = CONTENT_TOP + on_air_h;
+    if search_h > 0 {
+        search_bar.borrow_mut().resize(0, search_top, win_w);
+    }
+
+    let editor_top = search_top + search_h;
+    let editor_h = (win_h - editor_top - statusbar_h).max(0);
+    if let Ok(ed_ptr) = active_editor.try_borrow()
+        && let Ok(mut ed) = ed_ptr.try_borrow_mut()
+        && let Some(structured) = ed.as_any_mut().downcast_mut::<StructuredRichUI>()
+    {
+        structured.resize(0, editor_top, win_w, editor_h);
+    }
+}
+
+/// Start a Live Note Sharing session for the currently open note: spin up the
+/// localhost server, show the ON AIR bar, reflow the layout, and open the note
+/// in the browser. No-op if already sharing.
+#[allow(clippy::too_many_arguments)]
+fn start_sharing(
+    app_state: &Rc<RefCell<AppState>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
+    live_share: &Rc<RefCell<Option<LiveShare>>>,
+    on_air: &Rc<RefCell<OnAirBar>>,
+    search_bar: &Rc<RefCell<SearchBar>>,
+    statusbar: &Rc<RefCell<StatusBar>>,
+    wind_ref: &Rc<RefCell<window::Window>>,
+) {
+    if live_share.borrow().is_some() {
+        return;
+    }
+
+    let (dir, note) = {
+        let st = app_state.borrow();
+        (st.store.base_path().to_path_buf(), st.current_note.clone())
+    };
+    let markdown = active_editor.borrow().borrow().get_content();
+
+    match LiveShare::start(dir, note.clone(), markdown) {
+        Ok(session) => {
+            let url = session.url_for(&note);
+            {
+                let mut bar = on_air.borrow_mut();
+                bar.set_url(&url);
+                bar.show();
+            }
+            *live_share.borrow_mut() = Some(session);
+
+            let (w, h) = {
+                let win = wind_ref.borrow();
+                (win.width(), win.height())
+            };
+            relayout_content(w, h, on_air, search_bar, active_editor, statusbar);
+            statusbar
+                .borrow_mut()
+                .set_status(&format!("Sharing live at {url}"));
+            app::redraw();
+            let _ = webbrowser::open(&url);
+        }
+        Err(e) => {
+            statusbar
+                .borrow_mut()
+                .set_status(&format!("Could not start sharing: {e}"));
+        }
+    }
+}
+
+/// Stop the active Live Note Sharing session: shut down the server (joining its
+/// thread), hide the ON AIR bar, and reflow the layout. No-op if not sharing.
+fn stop_sharing(
+    live_share: &Rc<RefCell<Option<LiveShare>>>,
+    on_air: &Rc<RefCell<OnAirBar>>,
+    search_bar: &Rc<RefCell<SearchBar>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
+    statusbar: &Rc<RefCell<StatusBar>>,
+    wind_ref: &Rc<RefCell<window::Window>>,
+) {
+    // Move the session out (releasing the RefCell borrow) before dropping it, so
+    // joining the server thread happens with no borrow held.
+    let session = live_share.borrow_mut().take();
+    if session.is_none() {
+        return;
+    }
+    drop(session);
+
+    on_air.borrow_mut().hide();
+    let (w, h) = {
+        let win = wind_ref.borrow();
+        (win.width(), win.height())
+    };
+    relayout_content(w, h, on_air, search_bar, active_editor, statusbar);
+    statusbar.borrow_mut().set_status("Live sharing stopped.");
+    app::redraw();
+}
+
 fn get_directory(dir_opt: Option<PathBuf>) -> PathBuf {
     dir_opt.unwrap_or_else(|| {
         std::env::var("HOME")
@@ -521,6 +686,8 @@ fn main() {
         recent_notes_path,
     )));
     let autosave_state = Rc::new(RefCell::new(AutoSaveState::new()));
+    // Holds the active Live Note Sharing session, if any.
+    let live_share: Rc<RefCell<Option<LiveShare>>> = Rc::new(RefCell::new(None));
 
     #[cfg(target_os = "macos")]
     let editor_padding = 0;
@@ -575,6 +742,60 @@ fn main() {
     // Create search bar (uses a sub-window so it floats on top)
     let search_bar = Rc::new(RefCell::new(SearchBar::new(editor_x, editor_y, editor_w)));
 
+    // Create the ON AIR bar (hidden until Live Note Sharing is enabled).
+    let on_air = Rc::new(RefCell::new(OnAirBar::new(editor_x, editor_y, editor_w)));
+
+    // Wire the ON AIR bar: Stop ends sharing; clicking the link opens it.
+    {
+        let live_share = live_share.clone();
+        let on_air_for_stop = on_air.clone();
+        let search_bar = search_bar.clone();
+        let active_editor = active_editor.clone();
+        let statusbar = statusbar.clone();
+        let wind_ref = wind_ref.clone();
+        on_air.borrow_mut().on_stop(move || {
+            stop_sharing(
+                &live_share,
+                &on_air_for_stop,
+                &search_bar,
+                &active_editor,
+                &statusbar,
+                &wind_ref,
+            );
+        });
+    }
+    {
+        let on_air_for_link = on_air.clone();
+        let statusbar = statusbar.clone();
+        on_air.borrow_mut().on_link_click(move || {
+            let url = on_air_for_link.borrow().url();
+            if !url.is_empty()
+                && let Err(e) = webbrowser::open(&url)
+            {
+                statusbar
+                    .borrow_mut()
+                    .set_status(&format!("Failed to open link: {e}"));
+            }
+        });
+    }
+
+    // Install the hook that keeps an active sharing session pointed at the
+    // currently visible note (updating served content and the ON AIR link).
+    {
+        let live_share = live_share.clone();
+        let on_air = on_air.clone();
+        SHARE_HOOK.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move |note: &str, markdown: &str| {
+                if let Some(session) = live_share.borrow().as_ref() {
+                    session.set_current(note, markdown);
+                    if let Ok(mut bar) = on_air.try_borrow_mut() {
+                        bar.set_url(&session.url_for(note));
+                    }
+                }
+            }));
+        });
+    }
+
     // Create menu (system menu bar on macOS, window menu bar on other platforms)
     #[cfg(target_os = "macos")]
     menu::setup_menu(
@@ -585,6 +806,8 @@ fn main() {
         wind_ref.clone(),
         window_geometry.clone(),
         search_bar.clone(),
+        live_share.clone(),
+        on_air.clone(),
     );
 
     #[cfg(not(target_os = "macos"))]
@@ -596,6 +819,8 @@ fn main() {
         wind_ref.clone(),
         window_geometry.clone(),
         search_bar.clone(),
+        live_share.clone(),
+        on_air.clone(),
     );
 
     // Configure editor UI
@@ -714,10 +939,12 @@ fn main() {
         let pending = pending_save_handle.clone();
         let state_path_for_handler = window_state_path.clone();
         let search_bar_for_resize = search_bar.clone();
+        let on_air_for_resize = on_air.clone();
         let active_editor_for_resize = active_editor.clone();
         let statusbar_for_resize = statusbar.clone();
         let app_state_for_close = app_state.clone();
         let autosave_for_close = autosave_state.clone();
+        let live_share_for_close = live_share.clone();
 
         wind.handle(move |win, event| match event {
             enums::Event::Move | enums::Event::Resize => {
@@ -740,39 +967,16 @@ fn main() {
                 let is_fullscreen = geometry.borrow().fullscreen;
 
                 if !is_fullscreen {
-                    // Check if search bar is visible
-                    let search_bar_visible = search_bar_for_resize
-                        .try_borrow()
-                        .map(|sb| sb.visible())
-                        .unwrap_or(false);
-
-                    // Only resize search bar when visible to avoid FLTK resize side effects
-                    if search_bar_visible && let Ok(mut sb) = search_bar_for_resize.try_borrow_mut()
-                    {
-                        sb.resize(0, editor_y, win.width());
-                    }
-
-                    // Resize editor based on whether search bar is visible
-                    let statusbar_h = statusbar_for_resize
-                        .try_borrow()
-                        .map(|s| if s.visible() { s.height() } else { 0 })
-                        .unwrap_or(0);
-
-                    if let Ok(ed_ptr) = active_editor_for_resize.try_borrow()
-                        && let Ok(mut ed) = ed_ptr.try_borrow_mut()
-                        && let Some(structured) = ed.as_any_mut().downcast_mut::<StructuredRichUI>()
-                    {
-                        if search_bar_visible {
-                            let bar_h = search_bar::BAR_HEIGHT;
-                            let editor_top = editor_y + bar_h;
-                            let editor_h = win.height() - editor_top - statusbar_h;
-                            structured.resize(0, editor_top, win.width(), editor_h);
-                        } else {
-                            // Search bar hidden - editor fills full space
-                            let editor_h = win.height() - editor_y - statusbar_h;
-                            structured.resize(0, editor_y, win.width(), editor_h);
-                        }
-                    }
+                    // Reflow the stacked ON AIR bar / search bar / editor for the
+                    // new window size.
+                    relayout_content(
+                        win.width(),
+                        win.height(),
+                        &on_air_for_resize,
+                        &search_bar_for_resize,
+                        &active_editor_for_resize,
+                        &statusbar_for_resize,
+                    );
                 }
 
                 {
@@ -815,6 +1019,9 @@ fn main() {
                     &active_editor_for_resize,
                     &statusbar_for_resize,
                 );
+                // Shut the sharing server down cleanly (joins its thread).
+                let session = live_share_for_close.borrow_mut().take();
+                drop(session);
                 if let Some(handle) = {
                     let mut slot = pending.borrow_mut();
                     slot.take()
@@ -900,7 +1107,13 @@ fn main() {
     );
 
     // Wire callbacks for active editor
-    wire_editor_callbacks(&active_editor, &autosave_state, &app_state, &statusbar);
+    wire_editor_callbacks(
+        &active_editor,
+        &autosave_state,
+        &app_state,
+        &statusbar,
+        &live_share,
+    );
 
     // Set up periodic timer to update "X ago" display
     {
@@ -927,12 +1140,17 @@ fn main() {
     {
         let start = Instant::now();
         let editor_ref = active_editor.clone();
+        let on_air_ref = on_air.clone();
         app::add_timeout3(0.1, move |handle| {
             let ms = start.elapsed().as_millis() as u64;
             if let Ok(ed_ptr) = editor_ref.try_borrow()
                 && let Ok(mut ed) = (*ed_ptr).try_borrow_mut()
             {
                 ed.tick(ms);
+            }
+            // Blink the ON AIR recording light while sharing.
+            if let Ok(mut bar) = on_air_ref.try_borrow_mut() {
+                bar.tick(ms);
             }
             app::repeat_timeout3(0.1, handle);
         });
@@ -987,11 +1205,13 @@ fn wire_editor_callbacks(
     autosave_state: &Rc<RefCell<AutoSaveState>>,
     app_state: &Rc<RefCell<AppState>>,
     statusbar: &Rc<RefCell<StatusBar>>,
+    live_share: &Rc<RefCell<Option<LiveShare>>>,
 ) {
     let editor_for_callback = active_editor.clone();
     let autosave_for_callback = autosave_state.clone();
     let app_state_for_callback = app_state.clone();
     let statusbar_for_callback = statusbar.clone();
+    let live_share_for_change = live_share.clone();
     let current_for_change = active_editor.borrow().clone();
     current_for_change.borrow_mut().on_change(Box::new(move || {
         // Restyle if supported
@@ -1002,6 +1222,26 @@ fn wire_editor_callbacks(
                 ed_ref.restyle();
             }
         });
+
+        // While sharing, push the edited content to the browser (deferred: the
+        // editor is borrowed while this change callback fires). Guarded so the
+        // Markdown serialization cost is only paid when ON AIR.
+        if live_share_for_change.borrow().is_some() {
+            let live = live_share_for_change.clone();
+            let editor = editor_for_callback.clone();
+            let app_state = app_state_for_callback.clone();
+            app::awake_callback(move || {
+                if let (Ok(ed_ptr), Ok(app_st)) = (editor.try_borrow(), app_state.try_borrow())
+                    && let Ok(inner) = ed_ptr.try_borrow()
+                {
+                    let markdown = inner.get_content();
+                    let note = app_st.current_note.clone();
+                    if let Some(session) = live.borrow().as_ref() {
+                        session.set_current(&note, &markdown);
+                    }
+                }
+            });
+        }
 
         if let Ok(mut as_state) = autosave_for_callback.try_borrow_mut() {
             as_state.mark_changed();
