@@ -58,6 +58,12 @@ While pre-1.0, the minor version is bumped for breaking changes.
   a list item now keeps links and text styling instead of dropping in the raw
   Markdown as literal text; each pasted paragraph becomes its own styled list
   item. (via `rutle 0.4.1`) (#41)
+- Formatting commands now work on a brand-new, empty note. Previously a fresh
+  note held no paragraph for the editor to act on, so the first
+  `Cmd-Alt-1`/`Ctrl-Alt-1` (or any heading, list, or quote command) did nothing
+  until a character had been typed and deleted; empty notes are now seeded with a
+  paragraph so the very first command takes effect, while an untouched new note
+  is still left with no file on disk. (#44)
 - Returning to a recently visited note now restores the caret position as well as
   the scroll offset, so navigating away and back — via a link, the note picker,
   or back/forward — resumes exactly where you were editing instead of dropping
