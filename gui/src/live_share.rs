@@ -264,8 +264,46 @@ fn render_fragment(markdown: &str) -> String {
     let mut doc = markdown_to_document(markdown);
     rewrite_links_in_document(&mut doc);
     let anchors = collect_heading_anchors(&doc);
-    let fragment = document_to_html(&doc);
-    inject_heading_ids(&fragment, &anchors)
+    let sectioned = render_sectioned_html(&doc);
+    inject_heading_ids(&sectioned, &anchors)
+}
+
+/// Render the document with each top-level heading and the blocks that follow it
+/// (until the next heading) wrapped in a `<section class="piki-sec">`.
+///
+/// In two-column mode these sections carry `break-inside: avoid`, which is the
+/// only reliable way to keep a heading with its content: Firefox's column
+/// balancer ignores `break-after: avoid` on the heading itself and will happily
+/// orphan a heading at the foot of a column, but it does honor `break-inside`
+/// on a wrapping block. A section taller than a column still breaks internally
+/// (between list items), so the heading stays with at least the start of its
+/// content rather than standing alone.
+fn render_sectioned_html(doc: &Document) -> String {
+    let is_heading = |p: &Paragraph| {
+        matches!(
+            p,
+            Paragraph::Header1 { .. } | Paragraph::Header2 { .. } | Paragraph::Header3 { .. }
+        )
+    };
+
+    let mut out = String::new();
+    let mut section_open = false;
+    for paragraph in &doc.paragraphs {
+        if is_heading(paragraph) {
+            if section_open {
+                out.push_str("</section>\n");
+            }
+            out.push_str("<section class=\"piki-sec\">\n");
+            section_open = true;
+        }
+        let single = Document::new().with_paragraphs(vec![paragraph.clone()]);
+        out.push_str(&document_to_html(&single));
+        out.push('\n');
+    }
+    if section_open {
+        out.push_str("</section>\n");
+    }
+    out
 }
 
 /// Render a complete, styled HTML page for `note`, embedding the current version
@@ -685,7 +723,8 @@ h1 { font-size: 2em; padding-bottom: 0.3em; border-bottom: 1px solid #d8dee4; }
 h2 { font-size: 1.5em; padding-bottom: 0.3em; border-bottom: 1px solid #d8dee4; }
 h3 { font-size: 1.25em; }
 
-#piki-doc > :first-child { margin-top: 0; }
+#piki-doc > :first-child,
+#piki-doc > .piki-sec:first-child > :first-child { margin-top: 0; }
 
 p { margin-top: 0; margin-bottom: 16px; }
 
@@ -789,6 +828,14 @@ img { max-width: 100%; }
    balanced columns, avoiding awkward breaks across headings and blocks. */
 body.cols-2 { max-width: 1400px; }
 body.cols-2 #piki-doc { column-count: 2; column-gap: 48px; }
+/* Keep each heading with the content that follows it (see `render_sectioned_html`).
+   This is what actually prevents Firefox's balancer from orphaning a heading at
+   the foot of a column; the `break-after` hints below only help WebKit/Blink. */
+body.cols-2 #piki-doc .piki-sec {
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  page-break-inside: avoid;
+}
 /* Keep a heading with the content that follows it, so a column break never
    orphans a heading at the foot of a column. `avoid-column` is the value
    Firefox honors in multicol; the `-webkit-`/`page-break-` forms cover
@@ -891,6 +938,12 @@ mod tests {
         let md = "# Hello World\n\nSee [other](other) and [ext](https://example.com).\n";
         let fragment = render_fragment(md);
         assert!(fragment.contains("<h1 id=\"hello-world\">"), "{fragment}");
+        // The heading and its content are wrapped in a section so a column break
+        // cannot orphan the heading.
+        assert!(
+            fragment.contains("<section class=\"piki-sec\">"),
+            "{fragment}"
+        );
         assert!(fragment.contains("href=\"/other\""), "{fragment}");
         assert!(
             fragment.contains("href=\"https://example.com\""),
