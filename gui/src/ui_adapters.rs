@@ -395,6 +395,17 @@ impl NoteUI for StructuredRichUI {
         self.0.display.borrow_mut().set_scroll(pos.max(0));
     }
 
+    fn cursor_pos(&self) -> Option<DocumentPosition> {
+        Some(self.0.display.borrow().editor().cursor())
+    }
+
+    fn set_cursor_pos(&mut self, pos: DocumentPosition) {
+        // `set_cursor` clamps to the current document, so a position remembered
+        // against slightly stale content is corrected rather than rejected. It
+        // does not move the viewport — the scroll offset is restored separately.
+        self.0.display.borrow_mut().editor_mut().set_cursor(pos);
+    }
+
     fn set_bg_color(&mut self, color: Color) {
         self.0.group.set_color(color);
     }

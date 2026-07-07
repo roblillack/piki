@@ -64,6 +64,10 @@ While pre-1.0, the minor version is bumped for breaking changes.
   until a character had been typed and deleted; empty notes are now seeded with a
   paragraph so the very first command takes effect, while an untouched new note
   is still left with no file on disk. (#44)
+- Returning to a recently visited note now restores the caret position as well as
+  the scroll offset, so navigating away and back — via a link, the note picker,
+  or back/forward — resumes exactly where you were editing instead of dropping
+  the caret at the top. (#43)
 
 ## [0.5.0] - 2026-07-07
 
