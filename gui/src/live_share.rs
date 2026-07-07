@@ -315,6 +315,11 @@ fn render_page(note: &str, markdown: &str, version: &str) -> String {
     );
     page.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\" />\n");
     page.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n");
+    // Advertise dark-mode support to the browser before CSS parses, so a viewer
+    // on a dark system gets the dark canvas and native controls immediately
+    // (no white flash on load). The stylesheet's `prefers-color-scheme` block
+    // then themes the content itself.
+    page.push_str("<meta name=\"color-scheme\" content=\"light dark\" />\n");
     page.push_str("<title>");
     page.push_str(&html_escape_text(note));
     page.push_str("</title>\n<style>");
@@ -346,6 +351,7 @@ fn render_page(note: &str, markdown: &str, version: &str) -> String {
 fn not_found_page(note: &str) -> String {
     format!(
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\" />\
+         <meta name=\"color-scheme\" content=\"light dark\" />\
          <title>Not found</title><style>{STYLESHEET}</style></head>\
          <body><h1>Note not available</h1><p>The note <code>{}</code> is not \
          being shared.</p></body></html>",
@@ -975,6 +981,21 @@ mod tests {
         assert!(page.contains("avoid-column"), "{page}");
         // The footer is page-level, not part of the swappable fragment.
         assert!(!render_fragment("# Hi\n").contains("piki-footer"));
+    }
+
+    #[test]
+    fn page_supports_native_dark_mode() {
+        let page = render_page("frontpage", "# Hi\n", "g1");
+        // Declared to the browser up front, and themed via the media query.
+        assert!(
+            page.contains("<meta name=\"color-scheme\" content=\"light dark\" />"),
+            "{page}"
+        );
+        assert!(page.contains("color-scheme: light dark;"), "{page}");
+        assert!(
+            page.contains("@media (prefers-color-scheme: dark)"),
+            "{page}"
+        );
     }
 
     #[test]

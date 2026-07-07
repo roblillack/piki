@@ -24,7 +24,8 @@ While pre-1.0, the minor version is bumped for breaking changes.
   in the browser within about a second. The server binds `127.0.0.1` on an
   OS-assigned port, so only your machine can reach it. A subtle footer shows the
   Piki version and toggles the page between one and two columns, the latter
-  making better use of a shared widescreen (the choice is remembered).
+  making better use of a shared widescreen (the choice is remembered). The page
+  follows the viewer's system light/dark appearance automatically.
 - **Link to a section heading.** With the caret in a heading, _Copy Link to
   Section_ (`Cmd-Shift-K`/`Ctrl-Shift-K`) copies a link to that heading; clicking
   such a link opens the note and scrolls straight to the heading. The link is
