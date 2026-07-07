@@ -1140,12 +1140,17 @@ fn main() {
     {
         let start = Instant::now();
         let editor_ref = active_editor.clone();
+        let on_air_ref = on_air.clone();
         app::add_timeout3(0.1, move |handle| {
             let ms = start.elapsed().as_millis() as u64;
             if let Ok(ed_ptr) = editor_ref.try_borrow()
                 && let Ok(mut ed) = (*ed_ptr).try_borrow_mut()
             {
                 ed.tick(ms);
+            }
+            // Blink the ON AIR recording light while sharing.
+            if let Ok(mut bar) = on_air_ref.try_borrow_mut() {
+                bar.tick(ms);
             }
             app::repeat_timeout3(0.1, handle);
         });
