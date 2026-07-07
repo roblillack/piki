@@ -12,6 +12,17 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Added
 
+- **Live Note Sharing.** _View → Live Note Sharing_
+  (`Cmd-Shift-L`/`Ctrl-Shift-L`) starts a local, loopback-only webserver that
+  renders the currently visible note as a clean, live-reloading HTML page and
+  opens it in your browser — handy for showing a note in a screen-shared video
+  call. While active, a red **ON AIR** bar at the top shows the shareable link
+  (which follows whichever note is on screen) and a _Stop_ button. The browser
+  view is independent of in-app navigation: it only ever shows the note in its
+  own URL, so you can keep a "public" note open in the shared tab while taking
+  notes in a private one. Links in the web view are followable, and edits appear
+  in the browser within about a second. The server binds `127.0.0.1` on an
+  OS-assigned port, so only your machine can reach it.
 - **Link to a section heading.** With the caret in a heading, _Copy Link to
   Section_ (`Cmd-Shift-K`/`Ctrl-Shift-K`) copies a link to that heading; clicking
   such a link opens the note and scrolls straight to the heading. The link is
