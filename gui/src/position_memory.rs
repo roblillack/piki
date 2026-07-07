@@ -55,6 +55,12 @@ impl PositionMemory {
             *name = new.to_string();
         }
     }
+
+    /// Stop tracking `note`'s position (used when a note is deleted). No-op if
+    /// it is not tracked.
+    pub fn remove(&mut self, note: &str) {
+        self.entries.retain(|(name, _)| name != note);
+    }
 }
 
 #[cfg(test)]

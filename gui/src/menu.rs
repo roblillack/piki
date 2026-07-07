@@ -1,7 +1,7 @@
 use super::{
-    AppState, AutoSaveState, load_note_helper, navigate_back, navigate_forward, note_picker,
-    rename_current_note, search_bar::SearchBar, start_sharing, statusbar::StatusBar, stop_sharing,
-    window_state::WindowGeometry,
+    AppState, AutoSaveState, delete_current_note, load_note_helper, navigate_back,
+    navigate_forward, note_picker, rename_current_note, search_bar::SearchBar, start_sharing,
+    statusbar::StatusBar, stop_sharing, window_state::WindowGeometry,
 };
 // Only the non-macOS in-app Quit item saves explicitly; on macOS the system
 // Quit routes through the window Close event, which already saves.
@@ -233,6 +233,30 @@ fn populate_menu<M>(
         let statusbar = statusbar.clone();
         let wind_ref = wind_ref.clone();
         menu_bar.add(
+            "Note/Open Note …",
+            goto_note_shortcut,
+            menu::MenuFlag::Normal,
+            move |_| {
+                if let Ok(w) = wind_ref.try_borrow() {
+                    note_picker::show_note_picker(
+                        app_state.clone(),
+                        autosave_state.clone(),
+                        active_editor.clone(),
+                        statusbar.clone(),
+                        &w,
+                    );
+                }
+            },
+        );
+    }
+
+    {
+        let app_state = app_state.clone();
+        let autosave_state = autosave_state.clone();
+        let active_editor = active_editor.clone();
+        let statusbar = statusbar.clone();
+        let wind_ref = wind_ref.clone();
+        menu_bar.add(
             "Note/Rename Note …",
             rename_shortcut,
             menu::MenuFlag::Normal,
@@ -248,26 +272,26 @@ fn populate_menu<M>(
         );
     }
 
+    // Delete Note: removes the current note's file after a confirmation dialog.
+    // Deliberately has no keyboard shortcut so a destructive action is never a
+    // stray keypress away. The `_` divider closes the note-management group
+    // (New / Open / Rename / Delete) above the navigation items.
     {
         let app_state = app_state.clone();
         let autosave_state = autosave_state.clone();
         let active_editor = active_editor.clone();
         let statusbar = statusbar.clone();
-        let wind_ref = wind_ref.clone();
         menu_bar.add(
-            "Note/_Open Note …",
-            goto_note_shortcut,
+            "Note/_Delete Note …",
+            Shortcut::None,
             menu::MenuFlag::Normal,
             move |_| {
-                if let Ok(w) = wind_ref.try_borrow() {
-                    note_picker::show_note_picker(
-                        app_state.clone(),
-                        autosave_state.clone(),
-                        active_editor.clone(),
-                        statusbar.clone(),
-                        &w,
-                    );
-                }
+                show_delete_dialog(
+                    app_state.clone(),
+                    autosave_state.clone(),
+                    active_editor.clone(),
+                    statusbar.clone(),
+                );
             },
         );
     }
@@ -1201,6 +1225,48 @@ fn default_new_note_name() -> String {
 /// [`default_new_note_name`]) that has not been given a real name yet.
 fn is_untitled(name: &str) -> bool {
     name.starts_with("untitled_")
+}
+
+/// Confirm and delete the currently open note (see [`delete_current_note`]).
+/// Backs the "Delete Note …" menu item. Read-only plugin views ("!…") have no
+/// file and cannot be deleted; every other note prompts for confirmation before
+/// its file is removed.
+fn show_delete_dialog(
+    app_state: Rc<RefCell<AppState>>,
+    autosave_state: Rc<RefCell<AutoSaveState>>,
+    active_editor: Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
+    statusbar: Rc<RefCell<StatusBar>>,
+) {
+    let current_name = app_state.borrow().current_note.clone();
+
+    if current_name.starts_with('!') {
+        dialog::alert_default("This note cannot be deleted.");
+        return;
+    }
+
+    // FLTK's fl_choice makes the *middle* button (b1) the default that Enter
+    // activates (Escape or closing the dialog returns None). Putting "Cancel" in
+    // that slot makes cancelling the default, so a destructive delete is never
+    // triggered by a stray Enter — it requires an explicit click on "Delete"
+    // (the right-hand button, b0).
+    let choice = dialog::choice2_default(
+        &format!(
+            "Delete note “{current_name}”?\n\nThis permanently removes it from disk and cannot be undone."
+        ),
+        "Delete",
+        "Cancel",
+        "",
+    );
+
+    if choice != Some(0) {
+        return;
+    }
+
+    if let Err(e) = delete_current_note(&app_state, &autosave_state, &active_editor, &statusbar) {
+        dialog::alert_default(&e);
+    } else {
+        app::redraw();
+    }
 }
 
 /// Prompt for a new name for the currently open note and rename it in place

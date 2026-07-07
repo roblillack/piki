@@ -26,6 +26,11 @@ While pre-1.0, the minor version is bumped for breaking changes.
   Piki version and toggles the page between one and two columns, the latter
   making better use of a shared widescreen (the choice is remembered). The page
   follows the viewer's system light/dark appearance automatically. (#39)
+- **Delete a note.** _Note → Delete Note …_ removes the current note's file from
+  disk after a confirmation dialog (Cancel is the default, so the destructive
+  action is never the accidental choice), then returns to the frontpage. It has
+  no keyboard shortcut on purpose. Read-only plugin views (e.g. the index) cannot
+  be deleted. (#42)
 - **Moving a paragraph now crosses block boundaries** (`Alt-Up`/`Alt-Down`,
   _Option-Up_/_Option-Down_ on macOS) instead of stopping at a list's edge. A
   list/checklist item at the edge of its list now leaves the list — keeping its
