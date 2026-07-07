@@ -10,6 +10,32 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ## [Unreleased] - ReleaseDate
 
+### Added
+
+- **Moving a paragraph now crosses block boundaries** (`Alt-Up`/`Alt-Down`,
+  _Option-Up_/_Option-Down_ on macOS) instead of stopping at a list's edge. A
+  list/checklist item at the edge of its list now leaves the list — keeping its
+  bullet, number, or checkbox — steps past an intervening block such as a heading
+  or paragraph, and merges into the next same-kind list it reaches, so two
+  adjacent same-kind lists never end up side by side and ordered lists stay
+  continuously numbered. A plain paragraph that meets a list or quote is drawn
+  into it, and a quote's child at the quote's edge is lifted back out. In effect a
+  block can now be reordered across a whole note — e.g. moved from one checklist
+  to another past a heading — rather than only within its own list.
+- **Moving now works on a multi-block selection.** When the selection spans
+  several sibling blocks (paragraphs, list or checklist items, or quote children)
+  `Alt-Up`/`Alt-Down` reorders them together and, at their container's edge,
+  carries the whole run out of it the same way a single block does; the moved run
+  stays selected. (via `rutle 0.4.0`)
+
+### Fixed
+
+- Turning a plain paragraph into a list or checklist item now merges it into an
+  adjacent same-kind list instead of leaving a second, separate list beside it —
+  so prepending a new entry by turning the paragraph above an existing checklist
+  into a checklist item yields one checklist rather than two, and ordered lists
+  renumber correctly. (via `rutle 0.4.0`)
+
 ## [0.5.0] - 2026-07-07
 
 ### Added
