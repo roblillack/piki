@@ -58,6 +58,10 @@ While pre-1.0, the minor version is bumped for breaking changes.
   a list item now keeps links and text styling instead of dropping in the raw
   Markdown as literal text; each pasted paragraph becomes its own styled list
   item. (via `rutle 0.4.1`) (#41)
+- Returning to a recently visited note now restores the caret position as well as
+  the scroll offset, so navigating away and back — via a link, the note picker,
+  or back/forward — resumes exactly where you were editing instead of dropping
+  the caret at the top. (#43)
 
 ## [0.5.0] - 2026-07-07
 

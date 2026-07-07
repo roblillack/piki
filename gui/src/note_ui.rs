@@ -1,6 +1,7 @@
 use crate::content::{ContentLoader, ContentProvider};
 use fltk::{enums::Color, window};
 use rutle::structured_document::BlockType;
+use rutle::tree_path::DocumentPosition;
 use std::any::Any;
 
 /// A minimal UI abstraction layer for a note editor/viewer.
@@ -19,6 +20,14 @@ pub trait NoteUI: ContentProvider + ContentLoader + 'static {
     // Scroll position in implementation-defined units (row/pixel).
     fn scroll_pos(&self) -> i32;
     fn set_scroll_pos(&mut self, pos: i32);
+
+    // Caret position within the document. `cursor_pos` returns `None` for a
+    // viewer with no caret concept (the default); `set_cursor_pos` is then a
+    // no-op. Used to restore the caret when returning to a note.
+    fn cursor_pos(&self) -> Option<DocumentPosition> {
+        None
+    }
+    fn set_cursor_pos(&mut self, _pos: DocumentPosition) {}
 
     // Set background color and make resizable with a window.
     fn set_bg_color(&mut self, color: Color);
