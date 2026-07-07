@@ -12,34 +12,6 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Added
 
-- **Moving a paragraph now crosses block boundaries** (`Alt-Up`/`Alt-Down`,
-  _Option-Up_/_Option-Down_ on macOS) instead of stopping at a list's edge. A
-  list/checklist item at the edge of its list now leaves the list — keeping its
-  bullet, number, or checkbox — steps past an intervening block such as a heading
-  or paragraph, and merges into the next same-kind list it reaches, so two
-  adjacent same-kind lists never end up side by side and ordered lists stay
-  continuously numbered. A plain paragraph that meets a list or quote is drawn
-  into it, and a quote's child at the quote's edge is lifted back out. In effect a
-  block can now be reordered across a whole note — e.g. moved from one checklist
-  to another past a heading — rather than only within its own list.
-- **Moving now works on a multi-block selection.** When the selection spans
-  several sibling blocks (paragraphs, list or checklist items, or quote children)
-  `Alt-Up`/`Alt-Down` reorders them together and, at their container's edge,
-  carries the whole run out of it the same way a single block does; the moved run
-  stays selected. (via `rutle 0.4.0`)
-
-### Fixed
-
-- Turning a plain paragraph into a list or checklist item now merges it into an
-  adjacent same-kind list instead of leaving a second, separate list beside it —
-  so prepending a new entry by turning the paragraph above an existing checklist
-  into a checklist item yields one checklist rather than two, and ordered lists
-  renumber correctly. (via `rutle 0.4.0`)
-
-## [0.5.0] - 2026-07-07
-
-### Added
-
 - **Live Note Sharing.** _View → Live Note Sharing_
   (`Cmd-Shift-L`/`Ctrl-Shift-L`) starts a local, loopback-only webserver that
   renders the currently visible note as a clean, live-reloading HTML page and
@@ -53,7 +25,35 @@ While pre-1.0, the minor version is bumped for breaking changes.
   OS-assigned port, so only your machine can reach it. A subtle footer shows the
   Piki version and toggles the page between one and two columns, the latter
   making better use of a shared widescreen (the choice is remembered). The page
-  follows the viewer's system light/dark appearance automatically.
+  follows the viewer's system light/dark appearance automatically. (#39)
+- **Moving a paragraph now crosses block boundaries** (`Alt-Up`/`Alt-Down`,
+  _Option-Up_/_Option-Down_ on macOS) instead of stopping at a list's edge. A
+  list/checklist item at the edge of its list now leaves the list — keeping its
+  bullet, number, or checkbox — steps past an intervening block such as a heading
+  or paragraph, and merges into the next same-kind list it reaches, so two
+  adjacent same-kind lists never end up side by side and ordered lists stay
+  continuously numbered. A plain paragraph that meets a list or quote is drawn
+  into it, and a quote's child at the quote's edge is lifted back out. In effect a
+  block can now be reordered across a whole note — e.g. moved from one checklist
+  to another past a heading — rather than only within its own list. (#40)
+- **Moving now works on a multi-block selection.** When the selection spans
+  several sibling blocks (paragraphs, list or checklist items, or quote children)
+  `Alt-Up`/`Alt-Down` reorders them together and, at their container's edge,
+  carries the whole run out of it the same way a single block does; the moved run
+  stays selected. (via `rutle 0.4.0`) (#40)
+
+### Fixed
+
+- Turning a plain paragraph into a list or checklist item now merges it into an
+  adjacent same-kind list instead of leaving a second, separate list beside it —
+  so prepending a new entry by turning the paragraph above an existing checklist
+  into a checklist item yields one checklist rather than two, and ordered lists
+  renumber correctly. (via `rutle 0.4.0`) (#40)
+
+## [0.5.0] - 2026-07-07
+
+### Added
+
 - **Link to a section heading.** With the caret in a heading, _Copy Link to
   Section_ (`Cmd-Shift-K`/`Ctrl-Shift-K`) copies a link to that heading; clicking
   such a link opens the note and scrolls straight to the heading. The link is
