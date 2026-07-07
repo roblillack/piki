@@ -63,7 +63,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   `Cmd-Alt-1`/`Ctrl-Alt-1` (or any heading, list, or quote command) did nothing
   until a character had been typed and deleted; empty notes are now seeded with a
   paragraph so the very first command takes effect, while an untouched new note
-  is still left with no file on disk.
+  is still left with no file on disk. (#44)
 
 ## [0.5.0] - 2026-07-07
 
