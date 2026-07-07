@@ -49,6 +49,10 @@ While pre-1.0, the minor version is bumped for breaking changes.
   so prepending a new entry by turning the paragraph above an existing checklist
   into a checklist item yields one checklist rather than two, and ordered lists
   renumber correctly. (via `rutle 0.4.0`) (#40)
+- Pasting several copied list items (or other multi-paragraph rich content) into
+  a list item now keeps links and text styling instead of dropping in the raw
+  Markdown as literal text; each pasted paragraph becomes its own styled list
+  item. (via `rutle 0.4.1`) (#41)
 
 ## [0.5.0] - 2026-07-07
 
