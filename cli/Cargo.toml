@@ -15,3 +15,24 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.9"
 crossterm = "0.29"
 url = "2.5"
+
+# This crate is the "release lead" for the whole workspace (see the workspace
+# root Cargo.toml). It owns the single combined tag and is the only crate that
+# rolls the shared, workspace-root CHANGELOG.md, so the replacements below run
+# exactly once per release even though three crates are published.
+[package.metadata.release]
+tag = true
+tag-name = "v{{version}}"
+# Roll CHANGELOG's [Unreleased] over to the new version and re-seed a fresh
+# [Unreleased] above it (the Keep a Changelog + cargo-release marker idiom).
+# Order matters: the version/date/compare substitutions run first, *then* the
+# markers re-insert the literal "Unreleased"/"ReleaseDate" tokens so the next
+# release finds them again. The CHANGELOG lives at the workspace root, one level
+# up from this crate.
+pre-release-replacements = [
+    { file = "../CHANGELOG.md", search = "Unreleased", replace = "{{version}}" },
+    { file = "../CHANGELOG.md", search = '\.\.\.HEAD', replace = "...{{tag_name}}", exactly = 1 },
+    { file = "../CHANGELOG.md", search = "ReleaseDate", replace = "{{date}}" },
+    { file = "../CHANGELOG.md", search = "<!-- next-header -->", replace = "<!-- next-header -->\n\n## [Unreleased] - ReleaseDate", exactly = 1 },
+    { file = "../CHANGELOG.md", search = "<!-- next-url -->", replace = "<!-- next-url -->\n[Unreleased]: https://github.com/roblillack/piki/compare/{{tag_name}}...HEAD", exactly = 1 },
+]

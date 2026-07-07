@@ -6,7 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 While pre-1.0, the minor version is bumped for breaking changes.
 
-## [Unreleased]
+<!-- next-header -->
+
+## [Unreleased] - ReleaseDate
 
 ### Added
 
@@ -18,6 +20,11 @@ While pre-1.0, the minor version is bumped for breaking changes.
   Pasting such a URL into the link editor normalizes it back to a plain
   `note#section` wiki link. Repeated heading titles are disambiguated so a link
   always resolves to the intended one.
+
+## [0.4.0] - 2026-07-06
+
+### Added
+
 - Editing now offers **two caret positions at the edges of styled text** (bold,
   italic, code, links, …), even with Reveal Codes off: arrowing to the border of a
   bold word stops once "before" and once "inside" the style, letting you choose
@@ -114,4 +121,6 @@ While pre-1.0, the minor version is bumped for breaking changes.
   control character U+0092 instead of `'`. Piki now remaps that block to the
   characters the bytes actually stand for on import. (#26)
 
-[Unreleased]: https://github.com/roblillack/piki/compare/piki-v0.3.0...HEAD
+<!-- next-url -->
+[Unreleased]: https://github.com/roblillack/piki/compare/piki-v0.4.0...HEAD
+[0.4.0]: https://github.com/roblillack/piki/compare/piki-v0.3.0...piki-v0.4.0
