@@ -12,6 +12,14 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Added
 
+- **Full-text search.** The _Open Note_ picker (`Cmd-O`/`Ctrl-O`) now searches
+  note *contents* as well as names: as you type, notes whose name matches appear
+  first (as before), followed by notes whose body contains all your terms, each
+  shown with the matching line. There is no index and no external dependency —
+  a personal wiki is small enough to scan in memory, so the picker still opens
+  and filters instantly. The CLI gains a matching `piki search <terms>` command
+  that prints grep-style `note:line: text` results (with the terms highlighted on
+  a terminal); a note is listed only when it contains every term.
 - **Live Note Sharing.** _View → Live Note Sharing_
   (`Cmd-Shift-L`/`Ctrl-Shift-L`) starts a local, loopback-only webserver that
   renders the currently visible note as a clean, live-reloading HTML page and

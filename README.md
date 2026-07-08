@@ -112,12 +112,21 @@ Options:
   -d, --directory DIRECTORY   Directory containing markdown files (default: ~/.piki)
 
 Commands:
-  edit [name]   Edit a note (opens in $EDITOR or $VISUAL, defaults to vim)
-  view [name]   View a note
-  ls            List all notes
-  log [-n NUM]  Show git commit log (if using git)
-  run [cmd]     Run a shell command inside the notes directory
-  help          Show help information
+  edit [name]     Edit a note (opens in $EDITOR or $VISUAL, defaults to vim)
+  view [name]     View a note
+  ls              List all notes
+  search [terms]  Full-text search notes (all terms must match)
+  log [-n NUM]    Show git commit log (if using git)
+  run [cmd]       Run a shell command inside the notes directory
+  help            Show help information
+```
+
+Search prints one grep-style `note:line: text` per matching line and, on a
+terminal, highlights the matched terms:
+
+```bash
+piki search budget            # notes mentioning "budget"
+piki search marathon training # notes mentioning BOTH terms
 ```
 
 ### Interactive Mode
@@ -177,7 +186,7 @@ piki-gui -d /path/to/wiki
 | --------------------- | ----------------- |
 | **Navigation**        |                   |
 | `Cmd+N`               | New note          |
-| `Cmd+O`               | Open note picker  |
+| `Cmd+O`               | Open / search notes |
 | `Cmd+[`               | Back              |
 | `Cmd+]`               | Forward           |
 | `Cmd+Option+F`        | Jump to frontpage |
@@ -303,7 +312,7 @@ Fast startup, minimal dependencies, straightforward workflows. A tool that gets 
 Contributions are welcome! Some ideas:
 
 - [ ] Package managers (Homebrew, apt, Chocolatey, AUR)
-- [ ] Full-text search across all notes
+- [x] Full-text search across all notes
 - [ ] Backlinks and note graph
 - [ ] Custom syntax highlighting themes
 - [ ] Mobile companion app

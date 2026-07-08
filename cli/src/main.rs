@@ -53,6 +53,12 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         command: Vec<String>,
     },
+    /// Full-text search notes (all terms must match)
+    Search {
+        /// Terms to search for; a note matches only when it contains all of them
+        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+        terms: Vec<String>,
+    },
     /// List all todos from all notes
     Todo,
     /// View a note
@@ -597,6 +603,100 @@ fn cmd_ls(notes_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// ANSI escape sequences used when stdout is a TTY. Bold cyan for the note
+/// name, green for the line number, bold red for the matched terms — the same
+/// visual grammar `grep --color` and `rg` use, so the output reads familiarly.
+const C_NAME: &str = "\x1b[1;36m";
+const C_LINE: &str = "\x1b[32m";
+const C_MATCH: &str = "\x1b[1;31m";
+const C_RESET: &str = "\x1b[0m";
+
+/// Wrap every case-insensitive occurrence of any term in `line` with the match
+/// colour. Boundary-safe: it only does offset-based highlighting when
+/// lowercasing preserved the byte length (i.e. plain ASCII case folding) and the
+/// computed offsets fall on `char` boundaries; otherwise it returns the line
+/// untouched rather than risk slicing mid-character.
+fn highlight_terms(line: &str, terms: &[String], enabled: bool) -> String {
+    if !enabled || terms.is_empty() {
+        return line.to_string();
+    }
+
+    let lower = line.to_lowercase();
+    if lower.len() != line.len() {
+        // Non-ASCII case folding changed the byte length, so offsets in `lower`
+        // no longer map onto `line`. Show the line without highlights.
+        return line.to_string();
+    }
+
+    // Collect the byte ranges of every term occurrence, then merge overlaps so
+    // adjacent/overlapping matches don't produce nested colour codes.
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+    for term in terms {
+        let mut from = 0;
+        while let Some(pos) = lower[from..].find(term.as_str()) {
+            let start = from + pos;
+            let end = start + term.len();
+            ranges.push((start, end));
+            from = end.max(start + 1);
+        }
+    }
+    if ranges.is_empty() {
+        return line.to_string();
+    }
+    ranges.sort_unstable();
+    let mut merged: Vec<(usize, usize)> = Vec::new();
+    for (start, end) in ranges {
+        match merged.last_mut() {
+            Some(last) if start <= last.1 => last.1 = last.1.max(end),
+            _ => merged.push((start, end)),
+        }
+    }
+
+    let mut out = String::with_capacity(line.len() + merged.len() * 12);
+    let mut cursor = 0;
+    for (start, end) in merged {
+        if start < cursor || !line.is_char_boundary(start) || !line.is_char_boundary(end) {
+            continue;
+        }
+        out.push_str(&line[cursor..start]);
+        out.push_str(C_MATCH);
+        out.push_str(&line[start..end]);
+        out.push_str(C_RESET);
+        cursor = end;
+    }
+    out.push_str(&line[cursor..]);
+    out
+}
+
+fn cmd_search(terms: Vec<String>, notes_dir: &Path) -> Result<(), String> {
+    let store = DocumentStore::new(notes_dir.to_path_buf());
+    let query = terms.join(" ");
+    let parsed = piki_core::search::parse_terms(&query);
+    let results = piki_core::search::search_store(&store, &query)?;
+
+    if results.is_empty() {
+        eprintln!("No matches for “{}”.", query);
+        return Ok(());
+    }
+
+    let use_color = io::stdout().is_terminal();
+    for note in &results {
+        for (line_no, text) in &note.lines {
+            let shown = highlight_terms(text.trim(), &parsed, use_color);
+            if use_color {
+                println!(
+                    "{C_NAME}{}{C_RESET}:{C_LINE}{line_no}{C_RESET}: {shown}",
+                    note.name
+                );
+            } else {
+                println!("{}:{line_no}: {shown}", note.name);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn cmd_log(count: usize, notes_dir: &PathBuf) -> Result<(), String> {
     let output = Command::new("git")
         .args([
@@ -668,6 +768,7 @@ fn print_help_with_aliases(config: &Config) {
     println!("  log         - show the commit log");
     println!("  ls          - list notes");
     println!("  run [cmd]   - run a shell command inside the notes directory");
+    println!("  search [terms] - full-text search notes (all terms must match)");
     println!("  todo        - list all todos from all notes");
     println!("  view [name] - view a note");
 
@@ -762,6 +863,7 @@ fn main() {
         Some(Commands::Ls) => cmd_ls(&notes_dir),
         Some(Commands::Log { count }) => cmd_log(count, &notes_dir),
         Some(Commands::Run { command }) => cmd_run(command, &notes_dir),
+        Some(Commands::Search { terms }) => cmd_search(terms, &notes_dir),
         Some(Commands::Todo) => cmd_todo(&notes_dir),
         None => {
             // Default to edit command, either with provided name or interactive

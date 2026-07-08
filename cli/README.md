@@ -43,12 +43,24 @@ Options:
   -d, --directory DIRECTORY   Directory containing markdown files (default: ~/.piki)
 
 Commands:
-  edit [name]   Edit a note (opens in $EDITOR or $VISUAL, defaults to vim)
-  view [name]   View a note
-  ls            List all notes
-  log [-n NUM]  Show git commit log (if using git)
-  run [cmd]     Run a shell command inside the notes directory
-  help          Show help information
+  edit [name]     Edit a note (opens in $EDITOR or $VISUAL, defaults to vim)
+  view [name]     View a note
+  ls              List all notes
+  search [terms]  Full-text search notes (all terms must match)
+  log [-n NUM]    Show git commit log (if using git)
+  run [cmd]       Run a shell command inside the notes directory
+  help            Show help information
+```
+
+### Full-text search
+
+`piki search` scans every note and prints one grep-style `note:line: text`
+line per match, highlighting the matched terms when writing to a terminal. A
+note is listed only when it contains **all** of the given terms:
+
+```bash
+piki search budget            # notes mentioning "budget"
+piki search marathon training # notes mentioning BOTH "marathon" and "training"
 ```
 
 ## Configuration
@@ -126,6 +138,7 @@ piki push    # Commit and push
 
 - **Local-first**: Your notes are plain Markdown files
 - **Fuzzy Search**: Fast interactive note picker
+- **Full-text Search**: `piki search <terms>` greps note contents instantly
 - **Git Integration**: Built-in git log and run commands
 - **Customizable**: Define aliases for your workflow
 - **Cross-platform**: Works on Windows, macOS, Linux, and BSD
