@@ -46,6 +46,10 @@ While pre-1.0, the minor version is bumped for breaking changes.
   `Alt-Up`/`Alt-Down` reorders them together and, at their container's edge,
   carries the whole run out of it the same way a single block does; the moved run
   stays selected. (via `rutle 0.4.0`) (#40)
+- **Insert a continuation paragraph** with `Cmd-P`/`Ctrl-P`. Inside a list or
+  checklist item (or a quote) it adds another paragraph to the *same* item rather
+  than starting a new item, so a single entry can hold multiple paragraphs;
+  elsewhere it splits the block like `Enter`.
 
 ### Fixed
 

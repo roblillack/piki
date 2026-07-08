@@ -1454,6 +1454,15 @@ impl FltkStructuredRichDisplay {
                                     }
                                     handled = true;
                                 }
+                                // Cmd/Ctrl-P (insert continuation paragraph)
+                                else if cmd_modifier && key == Key::from_char('p') {
+                                    let mut disp = display.borrow_mut();
+                                    disp.editor_mut().insert_continuation().ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                        (cb)();
+                                    }
+                                    handled = true;
+                                }
                                 // Cmd/Ctrl-Shift-Z (redo)
                                 else if cmd_shift_modifier && key == Key::from_char('z') {
                                     let changed = display.borrow_mut().editor_mut().redo();
