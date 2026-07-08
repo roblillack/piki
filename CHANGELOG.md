@@ -12,6 +12,16 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Added
 
+- **Live note sharing: spotlight the selected paragraph.** The web view now
+  highlights whatever you have selected in the editor with a tinted background
+  band, so you can point the audience at exactly what you are discussing. As the
+  highlight lands, a large arrow sweeps in from the left gutter to draw the eye
+  and then fades out, leaving the calm band behind. Selecting across several
+  paragraphs or list items highlights the whole range (one arrow marks the
+  start). It follows the selection live: move the caret or click elsewhere to
+  clear it, and double-click a word (or drag a selection) to bring it back. The
+  spotlight appears only in the shared web view, never in the editor. (#50)
+
 - **Live note sharing: wide/compact line spacing.** The share footer gains a
   line-spacing toggle (two small stacked-line icons) next to the column toggle.
   _Compact_ tightens the line height and block spacing to fit noticeably more

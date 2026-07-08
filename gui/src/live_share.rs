@@ -1035,10 +1035,12 @@ mark { background-color: #fff8c5; color: inherit; }
 
 /* Live selection spotlight: the paragraph or list item the presenter has
    selected in the app (see `HighlightTarget`). Every selected paragraph/item
-   gets a warm tint (`piki-active`); the first one also gets a large arrow in the
-   left gutter (`piki-lead`), so a multi-paragraph selection reads as one region
-   with a single pointer. The classes are added server-side; they appear only
-   while the editor has a selection and clear when the caret moves. */
+   gets a warm tint (`piki-active`) that persists; the first one (`piki-lead`)
+   also gets a large arrow in the left gutter that sweeps in to draw the eye and
+   then fades out, leaving just the tint. A multi-paragraph selection thus reads
+   as one region with a single, momentary pointer. The classes are added
+   server-side; they appear only while the editor has a selection and clear when
+   the caret moves. */
 .piki-active {
   position: relative;
   background-color: #fff3bf;
@@ -1056,31 +1058,42 @@ mark { background-color: #fff8c5; color: inherit; }
   position: absolute;
   left: -1.85em;
   top: 50%;
-  transform: translateY(-50%);
   /* A solid right-pointing triangle built from borders (no assets). */
   width: 0;
   height: 0;
   border-style: solid;
   border-width: 0.6em 0 0.6em 0.85em;
   border-color: transparent transparent transparent #f08c00;
-  /* Slide in from the left with a slight overshoot, as if pointing. */
-  animation: piki-active-arrow 0.42s cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Transient pointer: hidden at rest, it sweeps in, holds briefly, then fades
+     back out (the animation ends where the resting style is, so `fill-mode`
+     stays the default `none`). */
+  opacity: 0;
+  transform: translateY(-50%);
+  animation: piki-active-arrow 1.3s ease-out;
 }
 /* List items sit inside the list's padding; nudge the arrow further left so it
    clears the bullet/number rather than colliding with it. */
 li.piki-lead::before { left: -2.6em; }
 
-/* Each keyframe set specifies only `from`; the implicit `to` is the element's
-   own resting style, so the tint fades up to whatever the (light/dark) theme
-   sets and the arrow settles at its themed color — no per-theme duplication. */
+/* The band keyframe specifies only `from`; the implicit `to` is the element's
+   own resting tint, so it fades up to whatever the (light/dark) theme sets — no
+   per-theme duplication. The arrow keyframe is self-contained: in (with a small
+   overshoot), a hold, then out, ending hidden like its resting style. */
 @keyframes piki-active-band {
   from { background-color: transparent; box-shadow: 0 0 0 0.3em transparent; }
 }
 @keyframes piki-active-arrow {
-  from { opacity: 0; transform: translate(-0.7em, -50%); }
+  0% { opacity: 0; transform: translate(-0.7em, -50%); }
+  18% { opacity: 1; transform: translate(0.12em, -50%); }
+  28% { transform: translate(0, -50%); }
+  60% { opacity: 1; }
+  100% { opacity: 0; }
 }
+/* With motion reduced there is no sweep to notice, so keep the arrow shown for
+   the life of the selection rather than flashing it invisibly. */
 @media (prefers-reduced-motion: reduce) {
-  .piki-active, .piki-lead::before { animation: none; }
+  .piki-active { animation: none; }
+  .piki-lead::before { animation: none; opacity: 1; }
 }
 
 hr { height: 0.25em; margin: 24px 0; background-color: #d0d7de; border: 0; }
