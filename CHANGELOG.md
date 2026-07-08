@@ -24,7 +24,10 @@ While pre-1.0, the minor version is bumped for breaking changes.
 - **Live note sharing: footer no longer spans the full width.** The attribution
   and toggles now sit in a small rounded pill pinned to the bottom-right corner
   instead of a bar across the whole bottom edge, so they take up as little of the
-  shared page as possible. (#49)
+  shared page as possible. It fades away a few seconds after the page loads (and
+  a few seconds after the pointer last leaves its corner), then reappears the
+  moment the pointer returns — while faded it is click-through, so it never
+  obscures or blocks the content beneath it. (#49)
 
 ### Fixed
 

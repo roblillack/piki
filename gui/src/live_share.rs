@@ -347,6 +347,8 @@ fn render_page(note: &str, markdown: &str, version: &str) -> String {
     page.push_str(COLUMN_SCRIPT);
     page.push_str("</script>\n<script>");
     page.push_str(SPACING_SCRIPT);
+    page.push_str("</script>\n<script>");
+    page.push_str(FOOTER_FADE_SCRIPT);
     page.push_str("</script>\n</body>\n</html>\n");
     page
 }
@@ -738,6 +740,38 @@ const SPACING_SCRIPT: &str = r#"(function () {
   }
 })();"#;
 
+/// Auto-hides the footer so it stays out of the way: it fades to fully
+/// transparent (and click-through, via the `piki-faded` class — see the
+/// stylesheet) about 3s after the page loads and about 3s after the pointer
+/// last left its corner. Any pointer movement near that corner — or keyboard
+/// focus landing on a toggle — rouses it again and restarts the timer, so it is
+/// there whenever you reach for it and gone the rest of the time.
+const FOOTER_FADE_SCRIPT: &str = r#"(function () {
+  var footer = document.getElementById("piki-footer");
+  if (!footer) return;
+  var timer = null;
+  function fade() { footer.classList.add("piki-faded"); }
+  function wake() {
+    footer.classList.remove("piki-faded");
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(fade, 3000);
+  }
+  function nearCorner(x, y) {
+    var r = footer.getBoundingClientRect();
+    return x >= r.left - 40 && y >= r.top - 40;
+  }
+  document.addEventListener("mousemove", function (e) {
+    if (nearCorner(e.clientX, e.clientY)) wake();
+  });
+  document.addEventListener("touchstart", function (e) {
+    var t = e.touches[0];
+    if (t && nearCorner(t.clientX, t.clientY)) wake();
+  }, { passive: true });
+  footer.addEventListener("focusin", wake);
+  // Visible on load, then fade after ~3s.
+  wake();
+})();"#;
+
 /// Self-contained stylesheet, modeled on VS Code's Markdown preview (the look
 /// of tdoc's own `html::write_document`), with automatic dark mode. The
 /// first-child rule is scoped to `#piki-doc` because the content lives in that
@@ -867,6 +901,18 @@ img { max-width: 100%; }
   border: 1px solid #d8dee4;
   border-radius: 8px;
   box-shadow: 0 1px 4px rgba(31, 35, 40, 0.12);
+  /* Fade in quickly when roused (see FOOTER_FADE_SCRIPT). */
+  transition: opacity 0.18s ease;
+}
+/* Idle state: faded fully out and click-through, so it never obscures or blocks
+   the content beneath it. Fades out slowly, unlike the quick fade-in above. */
+#piki-footer.piki-faded {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 1s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  #piki-footer, #piki-footer.piki-faded { transition: none; }
 }
 #piki-footer a.piki-col { color: #0969da; text-decoration: none; cursor: pointer; }
 #piki-footer a.piki-col:hover { text-decoration: underline; }
@@ -1056,6 +1102,9 @@ mod tests {
         assert!(page.contains("data-spacing=\"wide\""), "{page}");
         assert!(page.contains("data-spacing=\"compact\""), "{page}");
         assert!(page.contains("body.compact"), "{page}");
+        // The footer auto-hide: both the faded style and the script that drives it.
+        assert!(page.contains("#piki-footer.piki-faded"), "{page}");
+        assert!(page.contains("piki-faded"), "{page}");
         // The layout hook the toggle drives must be present in the stylesheet,
         // including the rule that keeps headings with their following content.
         assert!(page.contains("body.cols-2"), "{page}");
