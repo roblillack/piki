@@ -6,9 +6,9 @@ mod history;
 mod link_handler;
 mod menu;
 mod note_picker;
+mod position_memory;
 mod recency;
 pub mod responsive_scrollbar;
-mod scroll_memory;
 mod search_bar;
 mod statusbar;
 mod window_state;
@@ -23,8 +23,8 @@ use piki_gui::note_ui::NoteUI;
 use piki_gui::on_air_bar::OnAirBar;
 use piki_gui::section_link;
 use piki_gui::ui_adapters::StructuredRichUI;
+use position_memory::{NotePosition, PositionMemory};
 use recency::RecentNotes;
-use scroll_memory::ScrollMemory;
 use search_bar::SearchBar;
 use statusbar::StatusBar;
 use std::cell::RefCell;
@@ -93,9 +93,9 @@ struct AppState {
     recent_notes: RecentNotes,
     /// Where `recent_notes` is persisted (None if no data dir is available).
     recent_notes_path: Option<PathBuf>,
-    /// In-memory scroll positions for recently visited notes, so returning to a
-    /// note resumes where the user left off.
-    scroll_positions: ScrollMemory,
+    /// In-memory positions (scroll offset + caret) for recently visited notes,
+    /// so returning to a note resumes where the user left off.
+    note_positions: PositionMemory,
 }
 
 impl AppState {
@@ -116,7 +116,7 @@ impl AppState {
             history: History::new(),
             recent_notes,
             recent_notes_path,
-            scroll_positions: ScrollMemory::new(),
+            note_positions: PositionMemory::new(),
         }
     }
 
@@ -132,15 +132,30 @@ impl AppState {
 
     /// Update all in-session state that refers to `old` to point at `new` after
     /// a note has been renamed: the current-note pointer, back/forward history,
-    /// the picker's recency ordering, and remembered scroll positions. The
-    /// on-disk file move is handled by `rename_current_note`.
+    /// the picker's recency ordering, and remembered positions. The on-disk file
+    /// move is handled by `rename_current_note`.
     fn rename_note(&mut self, old: &str, new: &str) {
         if self.current_note == old {
             self.current_note = new.to_string();
         }
         self.history.rename_note(old, new);
         self.recent_notes.rename(old, new);
-        self.scroll_positions.rename(old, new);
+        self.note_positions.rename(old, new);
+        if let Some(path) = &self.recent_notes_path
+            && let Err(e) = self.recent_notes.save(path)
+        {
+            eprintln!("Failed to save recent notes: {e}");
+        }
+    }
+
+    /// Drop all in-session state that refers to `note` after its file has been
+    /// deleted: its back/forward history entries, the picker's recency entry,
+    /// and any remembered position. The on-disk file removal is handled
+    /// by `delete_current_note`.
+    fn forget_note(&mut self, note: &str) {
+        self.history.remove_note(note);
+        self.recent_notes.remove(note);
+        self.note_positions.remove(note);
         if let Some(path) = &self.recent_notes_path
             && let Err(e) = self.recent_notes.save(path)
         {
@@ -269,33 +284,104 @@ fn rename_current_note(
     Ok(())
 }
 
+/// Delete the currently open note: remove its file from disk, navigate away to
+/// the frontpage, and purge every trace of it from the in-session state. Backs
+/// the "Delete Note …" menu item (the caller shows the confirmation dialog).
+///
+/// Read-only plugin views ("!…") have no file and cannot be deleted. Before
+/// navigating, the pending autosave is neutralized so the "save on leave" step
+/// inside `load_note_helper` cannot re-create the file we just removed. Returns
+/// an error (surfaced by the caller) only when the on-disk removal fails; a
+/// never-saved note simply has no file and is treated as already gone.
+fn delete_current_note(
+    app_state: &Rc<RefCell<AppState>>,
+    autosave_state: &Rc<RefCell<AutoSaveState>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
+    statusbar: &Rc<RefCell<StatusBar>>,
+) -> Result<(), String> {
+    let note = app_state.borrow().current_note.clone();
+    if note.starts_with('!') {
+        return Err("This note cannot be deleted.".to_string());
+    }
+
+    // Remove the file first, so a failure aborts before we touch any state.
+    {
+        let st = app_state.borrow();
+        st.store.delete(&note)?;
+    }
+
+    // Neutralize the pending autosave so the navigation below does not re-create
+    // the file we just deleted: point the autosave at the deleted note with its
+    // current editor content as the "on-disk" baseline, making the save-on-leave
+    // a no-op (equal content) with nothing pending.
+    if let Ok(mut as_state) = autosave_state.try_borrow_mut() {
+        let content = active_editor.borrow().borrow().get_content();
+        as_state.reset_for_note(&note, &content);
+    }
+
+    // Leave the now-deleted note by loading the frontpage.
+    load_note_helper(
+        "frontpage",
+        app_state,
+        autosave_state,
+        active_editor,
+        statusbar,
+        None,
+        None,
+    );
+
+    // Now that we are no longer on it, purge every trace of the deleted note
+    // from history / recency / scroll memory — including the scroll entry the
+    // navigation above re-recorded for the note we just left.
+    app_state.borrow_mut().forget_note(&note);
+
+    statusbar
+        .borrow_mut()
+        .set_status(&format!("Deleted note '{note}'."));
+
+    Ok(())
+}
+
 fn load_note_helper(
     note_name: &str,
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
     active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     statusbar: &Rc<RefCell<StatusBar>>,
-    restore_scroll: Option<i32>,
+    restore_position: Option<NotePosition>,
     fragment: Option<&str>,
 ) {
     // Save the note we're leaving before its content is replaced below, so
     // switching notes (or creating a new one) never drops unsaved edits.
     save_current_note(app_state, autosave_state, active_editor, statusbar);
 
-    // Record the scroll position of the note we're leaving: into the current
-    // back/forward history entry (only for non-history navigation), and always
-    // into the recent-notes scroll memory so returning to it later — via a link
-    // or the picker — resumes where we were.
+    // A restore position is only supplied by back/forward navigation; its
+    // absence means this is a fresh navigation (link/picker/new note) that
+    // should be recorded into history. Captured now because `restore_position`
+    // is consumed further below when restoring the target note's position.
+    let record_history = restore_position.is_none();
+
+    // Record the position (scroll offset + caret) of the note we're leaving:
+    // into the current back/forward history entry (only for non-history
+    // navigation), and always into the recent-notes position memory so returning
+    // to it later — via a link or the picker — resumes where we were.
     {
-        let leaving_scroll = active_editor.borrow().borrow().scroll_pos();
+        let leaving_position = {
+            let active = active_editor.borrow();
+            let ed = active.borrow();
+            NotePosition {
+                scroll: ed.scroll_pos(),
+                cursor: ed.cursor_pos(),
+            }
+        };
         let mut state = app_state.borrow_mut();
-        if restore_scroll.is_none() {
-            state.history.update_scroll_position(leaving_scroll);
+        if record_history {
+            state.history.update_position(leaving_position.clone());
         }
         let leaving_note = state.current_note.clone();
         state
-            .scroll_positions
-            .remember(&leaving_note, leaving_scroll);
+            .note_positions
+            .remember(&leaving_note, leaving_position);
     }
 
     // Check if this is a plugin note
@@ -327,11 +413,11 @@ fn load_note_helper(
                 editor_mut.set_readonly(is_plugin);
             }
 
-            // Decide where to scroll. A section fragment (from a section link)
-            // wins and scrolls to the matching heading; otherwise an explicit
-            // position from back/forward history wins, then the remembered
-            // position for this note (if it is still one of the recent ones),
-            // falling back to the top.
+            // Decide where to scroll and place the caret. A section fragment
+            // (from a section link) wins and scrolls to the matching heading;
+            // otherwise an explicit position from back/forward history wins, then
+            // the remembered position for this note (if it is still one of the
+            // recent ones), falling back to the top with the caret at the start.
             let did_anchor = fragment
                 .filter(|f| !f.is_empty())
                 .map(|frag| {
@@ -344,26 +430,38 @@ fn load_note_helper(
                 })
                 .unwrap_or(false);
 
-            let final_scroll_pos = if did_anchor {
-                active_editor.borrow().borrow().scroll_pos()
-            } else {
-                let target_scroll = restore_scroll
-                    .or_else(|| app_state.borrow().scroll_positions.get(note_name))
-                    .unwrap_or(0);
+            let final_position = if did_anchor {
+                // The anchor jump already positioned the viewport and caret; just
+                // capture where they landed for the history entry.
                 let active = active_editor.borrow();
-                let mut ed = (*active).borrow_mut();
-                ed.set_scroll_pos(target_scroll);
-                target_scroll
+                let ed = active.borrow();
+                NotePosition {
+                    scroll: ed.scroll_pos(),
+                    cursor: ed.cursor_pos(),
+                }
+            } else {
+                let target = restore_position
+                    .or_else(|| app_state.borrow().note_positions.get(note_name))
+                    .unwrap_or_default();
+                let active = active_editor.borrow();
+                let mut ed = active.borrow_mut();
+                // Restore the caret first (it does not move the viewport), then
+                // the scroll offset, which is authoritative for what's on screen.
+                if let Some(cursor) = target.cursor.clone() {
+                    ed.set_cursor_pos(cursor);
+                }
+                ed.set_scroll_pos(target.scroll);
+                target
             };
 
             // Drop the editor borrow before manipulating history
 
             // If normal navigation (not history), add new note to history
-            if restore_scroll.is_none() {
+            if record_history {
                 app_state
                     .borrow_mut()
                     .history
-                    .push(note_name.to_string(), final_scroll_pos);
+                    .push(note_name.to_string(), final_position);
             }
 
             // Record the open so the note picker can order notes by recency and
@@ -423,12 +521,16 @@ fn navigate_back(
     active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     statusbar: &Rc<RefCell<StatusBar>>,
 ) {
-    // Update current entry's scroll position before navigating
-    let scroll_pos = active_editor.borrow().borrow().scroll_pos();
-    app_state
-        .borrow_mut()
-        .history
-        .update_scroll_position(scroll_pos);
+    // Update current entry's position (scroll + caret) before navigating
+    let position = {
+        let active = active_editor.borrow();
+        let ed = active.borrow();
+        NotePosition {
+            scroll: ed.scroll_pos(),
+            cursor: ed.cursor_pos(),
+        }
+    };
+    app_state.borrow_mut().history.update_position(position);
 
     // Try to navigate back and extract values before calling load_note_helper
     let target = {
@@ -436,17 +538,17 @@ fn navigate_back(
         state
             .history
             .go_back()
-            .map(|entry| (entry.note_name.clone(), entry.scroll_position))
+            .map(|entry| (entry.note_name.clone(), entry.position.clone()))
     }; // Borrow is dropped here
 
-    if let Some((note_name, scroll_position)) = target {
+    if let Some((note_name, position)) = target {
         load_note_helper(
             &note_name,
             app_state,
             autosave_state,
             active_editor,
             statusbar,
-            Some(scroll_position),
+            Some(position),
             None,
         );
     }
@@ -458,12 +560,16 @@ fn navigate_forward(
     active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     statusbar: &Rc<RefCell<StatusBar>>,
 ) {
-    // Update current entry's scroll position before navigating
-    let scroll_pos = active_editor.borrow().borrow().scroll_pos();
-    app_state
-        .borrow_mut()
-        .history
-        .update_scroll_position(scroll_pos);
+    // Update current entry's position (scroll + caret) before navigating
+    let position = {
+        let active = active_editor.borrow();
+        let ed = active.borrow();
+        NotePosition {
+            scroll: ed.scroll_pos(),
+            cursor: ed.cursor_pos(),
+        }
+    };
+    app_state.borrow_mut().history.update_position(position);
 
     // Try to navigate forward and extract values before calling load_note_helper
     let target = {
@@ -471,17 +577,17 @@ fn navigate_forward(
         state
             .history
             .go_forward()
-            .map(|entry| (entry.note_name.clone(), entry.scroll_position))
+            .map(|entry| (entry.note_name.clone(), entry.position.clone()))
     }; // Borrow is dropped here
 
-    if let Some((note_name, scroll_position)) = target {
+    if let Some((note_name, position)) = target {
         load_note_helper(
             &note_name,
             app_state,
             autosave_state,
             active_editor,
             statusbar,
-            Some(scroll_position),
+            Some(position),
             None,
         );
     }

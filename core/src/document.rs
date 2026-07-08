@@ -137,6 +137,20 @@ impl DocumentStore {
         fs::write(&doc.path, &doc.content)
             .map_err(|e| format!("Failed to save '{}': {}", doc.name, e))
     }
+
+    /// Delete a note's file from disk.
+    ///
+    /// A note that was never written (e.g. a brand-new, never-typed-into note)
+    /// has no file yet; a missing file is treated as success so that deleting
+    /// always leaves the note gone. Only a real I/O failure returns an error.
+    pub fn delete(&self, name: &str) -> Result<(), String> {
+        let path = self.path_for(name);
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!("Failed to delete '{}': {}", name, e)),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -269,6 +283,37 @@ mod tests {
         // Verify file was created
         assert!(doc.path.exists());
         assert_eq!(fs::read_to_string(&doc.path).unwrap(), "Test content");
+
+        // Cleanup
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_delete_removes_file() {
+        let temp_dir = env::temp_dir().join("piki-test-delete");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let store = DocumentStore::new(temp_dir.clone());
+        fs::write(temp_dir.join("gone.md"), "bye").unwrap();
+        assert!(temp_dir.join("gone.md").exists());
+
+        store.delete("gone").unwrap();
+        assert!(!temp_dir.join("gone.md").exists());
+
+        // Cleanup
+        fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_delete_missing_file_is_ok() {
+        let temp_dir = env::temp_dir().join("piki-test-delete-missing");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        // A never-saved note has no file yet; deleting it is a no-op success.
+        let store = DocumentStore::new(temp_dir.clone());
+        assert!(store.delete("never-existed").is_ok());
 
         // Cleanup
         fs::remove_dir_all(&temp_dir).ok();

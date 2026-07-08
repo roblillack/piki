@@ -26,6 +26,19 @@ While pre-1.0, the minor version is bumped for breaking changes.
   Piki version and toggles the page between one and two columns, the latter
   making better use of a shared widescreen (the choice is remembered). The page
   follows the viewer's system light/dark appearance automatically. (#39)
+- **macOS "press and hold" now works in the editor.** Holding a key such as `e`
+  opens the accented-character popup (é, ë, è, ê, …) right at the caret, so you can
+  type accents without a dead-key layout. FLTK enables this only for its built-in
+  text widgets, so Piki's custom editor previously just repeated the key. (#45)
+- **Insert a continuation paragraph** with `Cmd-P`/`Ctrl-P`. Inside a list or
+  checklist item (or a quote) it adds another paragraph to the *same* item rather
+  than starting a new item, so a single entry can hold multiple paragraphs;
+  elsewhere it splits the block like `Enter`. (#46)
+- **Delete a note.** _Note → Delete Note …_ removes the current note's file from
+  disk after a confirmation dialog (Cancel is the default, so the destructive
+  action is never the accidental choice), then returns to the frontpage. It has
+  no keyboard shortcut on purpose. Read-only plugin views (e.g. the index) cannot
+  be deleted. (#42)
 - **Moving a paragraph now crosses block boundaries** (`Alt-Up`/`Alt-Down`,
   _Option-Up_/_Option-Down_ on macOS) instead of stopping at a list's edge. A
   list/checklist item at the edge of its list now leaves the list — keeping its
@@ -41,10 +54,6 @@ While pre-1.0, the minor version is bumped for breaking changes.
   `Alt-Up`/`Alt-Down` reorders them together and, at their container's edge,
   carries the whole run out of it the same way a single block does; the moved run
   stays selected. (via `rutle 0.4.0`) (#40)
-- **macOS "press and hold" now works in the editor.** Holding a key such as `e`
-  opens the accented-character popup (é, ë, è, ê, …) right at the caret, so you can
-  type accents without a dead-key layout. FLTK enables this only for its built-in
-  text widgets, so Piki's custom editor previously just repeated the key. (#45)
 
 ### Fixed
 
@@ -53,6 +62,20 @@ While pre-1.0, the minor version is bumped for breaking changes.
   so prepending a new entry by turning the paragraph above an existing checklist
   into a checklist item yields one checklist rather than two, and ordered lists
   renumber correctly. (via `rutle 0.4.0`) (#40)
+- Pasting several copied list items (or other multi-paragraph rich content) into
+  a list item now keeps links and text styling instead of dropping in the raw
+  Markdown as literal text; each pasted paragraph becomes its own styled list
+  item. (via `rutle 0.4.1`) (#41)
+- Formatting commands now work on a brand-new, empty note. Previously a fresh
+  note held no paragraph for the editor to act on, so the first
+  `Cmd-Alt-1`/`Ctrl-Alt-1` (or any heading, list, or quote command) did nothing
+  until a character had been typed and deleted; empty notes are now seeded with a
+  paragraph so the very first command takes effect, while an untouched new note
+  is still left with no file on disk. (#44)
+- Returning to a recently visited note now restores the caret position as well as
+  the scroll offset, so navigating away and back — via a link, the note picker,
+  or back/forward — resumes exactly where you were editing instead of dropping
+  the caret at the top. (#43)
 
 ## [0.5.0] - 2026-07-07
 
