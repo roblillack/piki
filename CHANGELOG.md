@@ -55,6 +55,13 @@ While pre-1.0, the minor version is bumped for breaking changes.
   carries the whole run out of it the same way a single block does; the moved run
   stays selected. (via `rutle 0.4.0`) (#40)
 
+### Changed
+
+- Paragraphs now sit further apart. The default vertical gap between paragraphs
+  has been widened so a paragraph break reads as a clear break rather than
+  looking almost like a wrapped line; the spacing below headings is unchanged.
+  (via `rutle 0.5.0`) (#47)
+
 ### Fixed
 
 - Turning a plain paragraph into a list or checklist item now merges it into an
@@ -76,6 +83,24 @@ While pre-1.0, the minor version is bumped for breaking changes.
   the scroll offset, so navigating away and back — via a link, the note picker,
   or back/forward — resumes exactly where you were editing instead of dropping
   the caret at the top. (#43)
+- Toggling a bulleted list, numbered list, or checklist over a selection that
+  spans several paragraphs now always folds the whole selection into one list of
+  that kind, regardless of which direction you selected in or where the caret
+  sits. Previously the outcome depended on the selection's direction — it could
+  toggle an existing list off, or silently do nothing. (via `rutle 0.5.0`) (#47)
+- Changing the block type (Paragraph, Heading, or Code) with more than one block
+  selected now converts every selected block instead of only the one under the
+  caret — so selecting three bullet items and pressing Heading 1 turns all three
+  into headings, splitting them out of the list. (via `rutle 0.5.0`) (#47)
+- A list is now separated from the block that follows it by a full paragraph gap
+  instead of hugging it with the tight inter-item spacing; spacing between the
+  list's own items is unchanged. (via `rutle 0.5.0`) (#47)
+- A list item holding more than one paragraph (as created with the new _Insert
+  continuation paragraph_, `Cmd-P`/`Ctrl-P`) now spaces them correctly: the break
+  between the item's paragraphs opens a full paragraph gap, while the gap before
+  the next item stays tight. Previously the two were swapped — the paragraph
+  break was cramped and a stray wide gap opened before the next item.
+  (via `rutle 0.5.0`) (#47)
 
 ## [0.5.0] - 2026-07-07
 
