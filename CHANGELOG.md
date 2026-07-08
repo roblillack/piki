@@ -10,6 +10,18 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ## [Unreleased] - ReleaseDate
 
+### Fixed
+
+- **Live note sharing: better two-column balancing.** The two-column layout no
+  longer treats a heading and all of its following content as one unbreakable
+  block. That was too aggressive at keeping a heading glued to its content: a
+  tall section (e.g. a long checklist) was forced whole into a single column,
+  leaving the other column half-empty and the page needing to scroll even when
+  the content would have fit. Sections may now split across the column boundary,
+  so the columns balance; a heading is still kept with the start of its content
+  (never orphaned at the foot of a column) and list items, code blocks, and
+  tables are never sliced in half.
+
 ## [0.6.0] - 2026-07-08
 
 ### Added
