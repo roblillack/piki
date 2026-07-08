@@ -130,3 +130,60 @@ fn version_endpoint_tracks_live_updates() {
 
     fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn selection_highlight_is_served_and_cleared() {
+    use piki_gui::live_share::HighlightTarget;
+
+    let dir = unique_dir("highlight");
+    // The other note exists on disk so we can check it is never highlighted.
+    fs::write(dir.join("other.md"), "para 0\n\npara 1\n").unwrap();
+    let share = LiveShare::start(
+        dir.clone(),
+        "frontpage".into(),
+        "para 0\n\npara 1\n\npara 2\n".into(),
+    )
+    .unwrap();
+    let port = share.port();
+
+    // No selection: nothing is spotlighted.
+    let (_, raw) = http_get(port, "/frontpage?raw=1");
+    assert!(!raw.contains("piki-active"), "{raw}");
+
+    // Selecting inside the second paragraph spotlights it (and bumps the version
+    // so the browser reloads), leaving the others untouched.
+    share.set_highlight(vec![HighlightTarget { block: 1, li: None }]);
+    let (_, ver) = http_get(port, "/__piki/version?note=frontpage");
+    assert_eq!(ver, "g2");
+    let (_, raw) = http_get(port, "/frontpage?raw=1");
+    assert!(
+        raw.contains("<p class=\"piki-active piki-lead\">para 1</p>"),
+        "{raw}"
+    );
+    assert!(raw.contains("<p>para 0</p>"), "{raw}");
+
+    // A multi-paragraph selection spotlights every block; only the first leads.
+    share.set_highlight(vec![
+        HighlightTarget { block: 1, li: None },
+        HighlightTarget { block: 2, li: None },
+    ]);
+    let (_, raw) = http_get(port, "/frontpage?raw=1");
+    assert!(
+        raw.contains("<p class=\"piki-active piki-lead\">para 1</p>"),
+        "{raw}"
+    );
+    assert!(raw.contains("<p class=\"piki-active\">para 2</p>"), "{raw}");
+    assert_eq!(raw.matches("piki-active").count(), 2, "{raw}");
+    assert_eq!(raw.matches("piki-lead").count(), 1, "{raw}");
+
+    // The highlight belongs to the current note only: another note never carries it.
+    let (_, raw_other) = http_get(port, "/other?raw=1");
+    assert!(!raw_other.contains("piki-active"), "{raw_other}");
+
+    // Clearing the selection removes the spotlight.
+    share.set_highlight(vec![]);
+    let (_, raw) = http_get(port, "/frontpage?raw=1");
+    assert!(!raw.contains("piki-active"), "{raw}");
+
+    fs::remove_dir_all(&dir).ok();
+}

@@ -1247,12 +1247,28 @@ fn main() {
         let start = Instant::now();
         let editor_ref = active_editor.clone();
         let on_air_ref = on_air.clone();
+        let live_share_ref = live_share.clone();
         app::add_timeout3(0.1, move |handle| {
             let ms = start.elapsed().as_millis() as u64;
             if let Ok(ed_ptr) = editor_ref.try_borrow()
                 && let Ok(mut ed) = (*ed_ptr).try_borrow_mut()
             {
                 ed.tick(ms);
+            }
+            // While sharing, mirror the editor's selection to the web view as a
+            // paragraph/list-item spotlight. Polling here (rather than wiring a
+            // selection-change event through every edit/navigation path) reliably
+            // catches all selection changes; `set_highlight` dedups so a bump —
+            // and thus a browser reload — only happens when the target changes.
+            if live_share_ref.borrow().is_some()
+                && let Ok(ed_ptr) = editor_ref.try_borrow()
+                && let Ok(ed) = (*ed_ptr).try_borrow()
+                && let Some(structured) = ed.as_any().downcast_ref::<StructuredRichUI>()
+            {
+                let targets = structured.highlight_targets();
+                if let Some(session) = live_share_ref.borrow().as_ref() {
+                    session.set_highlight(targets);
+                }
             }
             // Blink the ON AIR recording light while sharing.
             if let Ok(mut bar) = on_air_ref.try_borrow_mut() {
