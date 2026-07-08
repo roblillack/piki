@@ -331,21 +331,22 @@ fn render_page(note: &str, markdown: &str, version: &str) -> String {
     page.push_str(&body);
     page.push_str("\n</div>\n");
     page.push_str("<div id=\"piki-status\" hidden>Live sharing has ended.</div>\n");
-    // Subtle footer with attribution and a 1-col / 2-col layout toggle. It lives
-    // outside #piki-doc so it (and the chosen layout) survives live-reload
-    // content swaps; the choice is persisted in localStorage across notes.
+    // Subtle footer with attribution and two reading-mode toggles: line spacing
+    // (wide/compact) and layout (1-col / 2-col). It lives outside #piki-doc so it
+    // (and the chosen modes) survive live-reload content swaps; each choice is
+    // persisted in localStorage across notes.
     page.push_str("<footer id=\"piki-footer\">Shared by Piki v");
     page.push_str(env!("CARGO_PKG_VERSION"));
-    page.push_str(
-        " &bull; <a href=\"#\" class=\"piki-col active\" data-cols=\"1\">1 col</a> \
-         <a href=\"#\" class=\"piki-col\" data-cols=\"2\">2 cols</a></footer>\n",
-    );
+    page.push_str(FOOTER_CONTROLS);
+    page.push_str("</footer>\n");
     page.push_str("<script>window.__pikiInitialVersion = ");
     page.push_str(&json_string(version));
     page.push_str(";</script>\n<script>");
     page.push_str(RELOAD_SCRIPT);
     page.push_str("</script>\n<script>");
     page.push_str(COLUMN_SCRIPT);
+    page.push_str("</script>\n<script>");
+    page.push_str(SPACING_SCRIPT);
     page.push_str("</script>\n</body>\n</html>\n");
     page
 }
@@ -698,6 +699,45 @@ const COLUMN_SCRIPT: &str = r#"(function () {
   }
 })();"#;
 
+/// The footer's interactive controls: a wide/compact line-spacing toggle (two
+/// stacked-line icons) followed by a one/two column toggle. The two mirror each
+/// other — each is a set of `<a>` links carrying a `data-*` value, with the
+/// current choice marked `active`; the scripts below drive them and persist the
+/// choice. Kept as one raw string literal so the inline SVG icons need no
+/// escaping; the newlines between elements collapse to a single space in HTML.
+const FOOTER_CONTROLS: &str = r##" &bull;
+<a href="#" class="piki-spacing active" data-spacing="wide" title="Wide line spacing" aria-label="Wide line spacing"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2.5" y1="4" x2="13.5" y2="4"/><line x1="2.5" y1="12" x2="13.5" y2="12"/></svg></a>
+<a href="#" class="piki-spacing" data-spacing="compact" title="Compact line spacing" aria-label="Compact line spacing"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2.5" y1="6" x2="13.5" y2="6"/><line x1="2.5" y1="10" x2="13.5" y2="10"/></svg></a>
+&bull;
+<a href="#" class="piki-col active" data-cols="1">1 col</a>
+<a href="#" class="piki-col" data-cols="2">2 cols</a>"##;
+
+/// Wires the footer's wide/compact line-spacing toggle, mirroring
+/// `COLUMN_SCRIPT`: applies the saved preference on load, reflects the active
+/// choice, and persists changes. The density is driven by the `compact` class on
+/// `<body>` (see the stylesheet), which survives live-reload content swaps
+/// because only `#piki-doc` is replaced.
+const SPACING_SCRIPT: &str = r#"(function () {
+  function apply(mode) {
+    document.body.classList.toggle("compact", mode === "compact");
+    try { localStorage.setItem("pikiSpacing", mode); } catch (e) {}
+    var links = document.querySelectorAll(".piki-spacing");
+    for (var i = 0; i < links.length; i++) {
+      links[i].classList.toggle("active", links[i].getAttribute("data-spacing") === mode);
+    }
+  }
+  var saved = "wide";
+  try { if (localStorage.getItem("pikiSpacing") === "compact") saved = "compact"; } catch (e) {}
+  apply(saved);
+  var links = document.querySelectorAll(".piki-spacing");
+  for (var i = 0; i < links.length; i++) {
+    links[i].addEventListener("click", function (e) {
+      e.preventDefault();
+      apply(this.getAttribute("data-spacing"));
+    });
+  }
+})();"#;
+
 /// Self-contained stylesheet, modeled on VS Code's Markdown preview (the look
 /// of tdoc's own `html::write_document`), with automatic dark mode. The
 /// first-child rule is scoped to `#piki-doc` because the content lives in that
@@ -831,6 +871,36 @@ img { max-width: 100%; }
   text-decoration: underline;
   cursor: default;
 }
+/* The line-spacing toggle uses icons rather than text; the current choice is
+   shown grey (inherit) like the active column link, the other stays a blue
+   link. `currentColor` on the SVG strokes makes them follow that color. */
+#piki-footer a.piki-spacing {
+  color: #0969da;
+  cursor: pointer;
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 1px;
+}
+#piki-footer a.piki-spacing.active { color: inherit; cursor: default; }
+#piki-footer a.piki-spacing svg { display: block; }
+
+/* Compact reading mode: tighter line height and block spacing so more content
+   fits on screen. Toggled from the footer; the `compact` class on <body>
+   survives live-reload because only #piki-doc is swapped. */
+body.compact { line-height: 1.35; }
+body.compact p,
+body.compact ul,
+body.compact ol,
+body.compact pre,
+body.compact blockquote,
+body.compact table { margin-bottom: 10px; }
+body.compact h1,
+body.compact h2,
+body.compact h3,
+body.compact h4,
+body.compact h5,
+body.compact h6 { margin-top: 16px; margin-bottom: 8px; }
+body.compact li + li { margin-top: 0.1em; }
 
 /* Two-column reading mode: widen the page and flow the document into two
    balanced columns. Content is allowed to break across the column boundary so
@@ -874,6 +944,8 @@ body.cols-2 #piki-doc { column-count: 2; column-gap: 48px; }
   }
   #piki-footer a.piki-col { color: #4493f8; }
   #piki-footer a.piki-col.active { color: inherit; }
+  #piki-footer a.piki-spacing { color: #4493f8; }
+  #piki-footer a.piki-spacing.active { color: inherit; }
 }
 "##;
 
@@ -975,6 +1047,10 @@ mod tests {
         );
         assert!(page.contains("data-cols=\"1\""), "{page}");
         assert!(page.contains("data-cols=\"2\""), "{page}");
+        // The wide/compact line-spacing toggle and the density hook it drives.
+        assert!(page.contains("data-spacing=\"wide\""), "{page}");
+        assert!(page.contains("data-spacing=\"compact\""), "{page}");
+        assert!(page.contains("body.compact"), "{page}");
         // The layout hook the toggle drives must be present in the stylesheet,
         // including the rule that keeps headings with their following content.
         assert!(page.contains("body.cols-2"), "{page}");

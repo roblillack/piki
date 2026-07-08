@@ -10,6 +10,15 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ## [Unreleased] - ReleaseDate
 
+### Added
+
+- **Live note sharing: wide/compact line spacing.** The share footer gains a
+  line-spacing toggle (two small stacked-line icons) next to the column toggle.
+  _Compact_ tightens the line height and block spacing to fit noticeably more
+  content on screen (about 20% shorter on a typical checklist), useful on a
+  shared screen; _wide_ is the roomy default. Like the column choice it is
+  remembered across notes and sessions, and the two toggles combine freely. (#49)
+
 ### Fixed
 
 - **Live note sharing: better two-column balancing.** The two-column layout no
@@ -20,7 +29,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   the content would have fit. Sections may now split across the column boundary,
   so the columns balance; a heading is still kept with the start of its content
   (never orphaned at the foot of a column) and list items, code blocks, and
-  tables are never sliced in half.
+  tables are never sliced in half. (#49)
 
 ## [0.6.0] - 2026-07-08
 
