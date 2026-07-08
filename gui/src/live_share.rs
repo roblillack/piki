@@ -754,7 +754,7 @@ body {
   background-color: #ffffff;
   max-width: 760px;
   margin: 0 auto;
-  padding: 24px 26px 64px;
+  padding: 24px 26px 48px;
   word-wrap: break-word;
 }
 
@@ -850,19 +850,23 @@ img { max-width: 100%; }
   background-color: #cf222e;
 }
 
-/* Subtle fixed footer with attribution and the column toggle. The body's
-   bottom padding leaves room for it. */
+/* Subtle footer with attribution and the reading-mode toggles, pinned as a
+   small rounded pill in the bottom-right corner rather than a full-width bar, so
+   it takes up as little of the page as possible. With no `left`/`width` it
+   shrinks to fit its (single-line) content; the body's bottom padding keeps the
+   last line from hiding behind it. */
 #piki-footer {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 6px 16px;
+  right: 12px;
+  bottom: 12px;
+  padding: 5px 12px;
   font-size: 12px;
-  text-align: right;
+  white-space: nowrap;
   color: #8b949e;
   background-color: rgba(255, 255, 255, 0.92);
-  border-top: 1px solid #d8dee4;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(31, 35, 40, 0.12);
 }
 #piki-footer a.piki-col { color: #0969da; text-decoration: none; cursor: pointer; }
 #piki-footer a.piki-col:hover { text-decoration: underline; }
@@ -940,7 +944,8 @@ body.cols-2 #piki-doc { column-count: 2; column-gap: 48px; }
   #piki-footer {
     color: #8b949e;
     background-color: rgba(13, 17, 23, 0.92);
-    border-top-color: #30363d;
+    border-color: #30363d;
+    box-shadow: 0 1px 4px rgba(1, 4, 9, 0.4);
   }
   #piki-footer a.piki-col { color: #4493f8; }
   #piki-footer a.piki-col.active { color: inherit; }

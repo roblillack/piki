@@ -19,6 +19,13 @@ While pre-1.0, the minor version is bumped for breaking changes.
   shared screen; _wide_ is the roomy default. Like the column choice it is
   remembered across notes and sessions, and the two toggles combine freely. (#49)
 
+### Changed
+
+- **Live note sharing: footer no longer spans the full width.** The attribution
+  and toggles now sit in a small rounded pill pinned to the bottom-right corner
+  instead of a bar across the whole bottom edge, so they take up as little of the
+  shared page as possible. (#49)
+
 ### Fixed
 
 - **Live note sharing: better two-column balancing.** The two-column layout no
