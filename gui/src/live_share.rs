@@ -271,13 +271,15 @@ fn render_fragment(markdown: &str) -> String {
 /// Render the document with each top-level heading and the blocks that follow it
 /// (until the next heading) wrapped in a `<section class="piki-sec">`.
 ///
-/// In two-column mode these sections carry `break-inside: avoid`, which is the
-/// only reliable way to keep a heading with its content: Firefox's column
-/// balancer ignores `break-after: avoid` on the heading itself and will happily
-/// orphan a heading at the foot of a column, but it does honor `break-inside`
-/// on a wrapping block. A section taller than a column still breaks internally
-/// (between list items), so the heading stays with at least the start of its
-/// content rather than standing alone.
+/// The wrapper groups a heading with its content semantically and anchors the
+/// first-child margin reset in the stylesheet. In two-column mode the sections
+/// are deliberately *breakable*: a tall section (a heading followed by a long
+/// list) must be allowed to split across the column boundary, otherwise the
+/// balancer is forced to drop the whole section into one column and overflow it
+/// while the other column has room to spare. Keeping the heading attached to at
+/// least the start of its content is handled instead by `break-after: avoid` on
+/// the heading (see the stylesheet), which lets the content flow on into the
+/// next column without orphaning the heading.
 fn render_sectioned_html(doc: &Document) -> String {
     let is_heading = |p: &Paragraph| {
         matches!(
@@ -329,21 +331,24 @@ fn render_page(note: &str, markdown: &str, version: &str) -> String {
     page.push_str(&body);
     page.push_str("\n</div>\n");
     page.push_str("<div id=\"piki-status\" hidden>Live sharing has ended.</div>\n");
-    // Subtle footer with attribution and a 1-col / 2-col layout toggle. It lives
-    // outside #piki-doc so it (and the chosen layout) survives live-reload
-    // content swaps; the choice is persisted in localStorage across notes.
+    // Subtle footer with attribution and two reading-mode toggles: line spacing
+    // (wide/compact) and layout (1-col / 2-col). It lives outside #piki-doc so it
+    // (and the chosen modes) survive live-reload content swaps; each choice is
+    // persisted in localStorage across notes.
     page.push_str("<footer id=\"piki-footer\">Shared by Piki v");
     page.push_str(env!("CARGO_PKG_VERSION"));
-    page.push_str(
-        " &bull; <a href=\"#\" class=\"piki-col active\" data-cols=\"1\">1 col</a> \
-         <a href=\"#\" class=\"piki-col\" data-cols=\"2\">2 cols</a></footer>\n",
-    );
+    page.push_str(FOOTER_CONTROLS);
+    page.push_str("</footer>\n");
     page.push_str("<script>window.__pikiInitialVersion = ");
     page.push_str(&json_string(version));
     page.push_str(";</script>\n<script>");
     page.push_str(RELOAD_SCRIPT);
     page.push_str("</script>\n<script>");
     page.push_str(COLUMN_SCRIPT);
+    page.push_str("</script>\n<script>");
+    page.push_str(SPACING_SCRIPT);
+    page.push_str("</script>\n<script>");
+    page.push_str(FOOTER_FADE_SCRIPT);
     page.push_str("</script>\n</body>\n</html>\n");
     page
 }
@@ -696,6 +701,77 @@ const COLUMN_SCRIPT: &str = r#"(function () {
   }
 })();"#;
 
+/// The footer's interactive controls: a wide/compact line-spacing toggle (two
+/// stacked-line icons) followed by a one/two column toggle. The two mirror each
+/// other — each is a set of `<a>` links carrying a `data-*` value, with the
+/// current choice marked `active`; the scripts below drive them and persist the
+/// choice. Kept as one raw string literal so the inline SVG icons need no
+/// escaping; the newlines between elements collapse to a single space in HTML.
+const FOOTER_CONTROLS: &str = r##" &bull;
+<a href="#" class="piki-spacing active" data-spacing="wide" title="Wide line spacing" aria-label="Wide line spacing"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2.5" y1="4" x2="13.5" y2="4"/><line x1="2.5" y1="12" x2="13.5" y2="12"/></svg></a>
+<a href="#" class="piki-spacing" data-spacing="compact" title="Compact line spacing" aria-label="Compact line spacing"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2.5" y1="6" x2="13.5" y2="6"/><line x1="2.5" y1="10" x2="13.5" y2="10"/></svg></a>
+&bull;
+<a href="#" class="piki-col active" data-cols="1">1 col</a>
+<a href="#" class="piki-col" data-cols="2">2 cols</a>"##;
+
+/// Wires the footer's wide/compact line-spacing toggle, mirroring
+/// `COLUMN_SCRIPT`: applies the saved preference on load, reflects the active
+/// choice, and persists changes. The density is driven by the `compact` class on
+/// `<body>` (see the stylesheet), which survives live-reload content swaps
+/// because only `#piki-doc` is replaced.
+const SPACING_SCRIPT: &str = r#"(function () {
+  function apply(mode) {
+    document.body.classList.toggle("compact", mode === "compact");
+    try { localStorage.setItem("pikiSpacing", mode); } catch (e) {}
+    var links = document.querySelectorAll(".piki-spacing");
+    for (var i = 0; i < links.length; i++) {
+      links[i].classList.toggle("active", links[i].getAttribute("data-spacing") === mode);
+    }
+  }
+  var saved = "wide";
+  try { if (localStorage.getItem("pikiSpacing") === "compact") saved = "compact"; } catch (e) {}
+  apply(saved);
+  var links = document.querySelectorAll(".piki-spacing");
+  for (var i = 0; i < links.length; i++) {
+    links[i].addEventListener("click", function (e) {
+      e.preventDefault();
+      apply(this.getAttribute("data-spacing"));
+    });
+  }
+})();"#;
+
+/// Auto-hides the footer so it stays out of the way: it fades to fully
+/// transparent (and click-through, via the `piki-faded` class — see the
+/// stylesheet) about 3s after the page loads and about 3s after the pointer
+/// last left its corner. Any pointer movement near that corner — or keyboard
+/// focus landing on a toggle — rouses it again and restarts the timer, so it is
+/// there whenever you reach for it and gone the rest of the time.
+const FOOTER_FADE_SCRIPT: &str = r#"(function () {
+  var footer = document.getElementById("piki-footer");
+  if (!footer) return;
+  var timer = null;
+  function fade() { footer.classList.add("piki-faded"); }
+  function wake() {
+    footer.classList.remove("piki-faded");
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(fade, 3000);
+  }
+  function nearCorner(x, y) {
+    var r = footer.getBoundingClientRect();
+    return x >= r.left - 40 && y >= r.top - 40;
+  }
+  document.addEventListener("mousemove", function (e) {
+    if (nearCorner(e.clientX, e.clientY)) wake();
+  });
+  document.addEventListener("touchstart", function (e) {
+    var t = e.touches[0];
+    if (t && nearCorner(t.clientX, t.clientY)) wake();
+  }, { passive: true });
+  footer.addEventListener("focusin", wake);
+  // Visible on load, then fade after ~3s.
+  wake();
+})();"#;
+
 /// Self-contained stylesheet, modeled on VS Code's Markdown preview (the look
 /// of tdoc's own `html::write_document`), with automatic dark mode. The
 /// first-child rule is scoped to `#piki-doc` because the content lives in that
@@ -712,7 +788,7 @@ body {
   background-color: #ffffff;
   max-width: 760px;
   margin: 0 auto;
-  padding: 24px 26px 64px;
+  padding: 24px 26px 48px;
   word-wrap: break-word;
 }
 
@@ -808,19 +884,35 @@ img { max-width: 100%; }
   background-color: #cf222e;
 }
 
-/* Subtle fixed footer with attribution and the column toggle. The body's
-   bottom padding leaves room for it. */
+/* Subtle footer with attribution and the reading-mode toggles, pinned as a
+   small rounded pill in the bottom-right corner rather than a full-width bar, so
+   it takes up as little of the page as possible. With no `left`/`width` it
+   shrinks to fit its (single-line) content; the body's bottom padding keeps the
+   last line from hiding behind it. */
 #piki-footer {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 6px 16px;
+  right: 12px;
+  bottom: 12px;
+  padding: 5px 12px;
   font-size: 12px;
-  text-align: right;
+  white-space: nowrap;
   color: #8b949e;
   background-color: rgba(255, 255, 255, 0.92);
-  border-top: 1px solid #d8dee4;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(31, 35, 40, 0.12);
+  /* Fade in quickly when roused (see FOOTER_FADE_SCRIPT). */
+  transition: opacity 0.18s ease;
+}
+/* Idle state: faded fully out and click-through, so it never obscures or blocks
+   the content beneath it. Fades out slowly, unlike the quick fade-in above. */
+#piki-footer.piki-faded {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 1s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  #piki-footer, #piki-footer.piki-faded { transition: none; }
 }
 #piki-footer a.piki-col { color: #0969da; text-decoration: none; cursor: pointer; }
 #piki-footer a.piki-col:hover { text-decoration: underline; }
@@ -829,23 +921,50 @@ img { max-width: 100%; }
   text-decoration: underline;
   cursor: default;
 }
+/* The line-spacing toggle uses icons rather than text; the current choice is
+   shown grey (inherit) like the active column link, the other stays a blue
+   link. `currentColor` on the SVG strokes makes them follow that color. */
+#piki-footer a.piki-spacing {
+  color: #0969da;
+  cursor: pointer;
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 1px;
+}
+#piki-footer a.piki-spacing.active { color: inherit; cursor: default; }
+#piki-footer a.piki-spacing svg { display: block; }
 
-/* Two-column reading mode: widen the column and flow the document into two
-   balanced columns, avoiding awkward breaks across headings and blocks. */
+/* Compact reading mode: tighter line height and block spacing so more content
+   fits on screen. Toggled from the footer; the `compact` class on <body>
+   survives live-reload because only #piki-doc is swapped. */
+body.compact { line-height: 1.35; }
+body.compact p,
+body.compact ul,
+body.compact ol,
+body.compact pre,
+body.compact blockquote,
+body.compact table { margin-bottom: 10px; }
+body.compact h1,
+body.compact h2,
+body.compact h3,
+body.compact h4,
+body.compact h5,
+body.compact h6 { margin-top: 16px; margin-bottom: 8px; }
+body.compact li + li { margin-top: 0.1em; }
+
+/* Two-column reading mode: widen the page and flow the document into two
+   balanced columns. Content is allowed to break across the column boundary so
+   the columns balance — a long section (e.g. a heading with a big list) splits
+   between the two columns instead of being forced whole into one and
+   overflowing it. The rules below only forbid the *awkward* breaks: a heading
+   stranded at a column foot, or a list item / code block sliced in half. */
 body.cols-2 { max-width: 1400px; }
 body.cols-2 #piki-doc { column-count: 2; column-gap: 48px; }
-/* Keep each heading with the content that follows it (see `render_sectioned_html`).
-   This is what actually prevents Firefox's balancer from orphaning a heading at
-   the foot of a column; the `break-after` hints below only help WebKit/Blink. */
-body.cols-2 #piki-doc .piki-sec {
-  break-inside: avoid;
-  -webkit-column-break-inside: avoid;
-  page-break-inside: avoid;
-}
 /* Keep a heading with the content that follows it, so a column break never
-   orphans a heading at the foot of a column. `avoid-column` is the value
-   Firefox honors in multicol; the `-webkit-`/`page-break-` forms cover
-   WebKit/Blink and older engines. */
+   orphans a heading at the foot of a column, while still letting the content
+   itself flow on into the next column. `avoid-column` is the value Firefox
+   honors in multicol; the `-webkit-`/`page-break-` forms cover WebKit/Blink
+   and older engines. */
 #piki-doc h1, #piki-doc h2, #piki-doc h3,
 #piki-doc h4, #piki-doc h5, #piki-doc h6 {
   break-after: avoid;
@@ -871,10 +990,13 @@ body.cols-2 #piki-doc .piki-sec {
   #piki-footer {
     color: #8b949e;
     background-color: rgba(13, 17, 23, 0.92);
-    border-top-color: #30363d;
+    border-color: #30363d;
+    box-shadow: 0 1px 4px rgba(1, 4, 9, 0.4);
   }
   #piki-footer a.piki-col { color: #4493f8; }
   #piki-footer a.piki-col.active { color: inherit; }
+  #piki-footer a.piki-spacing { color: #4493f8; }
+  #piki-footer a.piki-spacing.active { color: inherit; }
 }
 "##;
 
@@ -944,8 +1066,9 @@ mod tests {
         let md = "# Hello World\n\nSee [other](other) and [ext](https://example.com).\n";
         let fragment = render_fragment(md);
         assert!(fragment.contains("<h1 id=\"hello-world\">"), "{fragment}");
-        // The heading and its content are wrapped in a section so a column break
-        // cannot orphan the heading.
+        // Each heading and its content are grouped into a section (breakable in
+        // two-column mode; the heading's own `break-after: avoid` keeps it from
+        // being orphaned at a column foot).
         assert!(
             fragment.contains("<section class=\"piki-sec\">"),
             "{fragment}"
@@ -975,6 +1098,13 @@ mod tests {
         );
         assert!(page.contains("data-cols=\"1\""), "{page}");
         assert!(page.contains("data-cols=\"2\""), "{page}");
+        // The wide/compact line-spacing toggle and the density hook it drives.
+        assert!(page.contains("data-spacing=\"wide\""), "{page}");
+        assert!(page.contains("data-spacing=\"compact\""), "{page}");
+        assert!(page.contains("body.compact"), "{page}");
+        // The footer auto-hide: both the faded style and the script that drives it.
+        assert!(page.contains("#piki-footer.piki-faded"), "{page}");
+        assert!(page.contains("piki-faded"), "{page}");
         // The layout hook the toggle drives must be present in the stylesheet,
         // including the rule that keeps headings with their following content.
         assert!(page.contains("body.cols-2"), "{page}");
