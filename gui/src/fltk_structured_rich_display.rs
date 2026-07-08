@@ -2143,13 +2143,11 @@ impl FltkStructuredRichDisplay {
     }
 
     pub fn emit_paragraph_state(&self) {
-        if let Some(block_type) = self.current_block_type() {
-            println!("Emitting paragraph type: {:?}", block_type);
-            if let Ok(mut cb_ref) = self.paragraph_cb.try_borrow_mut()
-                && let Some(cb) = &mut *cb_ref
-            {
-                (cb)(block_type);
-            }
+        if let Some(block_type) = self.current_block_type()
+            && let Ok(mut cb_ref) = self.paragraph_cb.try_borrow_mut()
+            && let Some(cb) = &mut *cb_ref
+        {
+            (cb)(block_type);
         }
     }
 
