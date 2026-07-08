@@ -26,6 +26,14 @@ While pre-1.0, the minor version is bumped for breaking changes.
   Piki version and toggles the page between one and two columns, the latter
   making better use of a shared widescreen (the choice is remembered). The page
   follows the viewer's system light/dark appearance automatically. (#39)
+- **macOS "press and hold" now works in the editor.** Holding a key such as `e`
+  opens the accented-character popup (é, ë, è, ê, …) right at the caret, so you can
+  type accents without a dead-key layout. FLTK enables this only for its built-in
+  text widgets, so Piki's custom editor previously just repeated the key. (#45)
+- **Insert a continuation paragraph** with `Cmd-P`/`Ctrl-P`. Inside a list or
+  checklist item (or a quote) it adds another paragraph to the *same* item rather
+  than starting a new item, so a single entry can hold multiple paragraphs;
+  elsewhere it splits the block like `Enter`. (#46)
 - **Delete a note.** _Note → Delete Note …_ removes the current note's file from
   disk after a confirmation dialog (Cancel is the default, so the destructive
   action is never the accidental choice), then returns to the frontpage. It has
@@ -46,10 +54,6 @@ While pre-1.0, the minor version is bumped for breaking changes.
   `Alt-Up`/`Alt-Down` reorders them together and, at their container's edge,
   carries the whole run out of it the same way a single block does; the moved run
   stays selected. (via `rutle 0.4.0`) (#40)
-- **Insert a continuation paragraph** with `Cmd-P`/`Ctrl-P`. Inside a list or
-  checklist item (or a quote) it adds another paragraph to the *same* item rather
-  than starting a new item, so a single entry can hold multiple paragraphs;
-  elsewhere it splits the block like `Enter`.
 
 ### Fixed
 
