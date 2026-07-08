@@ -78,6 +78,23 @@ struct Row {
     last_open: Option<i64>,
     /// Last-modification time (ms since epoch), used as a secondary sort key.
     modified: Option<i64>,
+    /// Raw note body, kept so a full-text hit can show the matching line.
+    content: String,
+    /// The body lowercased once at open time. The per-keystroke content match is
+    /// then just a substring scan against this, with no per-keypress allocation.
+    content_lower: String,
+}
+
+/// How a row matched the current query — this drives what preview text the row
+/// shows. (Ordering by fuzzy score happens in [`search_order`] before the hit is
+/// built, so the score itself is not carried here.)
+enum Hit {
+    /// The note *name* matched (fuzzy subsequence). Name hits keep their generic
+    /// preview so quick-open-by-name feels unchanged.
+    Name,
+    /// Only the note *content* matched; carries the matching-line snippet to
+    /// show in place of the generic preview.
+    Content(String),
 }
 
 /// Parse the first few paragraphs of a markdown note into a one-line plaintext
@@ -174,33 +191,35 @@ fn truncate_to_width(text: &str, avail: f64) -> String {
 }
 
 /// The left column text: "name — preview", with the preview ellipsized to fit
-/// `avail` pixels while the name is kept intact whenever possible.
-fn left_column(row: &Row, avail: f64) -> String {
-    if row.abbrev.is_empty() {
-        return truncate_to_width(&row.name, avail);
+/// `avail` pixels while the name is kept intact whenever possible. The preview
+/// is either the note's generic abbreviation (name hits) or a matching-line
+/// snippet (content hits).
+fn left_column(name: &str, preview: &str, avail: f64) -> String {
+    if preview.is_empty() {
+        return truncate_to_width(name, avail);
     }
-    let prefix = format!("{} — ", row.name);
+    let prefix = format!("{name} — ");
     let prefix_w = text_width(&prefix);
-    if prefix_w + text_width(&row.abbrev) <= avail {
-        format!("{prefix}{}", row.abbrev)
+    if prefix_w + text_width(preview) <= avail {
+        format!("{prefix}{preview}")
     } else if prefix_w >= avail {
         // Even the name barely fits; truncate it and drop the preview.
-        truncate_to_width(&row.name, avail)
+        truncate_to_width(name, avail)
     } else {
-        let preview = truncate_to_width(&row.abbrev, avail - prefix_w);
+        let preview = truncate_to_width(preview, avail - prefix_w);
         format!("{prefix}{preview}")
     }
 }
 
 /// Build the full browser line (both columns) for a row. The measuring font
 /// must already be set.
-fn browser_line(row: &Row, left_avail: f64) -> String {
-    let left = escape(&left_column(row, left_avail));
-    if row.date.is_empty() {
+fn browser_line(name: &str, preview: &str, date: &str, left_avail: f64) -> String {
+    let left = escape(&left_column(name, preview, left_avail));
+    if date.is_empty() {
         left
     } else {
         // Second column, right-aligned (`@r`), holding the timestamp.
-        format!("{left}\t@r{}", escape(&row.date))
+        format!("{left}\t@r{}", escape(date))
     }
 }
 
@@ -275,14 +294,36 @@ fn cycle_index(cur: i32, sz: i32, up: bool) -> i32 {
     }
 }
 
-/// Order rows matching `query` by fuzzy score (best first), dropping non-matches.
-fn fuzzy_order(rows: &[Row], query: &str) -> Vec<usize> {
-    let mut scored: Vec<(i32, usize)> = rows
-        .iter()
-        .enumerate()
-        .filter_map(|(i, r)| fuzzy_score(query, &r.name).map(|s| (s, i)))
-        .collect();
-    scored.sort_by(|a, b| {
+/// Order rows matching `query`, unifying two kinds of hit:
+///   * **name hits** — the note name fuzzy-matches (subsequence, as the
+///     quick-open picker always did), ranked by score and shown with the note's
+///     generic preview; then
+///   * **content hits** — every query term appears in the body (see
+///     [`piki_core::search`]), ranked by name and shown with the matching-line
+///     snippet.
+///
+/// Name hits always sort above content hits, so opening a note by name stays as
+/// immediate as before while full-text results fall in below them. A row that
+/// matches by name is never also listed as a content hit.
+fn search_order(rows: &[Row], query: &str) -> Vec<(usize, Hit)> {
+    let terms = piki_core::search::parse_terms(query);
+
+    let mut name_hits: Vec<(i32, usize)> = Vec::new();
+    let mut content_hits: Vec<(usize, String)> = Vec::new();
+    for (i, row) in rows.iter().enumerate() {
+        if let Some(score) = fuzzy_score(query, &row.name) {
+            name_hits.push((score, i));
+        } else if !terms.is_empty()
+            && piki_core::search::contains_all_terms(&row.content_lower, &terms)
+        {
+            let snippet = piki_core::search::first_snippet(&row.content, &terms)
+                .map(|(_, line)| line)
+                .unwrap_or_default();
+            content_hits.push((i, snippet));
+        }
+    }
+
+    name_hits.sort_by(|a, b| {
         b.0.cmp(&a.0).then_with(|| {
             rows[a.1]
                 .name
@@ -290,7 +331,21 @@ fn fuzzy_order(rows: &[Row], query: &str) -> Vec<usize> {
                 .cmp(&rows[b.1].name.to_lowercase())
         })
     });
-    scored.into_iter().map(|(_, i)| i).collect()
+    content_hits.sort_by(|a, b| {
+        rows[a.0]
+            .name
+            .to_lowercase()
+            .cmp(&rows[b.0].name.to_lowercase())
+    });
+
+    let mut order = Vec::with_capacity(name_hits.len() + content_hits.len());
+    order.extend(name_hits.into_iter().map(|(_, i)| (i, Hit::Name)));
+    order.extend(
+        content_hits
+            .into_iter()
+            .map(|(i, snip)| (i, Hit::Content(snip))),
+    );
+    order
 }
 
 /// Modal "Open Note" picker: fuzzy filtering, recency ordering, previews and
@@ -333,6 +388,8 @@ pub fn show_note_picker(
                     date: mtime.map(format_timestamp).unwrap_or_default(),
                     last_open: state.recent_notes.last_opened(&name),
                     modified: mtime.and_then(millis_since_epoch),
+                    content_lower: content.to_lowercase(),
+                    content,
                     name,
                 }
             })
@@ -417,17 +474,29 @@ pub fn show_note_picker(
         Rc::new(RefCell::new(move |query: &str| {
             draw::set_font(Font::Helvetica, ROW_TEXT_SIZE);
             let q = query.trim();
-            let order = if q.is_empty() {
-                recency_order(&rows)
-            } else {
-                fuzzy_order(&rows, q)
-            };
 
             list.clear();
-            let mut names = Vec::with_capacity(order.len());
-            for &i in &order {
-                list.add(&browser_line(&rows[i], left_avail));
-                names.push(rows[i].name.clone());
+            let mut names = Vec::new();
+            if q.is_empty() {
+                // Empty query: recency order with each note's generic preview
+                // (unchanged quick-open behaviour).
+                for &i in &recency_order(&rows) {
+                    let row = &rows[i];
+                    list.add(&browser_line(&row.name, &row.abbrev, &row.date, left_avail));
+                    names.push(row.name.clone());
+                }
+            } else {
+                // Non-empty: name hits (generic preview) then full-text content
+                // hits (matching-line snippet).
+                for (i, hit) in search_order(&rows, q) {
+                    let row = &rows[i];
+                    let preview = match &hit {
+                        Hit::Name => row.abbrev.as_str(),
+                        Hit::Content(snippet) => snippet.as_str(),
+                    };
+                    list.add(&browser_line(&row.name, preview, &row.date, left_avail));
+                    names.push(row.name.clone());
+                }
             }
 
             if !names.is_empty() {
@@ -655,5 +724,53 @@ mod tests {
     #[test]
     fn escape_doubles_at_signs_and_strips_tabs() {
         assert_eq!(escape("a@b\tc"), "a@@b c");
+    }
+
+    /// A minimal row for exercising [`search_order`] — only name/content matter.
+    fn row(name: &str, content: &str) -> Row {
+        Row {
+            name: name.to_string(),
+            abbrev: String::new(),
+            date: String::new(),
+            last_open: None,
+            modified: None,
+            content_lower: content.to_lowercase(),
+            content: content.to_string(),
+        }
+    }
+
+    #[test]
+    fn search_order_ranks_name_hits_before_content_hits() {
+        let rows = vec![
+            row("meeting-notes", "discussed the quarterly budget"),
+            row("budget", "unrelated body text"),
+            row("random", "the budget line item"),
+        ];
+        let order = search_order(&rows, "budget");
+        let names: Vec<&str> = order.iter().map(|(i, _)| rows[*i].name.as_str()).collect();
+        // The name hit ("budget") comes first; content hits follow, ordered by name.
+        assert_eq!(names, vec!["budget", "meeting-notes", "random"]);
+        assert!(matches!(order[0].1, Hit::Name));
+        assert!(matches!(order[1].1, Hit::Content(_)));
+    }
+
+    #[test]
+    fn search_order_content_hit_carries_matching_snippet() {
+        let rows = vec![row("note", "first line\nthe secret sauce\nlast line")];
+        let order = search_order(&rows, "secret sauce");
+        assert_eq!(order.len(), 1);
+        match &order[0].1 {
+            Hit::Content(snippet) => assert_eq!(snippet, "the secret sauce"),
+            Hit::Name => panic!("expected a content hit"),
+        }
+    }
+
+    #[test]
+    fn search_order_requires_all_terms_in_content() {
+        let rows = vec![row("a", "has alpha only"), row("b", "has alpha and beta")];
+        let order = search_order(&rows, "alpha beta");
+        let names: Vec<&str> = order.iter().map(|(i, _)| rows[*i].name.as_str()).collect();
+        // Only note "b" contains both terms; "a" is dropped.
+        assert_eq!(names, vec!["b"]);
     }
 }
