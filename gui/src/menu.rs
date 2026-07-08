@@ -1198,7 +1198,6 @@ fn register_paragraph_callback<M: MenuExt + Clone + 'static>(
         let menu_for_cb = menu_rc.clone();
         let active_for_cb = active_editor_rc.clone();
         editor.on_paragraph_style_change(Box::new(move |_block_type| {
-            println!("Paragraph style changed callback triggered");
             let menu_clone = menu_for_cb.clone();
             let active_clone = active_for_cb.clone();
             app::awake_callback(move || {
