@@ -1,6 +1,7 @@
 use crate::content::{ContentLoader, ContentProvider};
 use crate::fltk_draw_context::FltkDrawContext;
 use crate::fltk_structured_rich_display::FltkStructuredRichDisplay;
+use crate::live_share::HighlightTarget;
 use crate::markdown_converter::document_to_markdown;
 use crate::note_ui::NoteUI;
 use fltk::{app, enums::Color, prelude::*, window};
@@ -8,7 +9,10 @@ use rutle::editor::Editor;
 use rutle::renderer::SearchMatch;
 use rutle::structured_document::BlockType;
 use rutle::tree_path::{DocumentPosition, PathSegment, TreePath};
+use rutle::tree_walk::LeafInfo;
 use std::any::Any;
+use std::collections::{HashMap, HashSet};
+use tdoc::Document;
 
 /// Vertical breathing room, in pixels, kept above a heading when scrolling to a
 /// section so it does not sit flush against the top edge of the viewport.
@@ -24,6 +28,22 @@ impl StructuredRichUI {
 
     pub fn has_selection(&self) -> bool {
         self.0.display.borrow().editor().selection().is_some()
+    }
+
+    /// The web-view highlights mirroring the editor's *selection*: one
+    /// [`HighlightTarget`] per top-level block (or list/checklist item) the
+    /// selection touches, in document order. Empty when there is no selection,
+    /// so a bare caret shows no highlight and double-clicking a word brings one
+    /// back.
+    pub fn highlight_targets(&self) -> Vec<HighlightTarget> {
+        let disp = self.0.display.borrow();
+        let editor = disp.editor();
+        let Some((a, b)) = editor.selection() else {
+            return Vec::new();
+        };
+        // Order the endpoints so a reversed drag is handled the same way.
+        let (start, end) = if a <= b { (a, b) } else { (b, a) };
+        selection_targets(editor.document(), &start, &end)
     }
 
     /// Cut the current selection to the system clipboard (HTML + Markdown).
@@ -321,6 +341,98 @@ impl StructuredRichUI {
     }
 }
 
+/// The web-view [`HighlightTarget`]s for the selection `[start, end]`: one per
+/// top-level block or list/checklist item the selection touches, in document
+/// order, deduplicated.
+///
+/// Every leaf between the endpoints (inclusive) maps to its highlight element via
+/// [`leaf_element`]; leaves of the same element (a multi-paragraph list item, a
+/// multi-child quote) collapse to one entry. A selection ending exactly at the
+/// start of a leaf does not include that leaf (nothing of it is selected).
+fn selection_targets(
+    doc: &Document,
+    start: &DocumentPosition,
+    end: &DocumentPosition,
+) -> Vec<HighlightTarget> {
+    let leaves = rutle::tree_walk::enumerate_leaves(doc);
+    let li_of = build_li_index(&leaves);
+
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for leaf in &leaves {
+        if leaf.path < start.path || leaf.path > end.path {
+            continue;
+        }
+        // A selection ending at offset 0 of a leaf stops before it, so that leaf
+        // carries no selected content (unless it is also the start leaf).
+        if leaf.path == end.path && end.offset == 0 && start.path != end.path {
+            continue;
+        }
+        let target = leaf_element(&li_of, &leaf.path);
+        if seen.insert(target.clone()) {
+            out.push(target);
+        }
+    }
+    out
+}
+
+/// Map each list/checklist marker leaf (the leaf that begins a `<li>`) to that
+/// `<li>`'s 0-based document-order index within its top-level block. This is the
+/// same ordering tdoc emits `<li>` tags in, so it lines up with the server's
+/// k-th-`<li>` marking.
+fn build_li_index(leaves: &[LeafInfo]) -> HashMap<TreePath, usize> {
+    let mut map = HashMap::new();
+    let mut cur_block = None;
+    let mut counter = 0;
+    for leaf in leaves {
+        let block = match leaf.path.segments().first() {
+            Some(PathSegment::Paragraph(i)) => *i,
+            _ => continue,
+        };
+        if cur_block != Some(block) {
+            cur_block = Some(block);
+            counter = 0;
+        }
+        if leaf.marker.is_some() {
+            map.insert(leaf.path.clone(), counter);
+            counter += 1;
+        }
+    }
+    map
+}
+
+/// The highlight element a leaf at `path` belongs to: its top-level block, plus
+/// the enclosing `<li>` index when the leaf is inside a list/checklist (a
+/// continuation paragraph maps back to its item's marker leaf).
+fn leaf_element(li_of: &HashMap<TreePath, usize>, path: &TreePath) -> HighlightTarget {
+    let block = match path.segments().first() {
+        Some(PathSegment::Paragraph(i)) => *i,
+        _ => 0,
+    };
+    let li = enclosing_li_path(path).and_then(|p| li_of.get(&p).copied());
+    HighlightTarget { block, li }
+}
+
+/// The path of the marker leaf for the `<li>` enclosing `path`, or `None` when
+/// `path` is not inside a list/checklist. Found by truncating at the last
+/// list/checklist segment; a list entry's continuation paragraph is folded back
+/// to that entry's first paragraph (`para: 0`), which is the marker leaf.
+fn enclosing_li_path(path: &TreePath) -> Option<TreePath> {
+    let segs = path.segments();
+    let last_item = segs.iter().rposition(|s| {
+        matches!(
+            s,
+            PathSegment::ListEntry { .. } | PathSegment::ChecklistItem(_)
+        )
+    })?;
+    let mut li_segs = segs[..=last_item].to_vec();
+    if let Some(PathSegment::ListEntry { entry, .. }) = li_segs.last() {
+        let entry = *entry;
+        *li_segs.last_mut().unwrap() = PathSegment::ListEntry { entry, para: 0 };
+    }
+    Some(TreePath(li_segs))
+}
+
 /// Map each top-level heading to its unique anchor slug, in document order.
 ///
 /// Uses rutle's tree helpers so link resolution stays in lockstep with how the
@@ -450,6 +562,192 @@ impl NoteUI for StructuredRichUI {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The highlight element a single leaf maps to (block + enclosing `<li>`).
+    fn target_at(doc: &Document, path: &TreePath) -> HighlightTarget {
+        let leaves = rutle::tree_walk::enumerate_leaves(doc);
+        leaf_element(&build_li_index(&leaves), path)
+    }
+
+    /// Highlight targets for every marker-bearing (list/checklist) leaf of a
+    /// block, in document order — the order that lines up with the emitted
+    /// `<li>` tags. Keyed nowhere; the caller asserts on the sequence.
+    fn item_targets(doc: &Document, block: usize) -> Vec<HighlightTarget> {
+        rutle::tree_walk::enumerate_leaves(doc)
+            .iter()
+            .filter(|l| {
+                l.marker.is_some()
+                    && l.path.segments().first() == Some(&PathSegment::Paragraph(block))
+            })
+            .map(|l| target_at(doc, &l.path))
+            .collect()
+    }
+
+    #[test]
+    fn highlight_target_uses_block_for_non_list_leaves() {
+        let md = "# Title\n\nA paragraph\n";
+        let doc = crate::markdown_converter::markdown_to_document(md);
+        let leaves = rutle::tree_walk::enumerate_leaves(&doc);
+        // Heading → block 0, whole block; paragraph → block 1, whole block.
+        assert_eq!(
+            target_at(&doc, &leaves[0].path),
+            HighlightTarget { block: 0, li: None }
+        );
+        assert_eq!(
+            target_at(&doc, &leaves[1].path),
+            HighlightTarget { block: 1, li: None }
+        );
+    }
+
+    #[test]
+    fn highlight_target_indexes_flat_list_items() {
+        let md = "intro\n\n- one\n- two\n- three\n";
+        let doc = crate::markdown_converter::markdown_to_document(md);
+        // Block 1 is the list; its three items get li 0, 1, 2.
+        assert_eq!(
+            item_targets(&doc, 1),
+            vec![
+                HighlightTarget {
+                    block: 1,
+                    li: Some(0)
+                },
+                HighlightTarget {
+                    block: 1,
+                    li: Some(1)
+                },
+                HighlightTarget {
+                    block: 1,
+                    li: Some(2)
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn highlight_target_indexes_nested_list_items_in_document_order() {
+        // a, (nested) b, c, d — the same order tdoc emits the four `<li>` tags.
+        let md = "- a\n  - b\n  - c\n- d\n";
+        let doc = crate::markdown_converter::markdown_to_document(md);
+        assert_eq!(
+            item_targets(&doc, 0),
+            vec![
+                HighlightTarget {
+                    block: 0,
+                    li: Some(0)
+                },
+                HighlightTarget {
+                    block: 0,
+                    li: Some(1)
+                },
+                HighlightTarget {
+                    block: 0,
+                    li: Some(2)
+                },
+                HighlightTarget {
+                    block: 0,
+                    li: Some(3)
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn highlight_target_indexes_checklist_items() {
+        let md = "- [ ] x\n- [x] y\n";
+        let doc = crate::markdown_converter::markdown_to_document(md);
+        assert_eq!(
+            item_targets(&doc, 0),
+            vec![
+                HighlightTarget {
+                    block: 0,
+                    li: Some(0)
+                },
+                HighlightTarget {
+                    block: 0,
+                    li: Some(1)
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn selection_spanning_paragraphs_yields_one_target_each() {
+        let md = "# Title\n\nfirst\n\nsecond\n\nthird\n";
+        let doc = crate::markdown_converter::markdown_to_document(md);
+        let leaves = rutle::tree_walk::enumerate_leaves(&doc);
+        // From "first" (block 1) to inside "third" (block 3): blocks 1, 2, 3.
+        let start = DocumentPosition::at(leaves[1].path.clone(), 0);
+        let end = DocumentPosition::at(leaves[3].path.clone(), 1);
+        assert_eq!(
+            selection_targets(&doc, &start, &end),
+            vec![
+                HighlightTarget { block: 1, li: None },
+                HighlightTarget { block: 2, li: None },
+                HighlightTarget { block: 3, li: None },
+            ]
+        );
+    }
+
+    #[test]
+    fn selection_spanning_list_items_yields_each_item() {
+        let md = "- one\n- two\n- three\n";
+        let doc = crate::markdown_converter::markdown_to_document(md);
+        let leaves = rutle::tree_walk::enumerate_leaves(&doc);
+        // From item 0 into item 1: two adjacent `<li>` targets.
+        let start = DocumentPosition::at(leaves[0].path.clone(), 0);
+        let end = DocumentPosition::at(leaves[1].path.clone(), 1);
+        assert_eq!(
+            selection_targets(&doc, &start, &end),
+            vec![
+                HighlightTarget {
+                    block: 0,
+                    li: Some(0)
+                },
+                HighlightTarget {
+                    block: 0,
+                    li: Some(1)
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn selection_from_paragraph_into_a_list() {
+        let md = "intro\n\n- one\n- two\n";
+        let doc = crate::markdown_converter::markdown_to_document(md);
+        let leaves = rutle::tree_walk::enumerate_leaves(&doc);
+        // "intro" (whole block) then the first list item.
+        let start = DocumentPosition::at(leaves[0].path.clone(), 0);
+        let end = DocumentPosition::at(leaves[1].path.clone(), 1);
+        assert_eq!(
+            selection_targets(&doc, &start, &end),
+            vec![
+                HighlightTarget { block: 0, li: None },
+                HighlightTarget {
+                    block: 1,
+                    li: Some(0)
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn selection_ending_at_a_block_start_excludes_it() {
+        let md = "one\n\ntwo\n\nthree\n";
+        let doc = crate::markdown_converter::markdown_to_document(md);
+        let leaves = rutle::tree_walk::enumerate_leaves(&doc);
+        // Drag from "one" and release at the very start of "three": "three" has
+        // nothing selected, so only blocks 0 and 1 are highlighted.
+        let start = DocumentPosition::at(leaves[0].path.clone(), 0);
+        let end = DocumentPosition::at(leaves[2].path.clone(), 0);
+        assert_eq!(
+            selection_targets(&doc, &start, &end),
+            vec![
+                HighlightTarget { block: 0, li: None },
+                HighlightTarget { block: 1, li: None },
+            ]
+        );
+    }
 
     #[test]
     fn heading_anchor_map_slugs_and_dedup() {
