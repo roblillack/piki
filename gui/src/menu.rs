@@ -508,8 +508,8 @@ fn populate_menu<M>(
         );
     }
 
-    // Reveal Codes (Cmd/Ctrl-R): surface rutle's inline-style tags (`[Bold>`…)
-    // inline. A plain action rather than a checkmarked toggle, because it can
+    // Reveal Codes (Cmd/Ctrl-R): surface rutle's inline-style tags (the
+    // WordPerfect-style `Bold`/`Italic`… code boxes) inline. A plain action rather than a checkmarked toggle, because it can
     // also be flipped from the keyboard (Cmd/Ctrl-R / F9, handled in the editor)
     // while the editor has focus — keeping a menu checkmark in sync would give
     // it a chance to go stale. The tags appearing in the document are the
