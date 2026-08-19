@@ -33,6 +33,7 @@ use tiny_http::{Header, Request, Response, Server};
 
 use crate::link_handler::is_external_link;
 use crate::markdown_converter::{document_to_html, markdown_to_document};
+use crate::nonprintable::printable;
 use crate::section_link::{heading_anchors, normalize_link_target, split_target};
 use piki_core::ensure_md_extension;
 use tdoc::{ChecklistItem, Document, InlineStyle, Paragraph, Span};
@@ -314,7 +315,13 @@ fn load_note_markdown(dir: &Path, note: &str) -> Option<String> {
 /// stylesheet can tint it; the document-order-first one also gets `piki-lead`
 /// (the pointing arrow). The browser scrolls the lead into view after swapping.
 fn render_fragment(markdown: &str, highlight: &[HighlightTarget]) -> String {
-    let mut doc = markdown_to_document(markdown);
+    // Show any non-printable character the note carries rather than leaving the
+    // browser to paint its own idea of nothing — the editor does the same, so
+    // viewer and author see the note the same way. Substituted before parsing:
+    // a control character is never Markdown syntax, and the stand-in glyphs are
+    // ordinary text from the parser's point of view.
+    let markdown = printable(markdown);
+    let mut doc = markdown_to_document(&markdown);
     rewrite_links_in_document(&mut doc);
     let anchors = collect_heading_anchors(&doc);
     let sectioned = render_sectioned_html(&doc, highlight);
@@ -1253,6 +1260,15 @@ mod tests {
         assert!(!is_valid_note_name("a//b"));
         assert!(!is_valid_note_name("a\\b"));
         assert!(!is_valid_note_name("a\nb"));
+    }
+
+    #[test]
+    fn renders_non_printable_characters_visibly() {
+        // An ESC that the Escape key typed into a note: the browser paints
+        // nothing for it, so the fragment carries the stand-in glyph instead.
+        let html = render_fragment("Production Depl\u{1b}oyment", &[]);
+        assert!(html.contains("Production Depl\u{241b}oyment"), "{html}");
+        assert!(!html.contains('\u{1b}'), "{html}");
     }
 
     #[test]
