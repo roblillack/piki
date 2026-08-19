@@ -2,6 +2,7 @@
 
 use crate::clipboard;
 use crate::fltk_draw_context::FltkDrawContext;
+use crate::nonprintable::sanitize_key_text;
 use crate::responsive_scrollbar::ResponsiveScrollbar;
 use fltk::{app::MouseWheel, enums::*, prelude::*};
 use rutle::editor::UndoKind;
@@ -1873,8 +1874,10 @@ impl FltkStructuredRichDisplay {
                                                         }
                                                     }
 
-                                                    if !text_input.is_empty()
-                                                        && editor.insert_text(&text_input).is_ok()
+                                                    let insert_text =
+                                                        sanitize_key_text(&text_input);
+                                                    if !insert_text.is_empty()
+                                                        && editor.insert_text(&insert_text).is_ok()
                                                     {
                                                         text_changed = true;
                                                         did_horizontal = true;

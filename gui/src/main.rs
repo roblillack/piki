@@ -5,6 +5,7 @@ pub mod fltk_draw_context;
 mod history;
 mod link_handler;
 mod menu;
+pub mod nonprintable;
 mod note_picker;
 mod position_memory;
 mod recency;
