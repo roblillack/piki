@@ -50,6 +50,10 @@ While pre-1.0, the minor version is bumped for breaking changes.
   so the columns balance; a heading is still kept with the start of its content
   (never orphaned at the foot of a column) and list items, code blocks, and
   tables are never sliced in half. (#49)
+- The GUI will not input random control characters into notes based on function
+  keypresses which are not assigned to Piki functionality anymore. Existing
+  control characters in the notes are rendered using visible replacement symbols
+  so that they can be correctly selected or deleted. (#51)
 
 ## [0.6.0] - 2026-07-08
 
