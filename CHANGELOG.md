@@ -10,6 +10,8 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.7.1] - 2026-08-27
+
 ## [0.7.0] - 2026-08-19
 
 ### Added
@@ -285,7 +287,8 @@ While pre-1.0, the minor version is bumped for breaking changes.
   characters the bytes actually stand for on import. (#26)
 
 <!-- next-url -->
-[Unreleased]: https://github.com/roblillack/piki/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/roblillack/piki/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/roblillack/piki/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/roblillack/piki/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/roblillack/piki/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/roblillack/piki/compare/piki-v0.4.0...v0.5.0
