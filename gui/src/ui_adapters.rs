@@ -481,6 +481,10 @@ impl ContentLoader for StructuredRichUI {
         }
         disp.editor_mut().set_document(doc);
         disp.set_scroll(0);
+        // The hovered link (mouse or caret) belongs to the document we just
+        // replaced: keep it and a link at the same position in the new note
+        // would render as hovered, and no hover event would fire to correct it.
+        disp.set_hovered_link(None);
         drop(disp);
         self.0.emit_paragraph_state();
     }
