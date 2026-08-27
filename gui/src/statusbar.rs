@@ -12,6 +12,40 @@ fn brighten_color(color: enums::Color, factor: f32) -> enums::Color {
     enums::Color::from_rgb(new_r, new_g, new_b)
 }
 
+/// What the left half of the status bar shows: the note we are on, or — while a
+/// link is hovered (by the mouse or by the caret sitting inside it) — that
+/// link's destination.
+///
+/// Both halves are kept as data instead of being read back off the widget
+/// label, because the two are updated by independent event sources: a link
+/// click navigates (new note name) while the hover that started the click is
+/// still active. Snapshotting the label at hover start and restoring it at
+/// hover end would put the *previous* note's name back on screen.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct NoteLabel {
+    /// Name of the note currently on screen (already formatted for display).
+    note: String,
+    /// Destination of the hovered link, if any; takes precedence while set.
+    hover: Option<String>,
+}
+
+impl NoteLabel {
+    /// Navigation is authoritative: it sets the new note name and drops any
+    /// hover, which belongs to the content that was just replaced.
+    fn set_note(&mut self, note: &str) {
+        self.note = note.to_string();
+        self.hover = None;
+    }
+
+    fn set_hover(&mut self, target: Option<&str>) {
+        self.hover = target.map(str::to_string);
+    }
+
+    fn displayed(&self) -> &str {
+        self.hover.as_deref().unwrap_or(&self.note)
+    }
+}
+
 /// Custom status bar widget that manages two child widgets (note status and save status)
 /// and automatically handles layout and rendering
 pub struct StatusBar {
@@ -21,6 +55,8 @@ pub struct StatusBar {
     note_status: button::Button,
     // Right side: save status (frame for display)
     save_status: frame::Frame,
+    // Current note name plus any transient link-hover destination
+    note_label: NoteLabel,
     // Colors
     bg_color: enums::Color,
     text_color: enums::Color,
@@ -82,6 +118,7 @@ impl StatusBar {
             background,
             note_status,
             save_status,
+            note_label: NoteLabel::default(),
             bg_color,
             text_color,
             hover_color,
@@ -123,9 +160,26 @@ impl StatusBar {
         self.save_status.set_label_color(color);
     }
 
-    /// Set the note status text (left side)
+    /// Set the note status text (left side).
+    ///
+    /// This is the authoritative "which note is on screen" label, so it also
+    /// drops any link-hover destination currently being shown: navigation
+    /// replaces the content under the mouse, making that hover stale.
     pub fn set_note(&mut self, text: &str) {
-        self.note_status.set_label(text);
+        self.note_label.set_note(text);
+        self.refresh_note_label();
+    }
+
+    /// Show the destination of the hovered link in place of the note name, or
+    /// pass `None` when the hover ends to fall back to the note on screen.
+    pub fn set_link_hover(&mut self, target: Option<&str>) {
+        self.note_label.set_hover(target);
+        self.refresh_note_label();
+    }
+
+    fn refresh_note_label(&mut self) {
+        let label = self.note_label.displayed().to_string();
+        self.note_status.set_label(&label);
     }
 
     /// Set the save status text (right side)
@@ -240,5 +294,56 @@ impl StatusBar {
     /// Check if the status bar is visible
     pub fn visible(&self) -> bool {
         self.background.visible()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NoteLabel;
+
+    #[test]
+    fn hover_overlays_the_note_name_and_falls_back_to_it() {
+        let mut label = NoteLabel::default();
+        label.set_note("Note: frontpage");
+        assert_eq!(label.displayed(), "Note: frontpage");
+
+        label.set_hover(Some("recipes"));
+        assert_eq!(label.displayed(), "recipes");
+
+        label.set_hover(None);
+        assert_eq!(label.displayed(), "Note: frontpage");
+    }
+
+    #[test]
+    fn navigating_while_hovering_leaves_no_stale_note_name() {
+        let mut label = NoteLabel::default();
+        label.set_note("Note: frontpage");
+
+        // Hover the "recipes" link, then click it: the load sets the new note
+        // name while the hover that started the click is still in effect.
+        label.set_hover(Some("recipes"));
+        label.set_note("Note: recipes");
+        assert_eq!(label.displayed(), "Note: recipes");
+
+        // The hover-end event arriving afterwards must not resurrect the note
+        // we came from.
+        label.set_hover(None);
+        assert_eq!(label.displayed(), "Note: recipes");
+    }
+
+    #[test]
+    fn hover_end_after_back_navigation_keeps_the_note_we_went_back_to() {
+        let mut label = NoteLabel::default();
+        label.set_note("Note: frontpage");
+        label.set_hover(Some("recipes"));
+        label.set_note("Note: recipes");
+
+        // Back to the frontpage with the caret landing next to one of its
+        // links, then away from it again.
+        label.set_note("Note: frontpage");
+        label.set_hover(Some("notes"));
+        assert_eq!(label.displayed(), "notes");
+        label.set_hover(None);
+        assert_eq!(label.displayed(), "Note: frontpage");
     }
 }
