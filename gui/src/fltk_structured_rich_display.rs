@@ -238,425 +238,7 @@ impl FltkStructuredRichDisplay {
                             if !has_selection {
                                 display.borrow_mut().editor_mut().set_cursor(clicked_pos);
                             }
-                            // Determine current block type based on caret position
-                            let current_block = display.borrow().editor().current_block_type();
-                            let w_for_actions = w.clone();
-                            let actions = crate::context_menu::MenuActions {
-                                has_selection,
-                                current_block,
-                                set_paragraph: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_r = w_for_actions.clone();
-                                    move || {
-                                        display
-                                            .borrow_mut()
-                                            .editor_mut()
-                                            .set_block_type(BlockType::Paragraph)
-                                            .ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_r.redraw();
-                                    }
-                                }),
-                                set_heading1: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_r = w_for_actions.clone();
-                                    move || {
-                                        display
-                                            .borrow_mut()
-                                            .editor_mut()
-                                            .set_block_type(BlockType::Heading { level: 1 })
-                                            .ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_r.redraw();
-                                    }
-                                }),
-                                set_heading2: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_r = w_for_actions.clone();
-                                    move || {
-                                        display
-                                            .borrow_mut()
-                                            .editor_mut()
-                                            .set_block_type(BlockType::Heading { level: 2 })
-                                            .ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_r.redraw();
-                                    }
-                                }),
-                                set_heading3: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_r = w_for_actions.clone();
-                                    move || {
-                                        display
-                                            .borrow_mut()
-                                            .editor_mut()
-                                            .set_block_type(BlockType::Heading { level: 3 })
-                                            .ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_r.redraw();
-                                    }
-                                }),
-                                toggle_code_block: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_r = w_for_actions.clone();
-                                    move || {
-                                        display.borrow_mut().editor_mut().toggle_code_block().ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_r.redraw();
-                                    }
-                                }),
-                                toggle_quote: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_r = w_for_actions.clone();
-                                    move || {
-                                        // Toggle: if current is quote -> paragraph, else -> quote
-                                        let set_to_quote = {
-                                            !matches!(
-                                                display.borrow().editor().current_block_type(),
-                                                BlockType::BlockQuote
-                                            )
-                                        };
-                                        let mut ed = display.borrow_mut();
-                                        if set_to_quote {
-                                            ed.editor_mut()
-                                                .set_block_type(BlockType::BlockQuote)
-                                                .ok();
-                                        } else {
-                                            ed.editor_mut()
-                                                .set_block_type(BlockType::Paragraph)
-                                                .ok();
-                                        }
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_r.redraw();
-                                    }
-                                }),
-                                toggle_list: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_r = w_for_actions.clone();
-                                    move || {
-                                        display.borrow_mut().editor_mut().toggle_list().ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_r.redraw();
-                                    }
-                                }),
-                                toggle_checklist: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_r = w_for_actions.clone();
-                                    move || {
-                                        display.borrow_mut().editor_mut().toggle_checklist().ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_r.redraw();
-                                    }
-                                }),
-                                toggle_ordered_list: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_r = w_for_actions.clone();
-                                    move || {
-                                        display
-                                            .borrow_mut()
-                                            .editor_mut()
-                                            .toggle_ordered_list()
-                                            .ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_r.redraw();
-                                    }
-                                }),
-                                toggle_definition_list: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_r = w_for_actions.clone();
-                                    move || {
-                                        display
-                                            .borrow_mut()
-                                            .editor_mut()
-                                            .set_block_type(BlockType::DefinitionTerm { depth: 0 })
-                                            .ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_r.redraw();
-                                    }
-                                }),
-                                insert_horizontal_rule: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_r = w_for_actions.clone();
-                                    move || {
-                                        display
-                                            .borrow_mut()
-                                            .editor_mut()
-                                            .insert_horizontal_rule()
-                                            .ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_r.redraw();
-                                    }
-                                }),
-                                toggle_bold: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_r = w_for_actions.clone();
-                                    move || {
-                                        display.borrow_mut().editor_mut().toggle_bold().ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_r.redraw();
-                                    }
-                                }),
-                                toggle_italic: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_r = w_for_actions.clone();
-                                    move || {
-                                        display.borrow_mut().editor_mut().toggle_italic().ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_r.redraw();
-                                    }
-                                }),
-                                toggle_code: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_r = w_for_actions.clone();
-                                    move || {
-                                        display.borrow_mut().editor_mut().toggle_code().ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_r.redraw();
-                                    }
-                                }),
-                                toggle_strike: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_r = w_for_actions.clone();
-                                    move || {
-                                        display
-                                            .borrow_mut()
-                                            .editor_mut()
-                                            .toggle_strikethrough()
-                                            .ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_r.redraw();
-                                    }
-                                }),
-                                toggle_underline: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_r = w_for_actions.clone();
-                                    move || {
-                                        display.borrow_mut().editor_mut().toggle_underline().ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_r.redraw();
-                                    }
-                                }),
-                                toggle_highlight: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_r = w_for_actions.clone();
-                                    move || {
-                                        display.borrow_mut().editor_mut().toggle_highlight().ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_r.redraw();
-                                    }
-                                }),
-                                clear_formatting: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_r = w_for_actions.clone();
-                                    move || {
-                                        display.borrow_mut().editor_mut().clear_formatting().ok();
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_r.redraw();
-                                    }
-                                }),
-                                cut: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let mut w_r = w_for_actions.clone();
-                                    move || {
-                                        let doc =
-                                            display.borrow().editor().get_selection_document();
-                                        if let Some(doc) = doc {
-                                            clipboard::copy_structured_to_system(&doc);
-                                            let _ = display
-                                                .borrow_mut()
-                                                .editor_mut()
-                                                .delete_selection();
-                                        }
-                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
-                                            (cb)();
-                                        }
-                                        w_r.redraw();
-                                    }
-                                }),
-                                copy: Box::new({
-                                    let display = display.clone();
-                                    move || {
-                                        if let Some(doc) =
-                                            display.borrow().editor().get_selection_document()
-                                        {
-                                            clipboard::copy_structured_to_system(&doc);
-                                        }
-                                    }
-                                }),
-                                paste: Box::new({
-                                    let w_r = w_for_actions.clone();
-                                    move || {
-                                        fltk::app::paste(&w_r);
-                                    }
-                                }),
-                                edit_link: Box::new({
-                                    let display = display.clone();
-                                    let change_cb = change_cb.clone();
-                                    let w_for_dialog = w.clone();
-                                    move || {
-                                        // Determine initial state: hovered link, selection, or empty
-                                        let (
-                                            init_target,
-                                            init_text,
-                                            mode_existing_link,
-                                            selection_mode,
-                                            link_pos,
-                                        ) = {
-                                            let disp = display.borrow_mut();
-                                            if let Some((b, i)) = disp.hovered_link() {
-                                                let content = rutle::tree_walk::leaf_inline(
-                                                    disp.editor().document(),
-                                                    &b,
-                                                );
-                                                if let Some(InlineContent::Link {
-                                                    link,
-                                                    content: inner,
-                                                }) = content.get(i)
-                                                {
-                                                    let text = inner
-                                                        .iter()
-                                                        .map(|c| c.to_plain_text())
-                                                        .collect::<String>();
-                                                    (
-                                                        link.destination.clone(),
-                                                        text,
-                                                        true,
-                                                        false,
-                                                        Some((b, i)),
-                                                    )
-                                                } else {
-                                                    (
-                                                        String::new(),
-                                                        String::new(),
-                                                        false,
-                                                        false,
-                                                        None,
-                                                    )
-                                                }
-                                            } else if let Some((a, b)) = disp.editor().selection() {
-                                                let text = disp.editor().text_in_range(a, b);
-                                                (String::new(), text, false, true, None)
-                                            } else {
-                                                (String::new(), String::new(), false, false, None)
-                                            }
-                                        };
-
-                                        let center_rect = w_for_dialog.window().map(|parent| {
-                                            (parent.x(), parent.y(), parent.w(), parent.h())
-                                        });
-
-                                        let opts = crate::link_editor::LinkEditOptions {
-                                            init_target,
-                                            init_text: init_text.clone(),
-                                            mode_existing_link,
-                                            selection_mode,
-                                            center_rect,
-                                        };
-
-                                        let display_cb = display.clone();
-                                        let change_cb_ref = change_cb.clone();
-                                        let link_pos_rm = link_pos.clone();
-                                        crate::link_editor::show_link_editor(
-                                            opts,
-                                            move |dest: String, txt: String| {
-                                                let mut disp = display_cb.borrow_mut();
-                                                let editor = disp.editor_mut();
-                                                if let Some((b, i)) = link_pos.clone() {
-                                                    editor.edit_link_at(b, i, &dest, &txt).ok();
-                                                } else if !txt.is_empty() {
-                                                    if editor.selection().is_some() {
-                                                        editor
-                                                            .replace_selection_with_link(
-                                                                &dest, &txt,
-                                                            )
-                                                            .ok();
-                                                    } else {
-                                                        editor
-                                                            .insert_link_at_cursor(&dest, &txt)
-                                                            .ok();
-                                                    }
-                                                }
-                                                drop(disp);
-                                                if let Some(cb) = &mut *change_cb_ref.borrow_mut() {
-                                                    (cb)();
-                                                }
-                                            },
-                                            Some({
-                                                let display_rm = display.clone();
-                                                let change_cb_rm = change_cb.clone();
-                                                move || {
-                                                    if let Some((b, i)) = link_pos_rm.clone() {
-                                                        let mut disp = display_rm.borrow_mut();
-                                                        disp.editor_mut().remove_link_at(b, i).ok();
-                                                        drop(disp);
-                                                        if let Some(cb) =
-                                                            &mut *change_cb_rm.borrow_mut()
-                                                        {
-                                                            (cb)();
-                                                        }
-                                                    }
-                                                }
-                                            }),
-                                        );
-                                    }
-                                }),
-                            };
-
+                            let actions = context_menu_actions(&display, &change_cb, w);
                             crate::context_menu::show_context_menu(x, y, actions);
                             return true;
                         }
@@ -1023,380 +605,7 @@ impl FltkStructuredRichDisplay {
                                     let x = fltk::app::event_x();
                                     let y = fltk::app::event_y();
 
-                                    let has_selection =
-                                        display.borrow().editor().selection().is_some();
-                                    let w_for_actions = w.clone();
-                                    let actions = crate::context_menu::MenuActions {
-                                        has_selection,
-                                        current_block: display
-                                            .borrow()
-                                            .editor()
-                                            .current_block_type(),
-                                        set_paragraph: Box::new({
-                                            let display = display.clone();
-                                            let mut w_r = w_for_actions.clone();
-                                            move || {
-                                                display
-                                                    .borrow_mut()
-                                                    .editor_mut()
-                                                    .set_block_type(BlockType::Paragraph)
-                                                    .ok();
-                                                w_r.redraw();
-                                            }
-                                        }),
-                                        toggle_quote: Box::new({
-                                            let display = display.clone();
-                                            let mut w_r = w_for_actions.clone();
-                                            move || {
-                                                display
-                                                    .borrow_mut()
-                                                    .editor_mut()
-                                                    .toggle_quote()
-                                                    .ok();
-                                                w_r.redraw();
-                                            }
-                                        }),
-                                        set_heading1: Box::new({
-                                            let display = display.clone();
-                                            let mut w_r = w_for_actions.clone();
-                                            move || {
-                                                display
-                                                    .borrow_mut()
-                                                    .editor_mut()
-                                                    .set_block_type(BlockType::Heading { level: 1 })
-                                                    .ok();
-                                                w_r.redraw();
-                                            }
-                                        }),
-                                        set_heading2: Box::new({
-                                            let display = display.clone();
-                                            let mut w_r = w_for_actions.clone();
-                                            move || {
-                                                display
-                                                    .borrow_mut()
-                                                    .editor_mut()
-                                                    .set_block_type(BlockType::Heading { level: 2 })
-                                                    .ok();
-                                                w_r.redraw();
-                                            }
-                                        }),
-                                        set_heading3: Box::new({
-                                            let display = display.clone();
-                                            let mut w_r = w_for_actions.clone();
-                                            move || {
-                                                display
-                                                    .borrow_mut()
-                                                    .editor_mut()
-                                                    .set_block_type(BlockType::Heading { level: 3 })
-                                                    .ok();
-                                                w_r.redraw();
-                                            }
-                                        }),
-                                        toggle_code_block: Box::new({
-                                            let display = display.clone();
-                                            let mut w_r = w_for_actions.clone();
-                                            move || {
-                                                display
-                                                    .borrow_mut()
-                                                    .editor_mut()
-                                                    .toggle_code_block()
-                                                    .ok();
-                                                w_r.redraw();
-                                            }
-                                        }),
-                                        toggle_list: Box::new({
-                                            let display = display.clone();
-                                            let mut w_r = w_for_actions.clone();
-                                            move || {
-                                                display
-                                                    .borrow_mut()
-                                                    .editor_mut()
-                                                    .toggle_list()
-                                                    .ok();
-                                                w_r.redraw();
-                                            }
-                                        }),
-                                        toggle_checklist: Box::new({
-                                            let display = display.clone();
-                                            let mut w_r = w_for_actions.clone();
-                                            move || {
-                                                display
-                                                    .borrow_mut()
-                                                    .editor_mut()
-                                                    .toggle_checklist()
-                                                    .ok();
-                                                w_r.redraw();
-                                            }
-                                        }),
-                                        toggle_ordered_list: Box::new({
-                                            let display = display.clone();
-                                            let mut w_r = w_for_actions.clone();
-                                            move || {
-                                                display
-                                                    .borrow_mut()
-                                                    .editor_mut()
-                                                    .toggle_ordered_list()
-                                                    .ok();
-                                                w_r.redraw();
-                                            }
-                                        }),
-                                        toggle_definition_list: Box::new({
-                                            let display = display.clone();
-                                            let mut w_r = w_for_actions.clone();
-                                            move || {
-                                                display
-                                                    .borrow_mut()
-                                                    .editor_mut()
-                                                    .set_block_type(BlockType::DefinitionTerm {
-                                                        depth: 0,
-                                                    })
-                                                    .ok();
-                                                w_r.redraw();
-                                            }
-                                        }),
-                                        insert_horizontal_rule: Box::new({
-                                            let display = display.clone();
-                                            let mut w_r = w_for_actions.clone();
-                                            move || {
-                                                display
-                                                    .borrow_mut()
-                                                    .editor_mut()
-                                                    .insert_horizontal_rule()
-                                                    .ok();
-                                                w_r.redraw();
-                                            }
-                                        }),
-                                        toggle_bold: Box::new({
-                                            let display = display.clone();
-                                            let mut w_r = w_for_actions.clone();
-                                            move || {
-                                                display
-                                                    .borrow_mut()
-                                                    .editor_mut()
-                                                    .toggle_bold()
-                                                    .ok();
-                                                w_r.redraw();
-                                            }
-                                        }),
-                                        toggle_italic: Box::new({
-                                            let display = display.clone();
-                                            let mut w_r = w_for_actions.clone();
-                                            move || {
-                                                display
-                                                    .borrow_mut()
-                                                    .editor_mut()
-                                                    .toggle_italic()
-                                                    .ok();
-                                                w_r.redraw();
-                                            }
-                                        }),
-                                        toggle_code: Box::new({
-                                            let display = display.clone();
-
-                                            let mut w_r = w_for_actions.clone();
-                                            move || {
-                                                display
-                                                    .borrow_mut()
-                                                    .editor_mut()
-                                                    .toggle_code()
-                                                    .ok();
-                                                w_r.redraw();
-                                            }
-                                        }),
-                                        toggle_strike: Box::new({
-                                            let display = display.clone();
-                                            let mut w_r = w_for_actions.clone();
-                                            move || {
-                                                display
-                                                    .borrow_mut()
-                                                    .editor_mut()
-                                                    .toggle_strikethrough()
-                                                    .ok();
-                                                w_r.redraw();
-                                            }
-                                        }),
-                                        toggle_underline: Box::new({
-                                            let display = display.clone();
-                                            let mut w_r = w_for_actions.clone();
-                                            move || {
-                                                display
-                                                    .borrow_mut()
-                                                    .editor_mut()
-                                                    .toggle_underline()
-                                                    .ok();
-                                                w_r.redraw();
-                                            }
-                                        }),
-                                        toggle_highlight: Box::new({
-                                            let display = display.clone();
-                                            let mut w_r = w_for_actions.clone();
-                                            move || {
-                                                display
-                                                    .borrow_mut()
-                                                    .editor_mut()
-                                                    .toggle_highlight()
-                                                    .ok();
-                                                w_r.redraw();
-                                            }
-                                        }),
-                                        clear_formatting: Box::new({
-                                            let display = display.clone();
-                                            let mut w_r = w_for_actions.clone();
-                                            move || {
-                                                display
-                                                    .borrow_mut()
-                                                    .editor_mut()
-                                                    .clear_formatting()
-                                                    .ok();
-                                                w_r.redraw();
-                                            }
-                                        }),
-                                        cut: Box::new({
-                                            let display = display.clone();
-                                            let mut w_r = w_for_actions.clone();
-                                            move || {
-                                                let doc = display
-                                                    .borrow()
-                                                    .editor()
-                                                    .get_selection_document();
-                                                if let Some(doc) = doc {
-                                                    clipboard::copy_structured_to_system(&doc);
-                                                    let _ = display
-                                                        .borrow_mut()
-                                                        .editor_mut()
-                                                        .delete_selection();
-                                                }
-                                                w_r.redraw();
-                                            }
-                                        }),
-                                        copy: Box::new({
-                                            let display = display.clone();
-                                            move || {
-                                                if let Some(doc) = display
-                                                    .borrow()
-                                                    .editor()
-                                                    .get_selection_document()
-                                                {
-                                                    clipboard::copy_structured_to_system(&doc);
-                                                }
-                                            }
-                                        }),
-                                        paste: Box::new({
-                                            let w_r = w_for_actions.clone();
-                                            move || {
-                                                fltk::app::paste(&w_r);
-                                            }
-                                        }),
-                                        edit_link: Box::new({
-                                            let display = display.clone();
-                                            let w_for_dialog = w.clone();
-                                            move || {
-                                                // Determine initial state: hovered link, selection, or empty
-                                                let (
-                                                    init_target,
-                                                    init_text,
-                                                    mode_existing_link,
-                                                    selection_mode,
-                                                    link_pos,
-                                                ) = {
-                                                    let disp = display.borrow_mut();
-                                                    if let Some((b, i)) = disp.hovered_link() {
-                                                        let content = rutle::tree_walk::leaf_inline(
-                                                            disp.editor().document(),
-                                                            &b,
-                                                        );
-                                                        if let Some(InlineContent::Link {
-                                                            link,
-                                                            content: inner,
-                                                        }) = content.get(i)
-                                                        {
-                                                            let text = inner
-                                                                .iter()
-                                                                .map(|c| c.to_plain_text())
-                                                                .collect::<String>();
-                                                            (
-                                                                link.destination.clone(),
-                                                                text,
-                                                                true,
-                                                                false,
-                                                                Some((b, i)),
-                                                            )
-                                                        } else {
-                                                            (
-                                                                String::new(),
-                                                                String::new(),
-                                                                false,
-                                                                false,
-                                                                None,
-                                                            )
-                                                        }
-                                                    } else if let Some((a, b)) =
-                                                        disp.editor().selection()
-                                                    {
-                                                        let text =
-                                                            disp.editor().text_in_range(a, b);
-                                                        (String::new(), text, false, true, None)
-                                                    } else {
-                                                        (
-                                                            String::new(),
-                                                            String::new(),
-                                                            false,
-                                                            false,
-                                                            None,
-                                                        )
-                                                    }
-                                                };
-
-                                                let center_rect =
-                                                    w_for_dialog.window().map(|parent| {
-                                                        (
-                                                            parent.x(),
-                                                            parent.y(),
-                                                            parent.w(),
-                                                            parent.h(),
-                                                        )
-                                                    });
-
-                                                let opts = crate::link_editor::LinkEditOptions {
-                                                    init_target,
-                                                    init_text: init_text.clone(),
-                                                    mode_existing_link,
-                                                    selection_mode,
-                                                    center_rect,
-                                                };
-
-                                                let display_cb = display.clone();
-                                                crate::link_editor::show_link_editor(
-                                                    opts,
-                                                    move |dest: String, txt: String| {
-                                                        let mut disp = display_cb.borrow_mut();
-                                                        let editor = disp.editor_mut();
-                                                        if let Some((b, i)) = link_pos.clone() {
-                                                            editor
-                                                                .edit_link_at(b, i, &dest, &txt)
-                                                                .ok();
-                                                        } else if !txt.is_empty() {
-                                                            if editor.selection().is_some() {
-                                                                editor
-                                                                    .replace_selection_with_link(
-                                                                        &dest, &txt,
-                                                                    )
-                                                                    .ok();
-                                                            } else {
-                                                                editor
-                                                                    .insert_link_at_cursor(
-                                                                        &dest, &txt,
-                                                                    )
-                                                                    .ok();
-                                                            }
-                                                        }
-                                                    },
-                                                    Option::<fn()>::None,
-                                                );
-                                            }
-                                        }),
-                                    };
-
+                                    let actions = context_menu_actions(&display, &change_cb, w);
                                     crate::context_menu::show_context_menu(x, y, actions);
                                     return true;
                                 }
@@ -2249,6 +1458,255 @@ impl FltkStructuredRichDisplay {
     pub fn current_block_type(&self) -> Option<BlockType> {
         Some(self.display.borrow().editor().current_block_type())
     }
+}
+
+/// Commit an undo checkpoint for the edit that just completed and tell the app
+/// the document changed.
+///
+/// Firing the change callback is what marks the note dirty: it schedules the
+/// debounced autosave, updates the "not saved" status and pushes the new content
+/// to a live-sharing session. Keyboard shortcuts do this inline in the key
+/// handler and menu-bar actions via
+/// [`FltkStructuredRichDisplay::notify_change`]; the context menu uses this.
+fn notify_edit(display: &Rc<RefCell<Renderer>>, change_cb: &MutCallback0) {
+    display
+        .borrow_mut()
+        .editor_mut()
+        .commit_undo_step(UndoKind::Other, Instant::now());
+    if let Ok(mut cb_ref) = change_cb.try_borrow_mut()
+        && let Some(cb) = &mut *cb_ref
+    {
+        (cb)();
+    }
+}
+
+/// Wrap a document edit as a context-menu action: apply it, notify, redraw.
+fn edit_action(
+    display: &Rc<RefCell<Renderer>>,
+    change_cb: &MutCallback0,
+    widget: &fltk::group::Group,
+    mut edit: impl FnMut(&mut rutle::editor::Editor) + 'static,
+) -> Box<dyn FnMut()> {
+    let display = display.clone();
+    let change_cb = change_cb.clone();
+    let mut widget = widget.clone();
+    Box::new(move || {
+        {
+            let mut disp = display.borrow_mut();
+            edit(disp.editor_mut());
+        }
+        notify_edit(&display, &change_cb);
+        widget.redraw();
+    })
+}
+
+/// The actions backing the editor's context menu.
+///
+/// Both ways of opening it — right-click and the Menu key / Shift-F10 — build
+/// their entries from here, so an edit applied from either one always runs
+/// through [`notify_edit`]. They used to be two hand-maintained copies, and the
+/// keyboard-opened one silently mutated the document: no dirty flag, so no
+/// autosave and no undo checkpoint for anything picked from it.
+fn context_menu_actions(
+    display: &Rc<RefCell<Renderer>>,
+    change_cb: &MutCallback0,
+    widget: &fltk::group::Group,
+) -> crate::context_menu::MenuActions {
+    let (has_selection, current_block) = {
+        let disp = display.borrow();
+        (
+            disp.editor().selection().is_some(),
+            disp.editor().current_block_type(),
+        )
+    };
+
+    crate::context_menu::MenuActions {
+        has_selection,
+        current_block,
+
+        // Block styles
+        set_paragraph: edit_action(display, change_cb, widget, |e| {
+            e.set_block_type(BlockType::Paragraph).ok();
+        }),
+        set_heading1: edit_action(display, change_cb, widget, |e| {
+            e.set_block_type(BlockType::Heading { level: 1 }).ok();
+        }),
+        set_heading2: edit_action(display, change_cb, widget, |e| {
+            e.set_block_type(BlockType::Heading { level: 2 }).ok();
+        }),
+        set_heading3: edit_action(display, change_cb, widget, |e| {
+            e.set_block_type(BlockType::Heading { level: 3 }).ok();
+        }),
+        toggle_quote: edit_action(display, change_cb, widget, |e| {
+            e.toggle_quote().ok();
+        }),
+        toggle_code_block: edit_action(display, change_cb, widget, |e| {
+            e.toggle_code_block().ok();
+        }),
+        toggle_list: edit_action(display, change_cb, widget, |e| {
+            e.toggle_list().ok();
+        }),
+        toggle_checklist: edit_action(display, change_cb, widget, |e| {
+            e.toggle_checklist().ok();
+        }),
+        toggle_ordered_list: edit_action(display, change_cb, widget, |e| {
+            e.toggle_ordered_list().ok();
+        }),
+        toggle_definition_list: edit_action(display, change_cb, widget, |e| {
+            e.set_block_type(BlockType::DefinitionTerm { depth: 0 })
+                .ok();
+        }),
+
+        // Insertions
+        insert_horizontal_rule: edit_action(display, change_cb, widget, |e| {
+            e.insert_horizontal_rule().ok();
+        }),
+
+        // Inline styles
+        toggle_bold: edit_action(display, change_cb, widget, |e| {
+            e.toggle_bold().ok();
+        }),
+        toggle_italic: edit_action(display, change_cb, widget, |e| {
+            e.toggle_italic().ok();
+        }),
+        toggle_code: edit_action(display, change_cb, widget, |e| {
+            e.toggle_code().ok();
+        }),
+        toggle_strike: edit_action(display, change_cb, widget, |e| {
+            e.toggle_strikethrough().ok();
+        }),
+        toggle_underline: edit_action(display, change_cb, widget, |e| {
+            e.toggle_underline().ok();
+        }),
+        toggle_highlight: edit_action(display, change_cb, widget, |e| {
+            e.toggle_highlight().ok();
+        }),
+        clear_formatting: edit_action(display, change_cb, widget, |e| {
+            e.clear_formatting().ok();
+        }),
+
+        // Clipboard. Copy never touches the document, and paste is applied by
+        // the `Event::Paste` handler, which notifies for itself.
+        cut: {
+            let display = display.clone();
+            let change_cb = change_cb.clone();
+            let mut widget = widget.clone();
+            Box::new(move || {
+                let Some(doc) = display.borrow().editor().get_selection_document() else {
+                    return;
+                };
+                clipboard::copy_structured_to_system(&doc);
+                {
+                    let mut disp = display.borrow_mut();
+                    let _ = disp.editor_mut().delete_selection();
+                }
+                notify_edit(&display, &change_cb);
+                widget.redraw();
+            })
+        },
+        copy: {
+            let display = display.clone();
+            Box::new(move || {
+                if let Some(doc) = display.borrow().editor().get_selection_document() {
+                    clipboard::copy_structured_to_system(&doc);
+                }
+            })
+        },
+        paste: {
+            let widget = widget.clone();
+            Box::new(move || {
+                fltk::app::paste(&widget);
+            })
+        },
+
+        // Links
+        edit_link: edit_link_action(display, change_cb, widget),
+    }
+}
+
+/// The context menu's "Edit Link…" entry: opens the link dialog prefilled from
+/// the link under the caret (or from the selection), and notifies once the
+/// dialog has changed or removed the link.
+fn edit_link_action(
+    display: &Rc<RefCell<Renderer>>,
+    change_cb: &MutCallback0,
+    widget: &fltk::group::Group,
+) -> Box<dyn FnMut()> {
+    let display = display.clone();
+    let change_cb = change_cb.clone();
+    let widget = widget.clone();
+    Box::new(move || {
+        // Determine initial state: hovered link, selection, or empty
+        let (init_target, init_text, mode_existing_link, selection_mode, link_pos) = {
+            let disp = display.borrow();
+            if let Some((b, i)) = disp.hovered_link() {
+                let content = rutle::tree_walk::leaf_inline(disp.editor().document(), &b);
+                if let Some(InlineContent::Link {
+                    link,
+                    content: inner,
+                }) = content.get(i)
+                {
+                    let text = inner.iter().map(|c| c.to_plain_text()).collect::<String>();
+                    (link.destination.clone(), text, true, false, Some((b, i)))
+                } else {
+                    (String::new(), String::new(), false, false, None)
+                }
+            } else if let Some((a, b)) = disp.editor().selection() {
+                let text = disp.editor().text_in_range(a, b);
+                (String::new(), text, false, true, None)
+            } else {
+                (String::new(), String::new(), false, false, None)
+            }
+        };
+
+        let center_rect = widget
+            .window()
+            .map(|parent| (parent.x(), parent.y(), parent.w(), parent.h()));
+
+        let opts = crate::link_editor::LinkEditOptions {
+            init_target,
+            init_text,
+            mode_existing_link,
+            selection_mode,
+            center_rect,
+        };
+
+        let save_display = display.clone();
+        let save_change_cb = change_cb.clone();
+        let save_pos = link_pos.clone();
+        let remove_display = display.clone();
+        let remove_change_cb = change_cb.clone();
+        crate::link_editor::show_link_editor(
+            opts,
+            move |dest: String, txt: String| {
+                {
+                    let mut disp = save_display.borrow_mut();
+                    let editor = disp.editor_mut();
+                    if let Some((b, i)) = save_pos.clone() {
+                        editor.edit_link_at(b, i, &dest, &txt).ok();
+                    } else if !txt.is_empty() {
+                        if editor.selection().is_some() {
+                            editor.replace_selection_with_link(&dest, &txt).ok();
+                        } else {
+                            editor.insert_link_at_cursor(&dest, &txt).ok();
+                        }
+                    }
+                }
+                notify_edit(&save_display, &save_change_cb);
+            },
+            // Removing is only offered when the dialog was opened on an
+            // existing link.
+            link_pos.map(|(b, i)| {
+                move || {
+                    {
+                        let mut disp = remove_display.borrow_mut();
+                        disp.editor_mut().remove_link_at(b.clone(), i).ok();
+                    }
+                    notify_edit(&remove_display, &remove_change_cb);
+                }
+            }),
+        );
+    })
 }
 
 fn inspect_platform_clipboard() -> (Vec<String>, Option<Vec<u8>>) {
