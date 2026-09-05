@@ -57,7 +57,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   "some paragraphs" and converting them to a list produced one bullet for the
   whole text, and paragraph styles or block moves could only ever apply to all of
   it. Line breaks inside a code block are content and are left alone; a break
-  inside a list item stays with that item as a continuation paragraph.
+  inside a list item stays with that item as a continuation paragraph. (#53)
 
 - **Pasted text is recognized as Markdown or as literal lines.** The two readings
   disagree about newlines — Markdown joins the lines of a paragraph, literal text
@@ -71,7 +71,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   line is read as Markdown as soon as it carries inline markup, since nothing can
   be glued together there. So a shopping list pasted as `- milk`/`- eggs` becomes
   a real bullet list, while a letter copied out of a PDF that happens to have one
-  `- …` line among its paragraphs stays exactly as pasted.
+  `- …` line among its paragraphs stays exactly as pasted. (#53)
 
 ### Fixed
 
