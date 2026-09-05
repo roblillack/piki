@@ -96,6 +96,9 @@ While pre-1.0, the minor version is bumped for breaking changes.
   longer go unnoticed: they now mark the note as changed — so they are
   autosaved, shown in the shared page and undoable on their own — and the
   menu's "Edit Link…" offers to remove a link, as it does on right-click. (#56)
+- Double-clicking a word that contains a non-ASCII letter — "unterstützen",
+  "café" — selects it again instead of crashing the editor.
+  (via `rutle 0.6.1`) (#57)
 
 ## [0.7.1] - 2026-08-27
 
