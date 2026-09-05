@@ -19,7 +19,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   when the caret is inside its text), and the caret lands on the line after it so
   you can keep typing. The caret can rest on a rule and Backspace or Delete
   removes it. It is written to the note as Markdown's `---` and shows up in the
-  shared web view as an `<hr>`. (via `tdoc 0.12` / `rutle 0.6`)
+  shared web view as an `<hr>`. (via `tdoc 0.12.1` / `rutle 0.6.0`) (#55)
 
 - **Definition lists.** A term with its definition indented below it — for
   glossaries, notation, parameter lists. Turn the selected paragraphs into one
@@ -32,7 +32,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   adds another paragraph to the same definition, and Tab/Shift-Tab move a line
   between the two halves. Notes keep them in the PHP Markdown Extra syntax
   (`Term` / `: definition`), and the shared web view renders a real `<dl>`.
-  (via `tdoc 0.12` / `rutle 0.6`)
+  (via `tdoc 0.12.1` / `rutle 0.6.0`) (#55)
 
 ### Changed
 
@@ -40,27 +40,27 @@ While pre-1.0, the minor version is bumped for breaking changes.
   level deeper and Shift-Tab lifts it back out, but they now also move a
   paragraph sitting next to a list or quote into it, lift a quoted line back out,
   and switch a line between a definition list's two halves. Anywhere they have
-  nothing to do, they are left alone as before. (via `rutle 0.6`)
+  nothing to do, they are left alone as before. (via `rutle 0.6.0`) (#55)
 
 ### Fixed
 
 - Turning a selection into a quote, or toggling one off, no longer does nothing
   when the selection ends inside a list or quote — as it did after Select All on
   a note ending in a list. Quoting now also toggles the whole selected range at
-  once, the way the list commands do. (via `rutle 0.6`)
+  once, the way the list commands do. (via `rutle 0.6.0`) (#55)
 - The list commands no longer do nothing when the caret is inside a quote: the
-  list is built inside the quote it belongs to. (via `rutle 0.6`)
+  list is built inside the quote it belongs to. (via `rutle 0.6.0`) (#55)
 - Deleting a checklist item no longer takes its subitems with it, and merging one
   list item into another (Backspace or Delete at an item boundary) keeps the
   subitems and continuation paragraphs with the text they belong to. Enter inside
-  a list item keeps them with their text as well. (via `rutle 0.6`)
+  a list item keeps them with their text as well. (via `rutle 0.6.0`) (#55)
 - Turning a range that covers a quote or a table into a list, or quoting one, no
-  longer drops their content. (via `rutle 0.6`)
+  longer drops their content. (via `rutle 0.6.0`) (#55)
 - A list item whose first line is empty (because its text starts with a hard
   break) now renders all of its lines instead of a single empty bullet.
-  (via `rutle 0.6`)
+  (via `rutle 0.6.0`) (#55)
 - Live note sharing: a selection that covers a horizontal rule no longer breaks
-  the rule's tag in the shared page.
+  the rule's tag in the shared page. (#55)
 
 ## [0.7.1] - 2026-08-27
 
