@@ -71,6 +71,10 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ## [0.7.1] - 2026-08-27
 
+### Fixed
+
+- Fix tracking the current page in the status bar. (#53)
+
 ## [0.7.0] - 2026-08-19
 
 ### Added
