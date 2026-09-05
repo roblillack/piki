@@ -1467,32 +1467,20 @@ fn wire_editor_callbacks(
         }));
     }
 
-    // Hover handler to show link destinations in the note status bar
+    // Hover handler to show link destinations in the note status bar. The
+    // status bar keeps the note name and the hovered destination separately, so
+    // following the link under the cursor cannot leave the note we came from on
+    // screen once the hover ends.
     let current_for_hover = active_editor.borrow().clone();
     {
         let mut cur = current_for_hover.borrow_mut();
         let statusbar_clone = statusbar.clone();
-        let base_label: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         cur.on_link_hover(Box::new(move |target: Option<String>| {
             let statusbar_for_cb = statusbar_clone.clone();
-            let base_label_for_cb = base_label.clone();
-            let tgt = target.clone();
             app::awake_callback(move || {
-                match &tgt {
-                    Some(dest) => {
-                        let dest = dest.clone();
-                        if base_label_for_cb.borrow().is_none() {
-                            let current = statusbar_for_cb.borrow().note_status_widget().label();
-                            *base_label_for_cb.borrow_mut() = Some(current);
-                        }
-                        statusbar_for_cb.borrow_mut().set_note(&dest);
-                    }
-                    None => {
-                        if let Some(orig) = base_label_for_cb.borrow_mut().take() {
-                            statusbar_for_cb.borrow_mut().set_note(&orig);
-                        }
-                    }
-                }
+                statusbar_for_cb
+                    .borrow_mut()
+                    .set_link_hover(target.as_deref());
                 app::redraw();
             });
         }));

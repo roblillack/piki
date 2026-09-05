@@ -10,7 +10,44 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ## [Unreleased] - ReleaseDate
 
+### Added
+
+- **Horizontal rules.** Break a note into sections with a thematic break, drawn
+  as a line across the text column. Insert one with **Format → Horizontal Rule**
+  (`Cmd-Shift--`/`Ctrl-Shift--`) or from the right-click menu: it always becomes
+  a block of its own below the block the caret sits in (splitting a paragraph
+  when the caret is inside its text), and the caret lands on the line after it so
+  you can keep typing. The caret can rest on a rule and Backspace or Delete
+  removes it. It is written to the note as Markdown's `---` and shows up in the
+  shared web view as an `<hr>`. (via `tdoc 0.12.1` / `rutle 0.6.0`) (#55)
+
+- **Definition lists.** A term with its definition indented below it — for
+  glossaries, notation, parameter lists. Turn the selected paragraphs into one
+  with **Format → Definition List** (`Cmd-Shift-0`/`Ctrl-Shift-0`), one term per
+  paragraph; the same command on a list you are already in dissolves it back into
+  plain paragraphs. Terms are set in bold, definitions are indented, and both
+  halves are fully editable: Enter moves through the list one half at a time (at
+  the end of a term it opens the definition, in a definition it starts the next
+  item) and leaves the list from an empty term or definition, `Cmd-P`/`Ctrl-P`
+  adds another paragraph to the same definition, and Tab/Shift-Tab move a line
+  between the two halves. Notes keep them in the PHP Markdown Extra syntax
+  (`Term` / `: definition`), and the shared web view renders a real `<dl>`.
+  (via `tdoc 0.12.1` / `rutle 0.6.0`) (#55)
+
 ### Changed
+
+- **Tab and Shift-Tab work outside lists too.** Tab still nests a list item one
+  level deeper and Shift-Tab lifts it back out, but they now also move a
+  paragraph sitting next to a list or quote into it, lift a quoted line back out,
+  and switch a line between a definition list's two halves. Anywhere they have
+  nothing to do, they are left alone as before. (via `rutle 0.6.0`) (#55)
+
+- **Reveal Codes** (`Cmd-R`/`Ctrl-R`) now draws its codes as real tags — the
+  pointed, outlined boxes WordPerfect used — instead of simulating them with
+  `[Bold>` / `<Bold]` bracket text. A code's point faces the text it applies to:
+  right where a style opens, left where it closes. The codes still behave
+  exactly as before: the caret steps onto each one and backspacing over a code
+  removes that style from its span. (via `rutle 0.6.0`) (#54)
 
 - **Pasted line breaks become paragraph breaks.** Pasting plain text now makes
   every line its own paragraph (blank lines included), and a line break inside a
@@ -35,6 +72,28 @@ While pre-1.0, the minor version is bumped for breaking changes.
   be glued together there. So a shopping list pasted as `- milk`/`- eggs` becomes
   a real bullet list, while a letter copied out of a PDF that happens to have one
   `- …` line among its paragraphs stays exactly as pasted.
+
+### Fixed
+
+- Turning a selection into a quote, or toggling one off, no longer does nothing
+  when the selection ends inside a list or quote — as it did after Select All on
+  a note ending in a list. Quoting now also toggles the whole selected range at
+  once, the way the list commands do. (via `rutle 0.6.0`) (#55)
+- The list commands no longer do nothing when the caret is inside a quote: the
+  list is built inside the quote it belongs to. (via `rutle 0.6.0`) (#55)
+- Deleting a checklist item no longer takes its subitems with it, and merging one
+  list item into another (Backspace or Delete at an item boundary) keeps the
+  subitems and continuation paragraphs with the text they belong to. Enter inside
+  a list item keeps them with their text as well. (via `rutle 0.6.0`) (#55)
+- Turning a range that covers a quote or a table into a list, or quoting one, no
+  longer drops their content. (via `rutle 0.6.0`) (#55)
+- A list item whose first line is empty (because its text starts with a hard
+  break) now renders all of its lines instead of a single empty bullet.
+  (via `rutle 0.6.0`) (#55)
+- Live note sharing: a selection that covers a horizontal rule no longer breaks
+  the rule's tag in the shared page. (#55)
+
+## [0.7.1] - 2026-08-27
 
 ## [0.7.0] - 2026-08-19
 
@@ -311,7 +370,8 @@ While pre-1.0, the minor version is bumped for breaking changes.
   characters the bytes actually stand for on import. (#26)
 
 <!-- next-url -->
-[Unreleased]: https://github.com/roblillack/piki/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/roblillack/piki/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/roblillack/piki/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/roblillack/piki/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/roblillack/piki/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/roblillack/piki/compare/piki-v0.4.0...v0.5.0

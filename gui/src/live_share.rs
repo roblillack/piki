@@ -36,7 +36,7 @@ use crate::markdown_converter::{document_to_html, markdown_to_document};
 use crate::nonprintable::printable;
 use crate::section_link::{heading_anchors, normalize_link_target, split_target};
 use piki_core::ensure_md_extension;
-use tdoc::{ChecklistItem, Document, InlineStyle, Paragraph, Span};
+use tdoc::{ChecklistItem, DefinitionItem, Document, InlineStyle, Paragraph, Span};
 
 /// How long the serve loop blocks waiting for a request before re-checking the
 /// shutdown flag. Keeps [`LiveShare::stop`] responsive without busy-looping.
@@ -420,18 +420,26 @@ fn active_class(is_lead: bool) -> &'static str {
 /// Add the active class to the root element of a single block's HTML.
 ///
 /// The HTML always begins with the block's opening tag (`<p>`, `<ul>`, `<h1>`,
-/// `<pre>`, `<blockquote>`, `<table>`), which tdoc emits with no attributes, so
-/// splicing the class in just before that tag's `>` reliably attributes the
-/// root element. A heading's `id` is added later by [`inject_heading_ids`],
-/// which tolerates the class already being present.
+/// `<pre>`, `<blockquote>`, `<table>`, `<dl>`), which tdoc emits with no
+/// attributes, so splicing the class in just before that tag's `>` reliably
+/// attributes the root element. A horizontal rule is the one self-closing case
+/// (`<hr />`): the attribute has to go before the `/`, not between it and the
+/// `>`. A heading's `id` is added later by [`inject_heading_ids`], which
+/// tolerates the class already being present.
 fn mark_block_root(html: &str, is_lead: bool) -> String {
     match html.find('>') {
         Some(pos) => {
+            // Keep a self-closing tag self-closing: split before the trailing
+            // `/` (and the space in front of it) rather than after it.
+            let at = html[..pos]
+                .trim_end()
+                .strip_suffix('/')
+                .map_or(pos, |head| head.len());
             let mut out = String::with_capacity(html.len() + 32);
-            out.push_str(&html[..pos]);
+            out.push_str(html[..at].trim_end());
             out.push(' ');
             out.push_str(active_class(is_lead));
-            out.push_str(&html[pos..]);
+            out.push_str(&html[at..]);
             out
         }
         None => html.to_string(),
@@ -572,6 +580,26 @@ fn rewrite_links_in_paragraph(paragraph: &mut Paragraph) {
                 }
             }
         }
+        Paragraph::DefinitionList { items } => {
+            for item in items.iter_mut() {
+                rewrite_links_in_definition_item(item);
+            }
+        }
+        // A thematic break carries no content, and so no links.
+        Paragraph::HorizontalRule => {}
+    }
+}
+
+/// Both halves of a definition-list item carry links: the terms hold spans
+/// directly, the definition holds full blocks.
+fn rewrite_links_in_definition_item(item: &mut DefinitionItem) {
+    for term in item.terms.iter_mut() {
+        for span in term.iter_mut() {
+            rewrite_links_in_span(span);
+        }
+    }
+    for child in item.definition.iter_mut() {
+        rewrite_links_in_paragraph(child);
     }
 }
 
@@ -646,6 +674,13 @@ fn collect_heading_texts(paragraphs: &[Paragraph], out: &mut Vec<String>) {
             Paragraph::OrderedList { entries } | Paragraph::UnorderedList { entries } => {
                 for entry in entries {
                     collect_heading_texts(entry, out);
+                }
+            }
+            // A term is inline content and can never be a heading, but a
+            // definition body holds full blocks, which may.
+            Paragraph::DefinitionList { items } => {
+                for item in items {
+                    collect_heading_texts(&item.definition, out);
                 }
             }
             _ => {}
@@ -984,9 +1019,17 @@ p { margin-top: 0; margin-bottom: 16px; }
 
 ul, ol { margin-top: 0; margin-bottom: 16px; padding-left: 2em; }
 li + li { margin-top: 0.25em; }
-li > ul, li > ol { margin-top: 0.25em; margin-bottom: 0; }
+li > ul, li > ol, li > dl { margin-top: 0.25em; margin-bottom: 0; }
 li:has(> input[type="checkbox"]) { list-style: none; }
 li > input[type="checkbox"] { margin: 0 0.4em 0 -1.4em; vertical-align: middle; }
+
+dl { margin-top: 0; margin-bottom: 16px; }
+dt { margin-top: 16px; font-weight: 600; }
+dl > dt:first-child { margin-top: 0; }
+dt + dt { margin-top: 0; }
+dd { margin: 0 0 0 2em; }
+dd > :first-child { margin-top: 0; }
+dd > :last-child { margin-bottom: 0; }
 
 blockquote {
   margin: 0 0 16px 0;
@@ -1176,9 +1219,11 @@ body.compact { line-height: 1.35; }
 body.compact p,
 body.compact ul,
 body.compact ol,
+body.compact dl,
 body.compact pre,
 body.compact blockquote,
 body.compact table { margin-bottom: 10px; }
+body.compact dt { margin-top: 10px; }
 body.compact h1,
 body.compact h2,
 body.compact h3,
@@ -1201,7 +1246,7 @@ body.cols-2 #piki-doc { column-count: 2; column-gap: 48px; }
    honors in multicol; the `-webkit-`/`page-break-` forms cover WebKit/Blink
    and older engines. */
 #piki-doc h1, #piki-doc h2, #piki-doc h3,
-#piki-doc h4, #piki-doc h5, #piki-doc h6 {
+#piki-doc h4, #piki-doc h5, #piki-doc h6, #piki-doc dt {
   break-after: avoid;
   break-after: avoid-column;
   -webkit-column-break-after: avoid;
@@ -1440,6 +1485,58 @@ mod tests {
         );
         // The first item is not part of the selection.
         assert!(f.contains("<li>\n    <p>one</p>"), "{f}");
+    }
+
+    /// Links live in both halves of a definition list — the term's inline
+    /// content and the definition's blocks — and both must be rewritten to
+    /// server paths like any other link.
+    #[test]
+    fn rewrites_links_inside_a_definition_list() {
+        let md = "[Apple](apple)\n: The [fruit](fruit), not the company\n";
+        let f = render_fragment(md, &[]);
+        assert!(f.contains("<dt><a href=\"/apple\">Apple</a></dt>"), "{f}");
+        assert!(f.contains("href=\"/fruit\""), "{f}");
+    }
+
+    /// A horizontal rule is the one block whose tag is self-closing, so the
+    /// spotlight class has to be spliced in before the `/` — `<hr / class=…>`
+    /// would not parse as a rule at all.
+    #[test]
+    fn marks_a_horizontal_rule_without_breaking_its_tag() {
+        let f = render_fragment(
+            "Intro\n\n---\n\nAfter\n",
+            &[HighlightTarget { block: 1, li: None }],
+        );
+        assert!(f.contains("<hr class=\"piki-active piki-lead\"/>"), "{f}");
+        assert!(!f.contains("<hr /"), "{f}");
+    }
+
+    /// A definition list has no `<li>`s: a selection anywhere inside it
+    /// highlights the whole `<dl>`, which must keep its content intact.
+    #[test]
+    fn marks_a_definition_list_as_one_block() {
+        let md = "Apple\n: Pomaceous fruit\n";
+        let f = render_fragment(md, &[HighlightTarget { block: 0, li: None }]);
+        assert!(f.contains("<dl class=\"piki-active piki-lead\">"), "{f}");
+        assert!(f.contains("<dt>Apple</dt>"), "{f}");
+        assert!(f.contains("<dd>Pomaceous fruit</dd>"), "{f}");
+    }
+
+    /// Anchors are paired positionally with the `<hN>` tags the writer emits, so
+    /// every place a heading can hide has to be counted — including the body of
+    /// a definition, which holds full blocks.
+    #[test]
+    fn counts_headings_inside_a_definition_body() {
+        let doc = Document::new().with_paragraphs(vec![
+            Paragraph::new_definition_list().with_definition_items(vec![
+                tdoc::DefinitionItem::new()
+                    .with_terms(vec![vec![Span::new_text("Term")]])
+                    .with_definition(vec![
+                        Paragraph::new_header2().with_content(vec![Span::new_text("Nested")]),
+                    ]),
+            ]),
+        ]);
+        assert_eq!(collect_heading_anchors(&doc), vec!["nested".to_string()]);
     }
 
     #[test]

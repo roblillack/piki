@@ -177,7 +177,8 @@ piki-gui -d /path/to/wiki
 - Live Markdown rendering as you type
 - Headers (H1, H2, H3) with visual hierarchy
 - Bold, italic, code, strikethrough, underline, highlighting
-- Code blocks and blockquotes
+- Code blocks, blockquotes, and horizontal rules
+- Bulleted, numbered, check-, and definition lists
 - Clickable links
 
 **Keyboard Shortcuts**
@@ -213,6 +214,9 @@ piki-gui -d /path/to/wiki
 | `Cmd+Shift+7`         | Numbered list     |
 | `Cmd+Shift+8`         | Bulleted list     |
 | `Cmd+Shift+9`         | Checklist         |
+| `Cmd+Shift+0`         | Definition list   |
+| `Cmd+Shift+-`         | Horizontal rule   |
+| `Tab` / `Shift+Tab`   | Indent / outdent the current line |
 | `Option+Up`           | Move paragraph up   |
 | `Option+Down`         | Move paragraph down |
 | **View**              |                     |

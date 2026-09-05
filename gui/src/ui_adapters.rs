@@ -132,6 +132,19 @@ impl StructuredRichUI {
         self.apply_edit(|editor| editor.toggle_ordered_list())
     }
 
+    /// Turn the selected paragraph(s) into a definition list — one term each,
+    /// every definition left empty to type into — or, from inside one, dissolve
+    /// it back into plain paragraphs.
+    pub fn toggle_definition_list(&mut self) -> bool {
+        self.apply_edit(|editor| editor.set_block_type(BlockType::DefinitionTerm { depth: 0 }))
+    }
+
+    /// Insert a horizontal rule as a top-level block below the caret's block,
+    /// leaving the caret on the block that follows it.
+    pub fn insert_horizontal_rule(&mut self) -> bool {
+        self.apply_edit(|editor| editor.insert_horizontal_rule())
+    }
+
     pub fn toggle_bold(&mut self) -> bool {
         self.apply_edit(|editor| editor.toggle_bold())
     }
@@ -233,8 +246,8 @@ impl StructuredRichUI {
         self.0.display.borrow().horizontal_padding()
     }
 
-    /// Whether reveal-codes mode is active (rutle's inline-style tags, e.g.
-    /// `[Bold>`…`<Bold]`, shown inline).
+    /// Whether reveal-codes mode is active (rutle's inline-style tags — the
+    /// pointed `Bold`…`Bold` code boxes — shown inline).
     pub fn reveal_codes(&self) -> bool {
         self.0.display.borrow().reveal_codes()
     }
@@ -481,6 +494,10 @@ impl ContentLoader for StructuredRichUI {
         }
         disp.editor_mut().set_document(doc);
         disp.set_scroll(0);
+        // The hovered link (mouse or caret) belongs to the document we just
+        // replaced: keep it and a link at the same position in the new note
+        // would render as hovered, and no hover event would fire to correct it.
+        disp.set_hovered_link(None);
         drop(disp);
         self.0.emit_paragraph_state();
     }
@@ -767,6 +784,57 @@ mod tests {
                 BlockType::Heading { .. }
             ));
         }
+    }
+
+    /// Neither half of a definition list is a `<li>`, so every leaf inside one
+    /// — term and definition alike — highlights the whole `<dl>` block, and a
+    /// selection running through it collapses to that single target.
+    #[test]
+    fn definition_list_highlights_as_one_block() {
+        let md = "Intro\n\nApple\n: Pomaceous fruit\n";
+        let doc = crate::markdown_converter::markdown_to_document(md);
+        let leaves = rutle::tree_walk::enumerate_leaves(&doc);
+        // Intro, then the list's term and its definition.
+        assert_eq!(leaves.len(), 3);
+        assert!(leaves.iter().all(|l| l.marker.is_none()));
+        for leaf in &leaves[1..] {
+            assert_eq!(
+                target_at(&doc, &leaf.path),
+                HighlightTarget { block: 1, li: None }
+            );
+        }
+
+        let start = DocumentPosition::at(leaves[1].path.clone(), 0);
+        let end = DocumentPosition::at(leaves[2].path.clone(), 1);
+        assert_eq!(
+            selection_targets(&doc, &start, &end),
+            vec![HighlightTarget { block: 1, li: None }]
+        );
+    }
+
+    /// A horizontal rule is a leaf of its own, so it is its own highlight
+    /// element — a selection crossing one covers the blocks on both sides too.
+    #[test]
+    fn horizontal_rule_is_its_own_highlight_element() {
+        let md = "Above\n\n---\n\nBelow\n";
+        let doc = crate::markdown_converter::markdown_to_document(md);
+        let leaves = rutle::tree_walk::enumerate_leaves(&doc);
+        assert_eq!(leaves.len(), 3);
+        assert_eq!(
+            target_at(&doc, &leaves[1].path),
+            HighlightTarget { block: 1, li: None }
+        );
+
+        let start = DocumentPosition::at(leaves[0].path.clone(), 0);
+        let end = DocumentPosition::at(leaves[2].path.clone(), 1);
+        assert_eq!(
+            selection_targets(&doc, &start, &end),
+            vec![
+                HighlightTarget { block: 0, li: None },
+                HighlightTarget { block: 1, li: None },
+                HighlightTarget { block: 2, li: None },
+            ]
+        );
     }
 
     /// A brand-new note has no paragraphs, so rutle's block-level commands have

@@ -21,6 +21,10 @@ pub struct MenuActions {
     pub toggle_list: Box<dyn FnMut()>,
     pub toggle_checklist: Box<dyn FnMut()>,
     pub toggle_ordered_list: Box<dyn FnMut()>,
+    pub toggle_definition_list: Box<dyn FnMut()>,
+
+    // Insertions
+    pub insert_horizontal_rule: Box<dyn FnMut()>,
 
     // Inline styles
     pub toggle_bold: Box<dyn FnMut()>,
@@ -94,6 +98,18 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
     #[cfg(not(target_os = "macos"))]
     let checklist_shortcut = Shortcut::Ctrl | Shortcut::Shift | '9';
 
+    // Definition list (Cmd/Ctrl + Shift + 0)
+    #[cfg(target_os = "macos")]
+    let definition_list_shortcut = Shortcut::Command | Shortcut::Shift | '0';
+    #[cfg(not(target_os = "macos"))]
+    let definition_list_shortcut = Shortcut::Ctrl | Shortcut::Shift | '0';
+
+    // Horizontal rule (Cmd/Ctrl + Shift + -)
+    #[cfg(target_os = "macos")]
+    let horizontal_rule_shortcut = Shortcut::Command | Shortcut::Shift | '-';
+    #[cfg(not(target_os = "macos"))]
+    let horizontal_rule_shortcut = Shortcut::Ctrl | Shortcut::Shift | '-';
+
     // Paragraph style items as a radio group
     menu.add(
         "Paragraph Style/Paragraph\t",
@@ -149,6 +165,21 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         MenuFlag::Radio,
         move |_| (actions.toggle_checklist)(),
     );
+    menu.add(
+        "Paragraph Style/Definition List\t",
+        definition_list_shortcut,
+        MenuFlag::Radio,
+        move |_| (actions.toggle_definition_list)(),
+    );
+
+    // A horizontal rule is inserted, not applied to the current block, so it
+    // sits outside the paragraph-style radio group.
+    menu.add(
+        "_Insert Horizontal Rule\t",
+        horizontal_rule_shortcut,
+        MenuFlag::Normal,
+        move |_| (actions.insert_horizontal_rule)(),
+    );
 
     // Reflect current block selection in the radio group
     let labels = [
@@ -161,6 +192,7 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         "Paragraph Style/Numbered List\t",
         "Paragraph Style/List Item\t",
         "Paragraph Style/Checklist Item\t",
+        "Paragraph Style/Definition List\t",
     ];
     // Ensure radio flag is set on all items and clear Value by default
     for &label in &labels {
@@ -189,8 +221,9 @@ pub fn show_context_menu(x: i32, y: i32, mut actions: MenuActions) {
         } else {
             "Paragraph Style/List Item\t"
         }),
-        // Tables have no paragraph-style menu entry.
-        BlockType::Table { .. } => None,
+        BlockType::DefinitionTerm { .. } => Some("Paragraph Style/Definition List\t"),
+        // Tables and horizontal rules have no paragraph-style menu entry.
+        BlockType::Table { .. } | BlockType::HorizontalRule => None,
     } && let Some(mut item) = menu.find_item(lbl)
     {
         item.set();
