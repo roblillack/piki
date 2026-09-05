@@ -36,7 +36,8 @@ piki-gui -d /path/to/wiki
 - **Live Markdown rendering** as you type
 - **Visual hierarchy** for headers (H1, H2, H3)
 - **Inline styles**: Bold, italic, code, strikethrough, underline, highlighting
-- **Block elements**: Code blocks, blockquotes, lists
+- **Block elements**: Code blocks, blockquotes, horizontal rules
+- **Lists**: Bulleted, numbered, check-, and definition lists
 - **Clickable links** for easy navigation
 
 ### Keyboard Shortcuts
@@ -72,6 +73,9 @@ piki-gui -d /path/to/wiki
 | `Cmd+Shift+7`         | Numbered list     |
 | `Cmd+Shift+8`         | Bulleted list     |
 | `Cmd+Shift+9`         | Checklist         |
+| `Cmd+Shift+0`         | Definition list   |
+| `Cmd+Shift+-`         | Horizontal rule   |
+| `Tab` / `Shift+Tab`   | Indent / outdent the current line |
 
 Note: On Linux/Windows, use `Ctrl` instead of `Cmd`.
 
