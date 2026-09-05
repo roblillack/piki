@@ -33,13 +33,33 @@ use tiny_http::{Header, Request, Response, Server};
 
 use crate::link_handler::is_external_link;
 use crate::markdown_converter::{document_to_html, markdown_to_document};
+use crate::nonprintable::printable;
 use crate::section_link::{heading_anchors, normalize_link_target, split_target};
 use piki_core::ensure_md_extension;
-use tdoc::{ChecklistItem, Document, InlineStyle, Paragraph, Span};
+use tdoc::{ChecklistItem, DefinitionItem, Document, InlineStyle, Paragraph, Span};
 
 /// How long the serve loop blocks waiting for a request before re-checking the
 /// shutdown flag. Keeps [`LiveShare::stop`] responsive without busy-looping.
 const POLL_TIMEOUT: Duration = Duration::from_millis(250);
+
+/// One element the web view should spotlight, mirroring the presenter's
+/// *selection* in the editor (never the bare caret). Computed on the GUI thread
+/// from the selection and its position in the document tree.
+///
+/// A selection spanning several paragraphs or list items yields several of
+/// these (see [`LiveShare::set_highlight`]). The web view tints each with a
+/// background band; the document-order-first one also gets a large arrow in the
+/// left gutter, so a multi-paragraph selection reads as one region with a single
+/// pointer. The set is empty whenever the editor has no selection, so moving the
+/// caret removes the highlight and double-clicking a word brings it back.
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
+pub struct HighlightTarget {
+    /// Index into `Document.paragraphs` of the top-level block to highlight.
+    pub block: usize,
+    /// For a selection inside a list/checklist: the document-order index of the
+    /// `<li>` within that block. `None` highlights the whole block.
+    pub li: Option<usize>,
+}
 
 /// Snapshot of what the server should serve, kept up to date by the GUI thread.
 struct ShareState {
@@ -49,8 +69,11 @@ struct ShareState {
     current_note: String,
     /// Live Markdown of the current note (includes not-yet-saved edits).
     current_markdown: String,
-    /// Bumped whenever the current note or its Markdown changes. Drives the
-    /// browser's live reload.
+    /// The elements to spotlight in the current note (empty when the editor has
+    /// no selection). Only ever applies to the current note.
+    highlight: Vec<HighlightTarget>,
+    /// Bumped whenever the current note, its Markdown, or the highlight changes.
+    /// Drives the browser's live reload.
     generation: u64,
 }
 
@@ -79,6 +102,7 @@ impl LiveShare {
             dir,
             current_note: note,
             current_markdown: markdown,
+            highlight: Vec::new(),
             generation: 1,
         }));
         let stop = Arc::new(AtomicBool::new(false));
@@ -110,11 +134,30 @@ impl LiveShare {
     /// Update the note/content the server considers "current". Bumps the
     /// generation (triggering live reload) only when something actually changed.
     pub fn set_current(&self, note: &str, markdown: &str) {
+        if let Ok(mut st) = self.state.lock() {
+            let note_changed = st.current_note != note;
+            if note_changed || st.current_markdown != markdown {
+                st.current_note = note.to_string();
+                st.current_markdown = markdown.to_string();
+                // A highlight is tied to a specific note's block/list-item
+                // indices, so drop it when the note changes; the GUI pushes a
+                // fresh one for the new note on its next tick.
+                if note_changed {
+                    st.highlight.clear();
+                }
+                st.generation = st.generation.wrapping_add(1);
+            }
+        }
+    }
+
+    /// Update which elements the web view should spotlight (mirroring the
+    /// editor's selection; empty clears it). Bumps the generation — triggering
+    /// live reload — only when the set actually changed.
+    pub fn set_highlight(&self, targets: Vec<HighlightTarget>) {
         if let Ok(mut st) = self.state.lock()
-            && (st.current_note != note || st.current_markdown != markdown)
+            && st.highlight != targets
         {
-            st.current_note = note.to_string();
-            st.current_markdown = markdown.to_string();
+            st.highlight = targets;
             st.generation = st.generation.wrapping_add(1);
         }
     }
@@ -154,11 +197,12 @@ fn handle_request(request: Request, state: &Arc<Mutex<ShareState>>) {
 
     // Snapshot the shared state under a short lock, then do all I/O and
     // rendering without holding it (so a slow request never blocks the GUI).
-    let (dir, current_note, current_markdown, generation) = match state.lock() {
+    let (dir, current_note, current_markdown, highlight, generation) = match state.lock() {
         Ok(st) => (
             st.dir.clone(),
             st.current_note.clone(),
             st.current_markdown.clone(),
+            st.highlight.clone(),
             st.generation,
         ),
         Err(_) => {
@@ -190,7 +234,8 @@ fn handle_request(request: Request, state: &Arc<Mutex<ShareState>>) {
 
     // Anything else is a note path.
     let note = path.trim_start_matches('/');
-    let markdown = if note == current_note {
+    let is_current = note == current_note;
+    let markdown = if is_current {
         // The current note is served from memory so unsaved edits show up live.
         // This also covers plugin views ("!index"), which have no file on disk.
         Some(current_markdown)
@@ -205,11 +250,16 @@ fn handle_request(request: Request, state: &Arc<Mutex<ShareState>>) {
         return;
     };
 
+    // The highlight indices are relative to the current note's document, so
+    // only ever apply them when serving the current note.
+    let highlight: &[HighlightTarget] = if is_current { &highlight } else { &[] };
+
     if query_param(query_part, "raw").is_some() {
-        let _ = request.respond(html_response(&render_fragment(&markdown), 200));
+        let body = render_fragment(&markdown, highlight);
+        let _ = request.respond(html_response(&body, 200));
     } else {
         let token = version_token(note, &current_note, generation, &dir);
-        let page = render_page(note, &markdown, &token);
+        let page = render_page(note, &markdown, &token, highlight);
         let _ = request.respond(html_response(&page, 200));
     }
 }
@@ -260,25 +310,37 @@ fn load_note_markdown(dir: &Path, note: &str) -> Option<String> {
 
 /// Render just the note body: the `<div id="piki-doc">` inner HTML. Fetched by
 /// the live-reload script to swap content in place without a full reload.
-fn render_fragment(markdown: &str) -> String {
-    let mut doc = markdown_to_document(markdown);
+///
+/// Each element in `highlight` is marked with the `piki-active` class so the
+/// stylesheet can tint it; the document-order-first one also gets `piki-lead`
+/// (the pointing arrow). The browser scrolls the lead into view after swapping.
+fn render_fragment(markdown: &str, highlight: &[HighlightTarget]) -> String {
+    // Show any non-printable character the note carries rather than leaving the
+    // browser to paint its own idea of nothing — the editor does the same, so
+    // viewer and author see the note the same way. Substituted before parsing:
+    // a control character is never Markdown syntax, and the stand-in glyphs are
+    // ordinary text from the parser's point of view.
+    let markdown = printable(markdown);
+    let mut doc = markdown_to_document(&markdown);
     rewrite_links_in_document(&mut doc);
     let anchors = collect_heading_anchors(&doc);
-    let sectioned = render_sectioned_html(&doc);
+    let sectioned = render_sectioned_html(&doc, highlight);
     inject_heading_ids(&sectioned, &anchors)
 }
 
 /// Render the document with each top-level heading and the blocks that follow it
 /// (until the next heading) wrapped in a `<section class="piki-sec">`.
 ///
-/// In two-column mode these sections carry `break-inside: avoid`, which is the
-/// only reliable way to keep a heading with its content: Firefox's column
-/// balancer ignores `break-after: avoid` on the heading itself and will happily
-/// orphan a heading at the foot of a column, but it does honor `break-inside`
-/// on a wrapping block. A section taller than a column still breaks internally
-/// (between list items), so the heading stays with at least the start of its
-/// content rather than standing alone.
-fn render_sectioned_html(doc: &Document) -> String {
+/// The wrapper groups a heading with its content semantically and anchors the
+/// first-child margin reset in the stylesheet. In two-column mode the sections
+/// are deliberately *breakable*: a tall section (a heading followed by a long
+/// list) must be allowed to split across the column boundary, otherwise the
+/// balancer is forced to drop the whole section into one column and overflow it
+/// while the other column has room to spare. Keeping the heading attached to at
+/// least the start of its content is handled instead by `break-after: avoid` on
+/// the heading (see the stylesheet), which lets the content flow on into the
+/// next column without orphaning the heading.
+fn render_sectioned_html(doc: &Document, highlight: &[HighlightTarget]) -> String {
     let is_heading = |p: &Paragraph| {
         matches!(
             p,
@@ -286,9 +348,19 @@ fn render_sectioned_html(doc: &Document) -> String {
         )
     };
 
+    // The document-order-first highlighted element carries the pointing arrow
+    // (`piki-lead`); every element carries the tint (`piki-active`). Ordering
+    // key: earlier block first, then whole-block (`None`) before/at a list's
+    // items — non-list and list blocks never mix, so this is exact document
+    // order.
+    let lead = highlight
+        .iter()
+        .min_by_key(|t| (t.block, t.li.map(|k| k + 1).unwrap_or(0)))
+        .cloned();
+
     let mut out = String::new();
     let mut section_open = false;
-    for paragraph in &doc.paragraphs {
+    for (index, paragraph) in doc.paragraphs.iter().enumerate() {
         if is_heading(paragraph) {
             if section_open {
                 out.push_str("</section>\n");
@@ -297,7 +369,36 @@ fn render_sectioned_html(doc: &Document) -> String {
             section_open = true;
         }
         let single = Document::new().with_paragraphs(vec![paragraph.clone()]);
-        out.push_str(&document_to_html(&single));
+        let mut block_html = document_to_html(&single);
+
+        // Mark this block's highlighted parts. Rendering each top-level paragraph
+        // in isolation means we know exactly which element (its root, or its
+        // k-th `<li>`) to tag, avoiding fragile addressing against the combined
+        // document. `lead` decides which one also gets the arrow.
+        if highlight.iter().any(|t| t.block == index && t.li.is_none()) {
+            let is_lead = lead.as_ref()
+                == Some(&HighlightTarget {
+                    block: index,
+                    li: None,
+                });
+            block_html = mark_block_root(&block_html, is_lead);
+        }
+        let mut lis: Vec<usize> = highlight
+            .iter()
+            .filter(|t| t.block == index)
+            .filter_map(|t| t.li)
+            .collect();
+        if !lis.is_empty() {
+            lis.sort_unstable();
+            lis.dedup();
+            let lead_li = lead
+                .as_ref()
+                .filter(|t| t.block == index)
+                .and_then(|t| t.li);
+            block_html = mark_lis(&block_html, &lis, lead_li);
+        }
+
+        out.push_str(&block_html);
         out.push('\n');
     }
     if section_open {
@@ -306,10 +407,80 @@ fn render_sectioned_html(doc: &Document) -> String {
     out
 }
 
+/// The class attribute for a highlighted element: the tint always, plus the
+/// pointing arrow (`piki-lead`) for the single document-order-first one.
+fn active_class(is_lead: bool) -> &'static str {
+    if is_lead {
+        "class=\"piki-active piki-lead\""
+    } else {
+        "class=\"piki-active\""
+    }
+}
+
+/// Add the active class to the root element of a single block's HTML.
+///
+/// The HTML always begins with the block's opening tag (`<p>`, `<ul>`, `<h1>`,
+/// `<pre>`, `<blockquote>`, `<table>`, `<dl>`), which tdoc emits with no
+/// attributes, so splicing the class in just before that tag's `>` reliably
+/// attributes the root element. A horizontal rule is the one self-closing case
+/// (`<hr />`): the attribute has to go before the `/`, not between it and the
+/// `>`. A heading's `id` is added later by [`inject_heading_ids`], which
+/// tolerates the class already being present.
+fn mark_block_root(html: &str, is_lead: bool) -> String {
+    match html.find('>') {
+        Some(pos) => {
+            // Keep a self-closing tag self-closing: split before the trailing
+            // `/` (and the space in front of it) rather than after it.
+            let at = html[..pos]
+                .trim_end()
+                .strip_suffix('/')
+                .map_or(pos, |head| head.len());
+            let mut out = String::with_capacity(html.len() + 32);
+            out.push_str(html[..at].trim_end());
+            out.push(' ');
+            out.push_str(active_class(is_lead));
+            out.push_str(&html[at..]);
+            out
+        }
+        None => html.to_string(),
+    }
+}
+
+/// Add the active class to each `<li>` whose 0-based document-order index is in
+/// `indices` (the one equal to `lead` also gets the arrow), in a single
+/// list/checklist block's HTML. tdoc emits every list/checklist item as a bare
+/// `<li>` in document order, so these indices line up with the list-item leaves
+/// the GUI counted. Done in one scan so marking one item doesn't disturb the
+/// count of later ones; indices out of range (e.g. after a Markdown round-trip
+/// changed the structure) are ignored.
+fn mark_lis(html: &str, indices: &[usize], lead: Option<usize>) -> String {
+    if indices.is_empty() {
+        return html.to_string();
+    }
+    let mut out = String::with_capacity(html.len() + indices.len() * 32);
+    let mut count = 0;
+    let mut from = 0;
+    while let Some(rel) = html[from..].find("<li>") {
+        let pos = from + rel;
+        out.push_str(&html[from..pos]);
+        if indices.contains(&count) {
+            out.push_str("<li ");
+            out.push_str(active_class(lead == Some(count)));
+            out.push('>');
+        } else {
+            out.push_str("<li>");
+        }
+        count += 1;
+        from = pos + "<li>".len();
+    }
+    out.push_str(&html[from..]);
+    out
+}
+
 /// Render a complete, styled HTML page for `note`, embedding the current version
 /// token so the reload script starts in sync.
-fn render_page(note: &str, markdown: &str, version: &str) -> String {
-    let body = render_fragment(markdown);
+fn render_page(note: &str, markdown: &str, version: &str, highlight: &[HighlightTarget]) -> String {
+    let body = render_fragment(markdown, highlight);
     let mut page = String::with_capacity(
         body.len() + STYLESHEET.len() + RELOAD_SCRIPT.len() + COLUMN_SCRIPT.len() + 512,
     );
@@ -329,21 +500,24 @@ fn render_page(note: &str, markdown: &str, version: &str) -> String {
     page.push_str(&body);
     page.push_str("\n</div>\n");
     page.push_str("<div id=\"piki-status\" hidden>Live sharing has ended.</div>\n");
-    // Subtle footer with attribution and a 1-col / 2-col layout toggle. It lives
-    // outside #piki-doc so it (and the chosen layout) survives live-reload
-    // content swaps; the choice is persisted in localStorage across notes.
+    // Subtle footer with attribution and two reading-mode toggles: line spacing
+    // (wide/compact) and layout (1-col / 2-col). It lives outside #piki-doc so it
+    // (and the chosen modes) survive live-reload content swaps; each choice is
+    // persisted in localStorage across notes.
     page.push_str("<footer id=\"piki-footer\">Shared by Piki v");
     page.push_str(env!("CARGO_PKG_VERSION"));
-    page.push_str(
-        " &bull; <a href=\"#\" class=\"piki-col active\" data-cols=\"1\">1 col</a> \
-         <a href=\"#\" class=\"piki-col\" data-cols=\"2\">2 cols</a></footer>\n",
-    );
+    page.push_str(FOOTER_CONTROLS);
+    page.push_str("</footer>\n");
     page.push_str("<script>window.__pikiInitialVersion = ");
     page.push_str(&json_string(version));
     page.push_str(";</script>\n<script>");
     page.push_str(RELOAD_SCRIPT);
     page.push_str("</script>\n<script>");
     page.push_str(COLUMN_SCRIPT);
+    page.push_str("</script>\n<script>");
+    page.push_str(SPACING_SCRIPT);
+    page.push_str("</script>\n<script>");
+    page.push_str(FOOTER_FADE_SCRIPT);
     page.push_str("</script>\n</body>\n</html>\n");
     page
 }
@@ -406,6 +580,26 @@ fn rewrite_links_in_paragraph(paragraph: &mut Paragraph) {
                 }
             }
         }
+        Paragraph::DefinitionList { items } => {
+            for item in items.iter_mut() {
+                rewrite_links_in_definition_item(item);
+            }
+        }
+        // A thematic break carries no content, and so no links.
+        Paragraph::HorizontalRule => {}
+    }
+}
+
+/// Both halves of a definition-list item carry links: the terms hold spans
+/// directly, the definition holds full blocks.
+fn rewrite_links_in_definition_item(item: &mut DefinitionItem) {
+    for term in item.terms.iter_mut() {
+        for span in term.iter_mut() {
+            rewrite_links_in_span(span);
+        }
+    }
+    for child in item.definition.iter_mut() {
+        rewrite_links_in_paragraph(child);
     }
 }
 
@@ -482,6 +676,13 @@ fn collect_heading_texts(paragraphs: &[Paragraph], out: &mut Vec<String>) {
                     collect_heading_texts(entry, out);
                 }
             }
+            // A term is inline content and can never be a heading, but a
+            // definition body holds full blocks, which may.
+            Paragraph::DefinitionList { items } => {
+                for item in items {
+                    collect_heading_texts(&item.definition, out);
+                }
+            }
             _ => {}
         }
     }
@@ -503,9 +704,14 @@ fn collect_span_text(span: &Span, out: &mut String) {
 }
 
 /// Splice `id` attributes into the heading tags of `html`, pairing the i-th
-/// `<h1>`/`<h2>`/`<h3>` (in output order) with `anchors[i]`. Matching the bare
-/// opening tag is safe because the HTML writer never emits attributes on
-/// headings and entity-encodes any literal `<` in text/code.
+/// `<h1>`/`<h2>`/`<h3>` (in output order) with `anchors[i]`.
+///
+/// Matches the opening-tag *prefix* (`<h1`, not `<h1>`) and inserts the `id`
+/// right after it, so it composes with an active heading that already carries a
+/// `class` attribute (`<h1 class="piki-active">` → `<h1 id="…" class="piki-active">`)
+/// as well as a bare `<h1>` (→ `<h1 id="…">`). This is safe because the HTML
+/// writer emits no other attributes on headings and entity-encodes any literal
+/// `<` in text/code, so `<h1`/`<h2`/`<h3` only ever begin a heading open tag.
 fn inject_heading_ids(html: &str, anchors: &[String]) -> String {
     if anchors.is_empty() {
         return html.to_string();
@@ -514,18 +720,17 @@ fn inject_heading_ids(html: &str, anchors: &[String]) -> String {
     let mut rest = html;
     let mut idx = 0;
     while idx < anchors.len() {
-        let next = ["<h1>", "<h2>", "<h3>"]
+        let next = ["<h1", "<h2", "<h3"]
             .iter()
             .filter_map(|tag| rest.find(tag).map(|pos| (pos, *tag)))
             .min_by_key(|(pos, _)| *pos);
         let Some((pos, tag)) = next else { break };
-        out.push_str(&rest[..pos]);
-        let level = &tag[1..3]; // "h1" | "h2" | "h3"
-        out.push_str(&format!(
-            "<{level} id=\"{}\">",
-            html_escape_attr(&anchors[idx])
-        ));
-        rest = &rest[pos + tag.len()..];
+        // Copy up to and including the `<hN` prefix, then splice in the id so any
+        // existing attributes (e.g. the active-highlight class) are preserved.
+        let after = pos + tag.len();
+        out.push_str(&rest[..after]);
+        out.push_str(&format!(" id=\"{}\"", html_escape_attr(&anchors[idx])));
+        rest = &rest[after..];
         idx += 1;
     }
     out.push_str(rest);
@@ -662,7 +867,14 @@ const RELOAD_SCRIPT: &str = r#"(function () {
           .then(function (r) { return r.text(); })
           .then(function (html) {
             var doc = document.getElementById("piki-doc");
-            if (doc) doc.innerHTML = html;
+            if (doc) {
+              doc.innerHTML = html;
+              // Bring the spotlighted paragraph/item into view for the audience.
+              // `nearest` leaves it alone when already visible, so ordinary edits
+              // don't yank the page around.
+              var active = doc.querySelector(".piki-active");
+              if (active) active.scrollIntoView({ block: "nearest" });
+            }
           });
       })
       .catch(function () { if (statusEl) statusEl.hidden = false; });
@@ -696,6 +908,77 @@ const COLUMN_SCRIPT: &str = r#"(function () {
   }
 })();"#;
 
+/// The footer's interactive controls: a wide/compact line-spacing toggle (two
+/// stacked-line icons) followed by a one/two column toggle. The two mirror each
+/// other — each is a set of `<a>` links carrying a `data-*` value, with the
+/// current choice marked `active`; the scripts below drive them and persist the
+/// choice. Kept as one raw string literal so the inline SVG icons need no
+/// escaping; the newlines between elements collapse to a single space in HTML.
+const FOOTER_CONTROLS: &str = r##" &bull;
+<a href="#" class="piki-spacing active" data-spacing="wide" title="Wide line spacing" aria-label="Wide line spacing"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2.5" y1="4" x2="13.5" y2="4"/><line x1="2.5" y1="12" x2="13.5" y2="12"/></svg></a>
+<a href="#" class="piki-spacing" data-spacing="compact" title="Compact line spacing" aria-label="Compact line spacing"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="2.5" y1="6" x2="13.5" y2="6"/><line x1="2.5" y1="10" x2="13.5" y2="10"/></svg></a>
+&bull;
+<a href="#" class="piki-col active" data-cols="1">1 col</a>
+<a href="#" class="piki-col" data-cols="2">2 cols</a>"##;
+
+/// Wires the footer's wide/compact line-spacing toggle, mirroring
+/// `COLUMN_SCRIPT`: applies the saved preference on load, reflects the active
+/// choice, and persists changes. The density is driven by the `compact` class on
+/// `<body>` (see the stylesheet), which survives live-reload content swaps
+/// because only `#piki-doc` is replaced.
+const SPACING_SCRIPT: &str = r#"(function () {
+  function apply(mode) {
+    document.body.classList.toggle("compact", mode === "compact");
+    try { localStorage.setItem("pikiSpacing", mode); } catch (e) {}
+    var links = document.querySelectorAll(".piki-spacing");
+    for (var i = 0; i < links.length; i++) {
+      links[i].classList.toggle("active", links[i].getAttribute("data-spacing") === mode);
+    }
+  }
+  var saved = "wide";
+  try { if (localStorage.getItem("pikiSpacing") === "compact") saved = "compact"; } catch (e) {}
+  apply(saved);
+  var links = document.querySelectorAll(".piki-spacing");
+  for (var i = 0; i < links.length; i++) {
+    links[i].addEventListener("click", function (e) {
+      e.preventDefault();
+      apply(this.getAttribute("data-spacing"));
+    });
+  }
+})();"#;
+
+/// Auto-hides the footer so it stays out of the way: it fades to fully
+/// transparent (and click-through, via the `piki-faded` class — see the
+/// stylesheet) about 3s after the page loads and about 3s after the pointer
+/// last left its corner. Any pointer movement near that corner — or keyboard
+/// focus landing on a toggle — rouses it again and restarts the timer, so it is
+/// there whenever you reach for it and gone the rest of the time.
+const FOOTER_FADE_SCRIPT: &str = r#"(function () {
+  var footer = document.getElementById("piki-footer");
+  if (!footer) return;
+  var timer = null;
+  function fade() { footer.classList.add("piki-faded"); }
+  function wake() {
+    footer.classList.remove("piki-faded");
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(fade, 3000);
+  }
+  function nearCorner(x, y) {
+    var r = footer.getBoundingClientRect();
+    return x >= r.left - 40 && y >= r.top - 40;
+  }
+  document.addEventListener("mousemove", function (e) {
+    if (nearCorner(e.clientX, e.clientY)) wake();
+  });
+  document.addEventListener("touchstart", function (e) {
+    var t = e.touches[0];
+    if (t && nearCorner(t.clientX, t.clientY)) wake();
+  }, { passive: true });
+  footer.addEventListener("focusin", wake);
+  // Visible on load, then fade after ~3s.
+  wake();
+})();"#;
+
 /// Self-contained stylesheet, modeled on VS Code's Markdown preview (the look
 /// of tdoc's own `html::write_document`), with automatic dark mode. The
 /// first-child rule is scoped to `#piki-doc` because the content lives in that
@@ -712,7 +995,7 @@ body {
   background-color: #ffffff;
   max-width: 760px;
   margin: 0 auto;
-  padding: 24px 26px 64px;
+  padding: 24px 26px 48px;
   word-wrap: break-word;
 }
 
@@ -736,9 +1019,17 @@ p { margin-top: 0; margin-bottom: 16px; }
 
 ul, ol { margin-top: 0; margin-bottom: 16px; padding-left: 2em; }
 li + li { margin-top: 0.25em; }
-li > ul, li > ol { margin-top: 0.25em; margin-bottom: 0; }
+li > ul, li > ol, li > dl { margin-top: 0.25em; margin-bottom: 0; }
 li:has(> input[type="checkbox"]) { list-style: none; }
 li > input[type="checkbox"] { margin: 0 0.4em 0 -1.4em; vertical-align: middle; }
+
+dl { margin-top: 0; margin-bottom: 16px; }
+dt { margin-top: 16px; font-weight: 600; }
+dl > dt:first-child { margin-top: 0; }
+dt + dt { margin-top: 0; }
+dd { margin: 0 0 0 2em; }
+dd > :first-child { margin-top: 0; }
+dd > :last-child { margin-bottom: 0; }
 
 blockquote {
   margin: 0 0 16px 0;
@@ -792,6 +1083,69 @@ tr:nth-child(2n) { background-color: #f6f8fa; }
 
 mark { background-color: #fff8c5; color: inherit; }
 
+/* Live selection spotlight: the paragraph or list item the presenter has
+   selected in the app (see `HighlightTarget`). Every selected paragraph/item
+   gets a warm tint (`piki-active`) that persists; the first one (`piki-lead`)
+   also gets a large arrow in the left gutter that sweeps in to draw the eye and
+   then fades out, leaving just the tint. A multi-paragraph selection thus reads
+   as one region with a single, momentary pointer. The classes are added
+   server-side; they appear only while the editor has a selection and clear when
+   the caret moves. */
+.piki-active {
+  position: relative;
+  background-color: #fff3bf;
+  border-radius: 3px;
+  /* Extend the tint a little past the text box so it reads as a highlight band
+     rather than a background stuck to the glyphs. */
+  box-shadow: 0 0 0 0.3em #fff3bf;
+  /* Play the entrance each time the spotlight lands: the live-reload swap
+     re-inserts this element on every selection change, so the animation
+     re-triggers precisely then (see the reload script). */
+  animation: piki-active-band 0.28s ease-out;
+}
+.piki-lead::before {
+  content: "";
+  position: absolute;
+  left: -1.85em;
+  top: 50%;
+  /* A solid right-pointing triangle built from borders (no assets). */
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0.6em 0 0.6em 0.85em;
+  border-color: transparent transparent transparent #f08c00;
+  /* Transient pointer: hidden at rest, it sweeps in, holds briefly, then fades
+     back out (the animation ends where the resting style is, so `fill-mode`
+     stays the default `none`). */
+  opacity: 0;
+  transform: translateY(-50%);
+  animation: piki-active-arrow 1.3s ease-out;
+}
+/* List items sit inside the list's padding; nudge the arrow further left so it
+   clears the bullet/number rather than colliding with it. */
+li.piki-lead::before { left: -2.6em; }
+
+/* The band keyframe specifies only `from`; the implicit `to` is the element's
+   own resting tint, so it fades up to whatever the (light/dark) theme sets — no
+   per-theme duplication. The arrow keyframe is self-contained: in (with a small
+   overshoot), a hold, then out, ending hidden like its resting style. */
+@keyframes piki-active-band {
+  from { background-color: transparent; box-shadow: 0 0 0 0.3em transparent; }
+}
+@keyframes piki-active-arrow {
+  0% { opacity: 0; transform: translate(-0.7em, -50%); }
+  18% { opacity: 1; transform: translate(0.12em, -50%); }
+  28% { transform: translate(0, -50%); }
+  60% { opacity: 1; }
+  100% { opacity: 0; }
+}
+/* With motion reduced there is no sweep to notice, so keep the arrow shown for
+   the life of the selection rather than flashing it invisibly. */
+@media (prefers-reduced-motion: reduce) {
+  .piki-active { animation: none; }
+  .piki-lead::before { animation: none; opacity: 1; }
+}
+
 hr { height: 0.25em; margin: 24px 0; background-color: #d0d7de; border: 0; }
 
 img { max-width: 100%; }
@@ -808,19 +1162,35 @@ img { max-width: 100%; }
   background-color: #cf222e;
 }
 
-/* Subtle fixed footer with attribution and the column toggle. The body's
-   bottom padding leaves room for it. */
+/* Subtle footer with attribution and the reading-mode toggles, pinned as a
+   small rounded pill in the bottom-right corner rather than a full-width bar, so
+   it takes up as little of the page as possible. With no `left`/`width` it
+   shrinks to fit its (single-line) content; the body's bottom padding keeps the
+   last line from hiding behind it. */
 #piki-footer {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 6px 16px;
+  right: 12px;
+  bottom: 12px;
+  padding: 5px 12px;
   font-size: 12px;
-  text-align: right;
+  white-space: nowrap;
   color: #8b949e;
   background-color: rgba(255, 255, 255, 0.92);
-  border-top: 1px solid #d8dee4;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(31, 35, 40, 0.12);
+  /* Fade in quickly when roused (see FOOTER_FADE_SCRIPT). */
+  transition: opacity 0.18s ease;
+}
+/* Idle state: faded fully out and click-through, so it never obscures or blocks
+   the content beneath it. Fades out slowly, unlike the quick fade-in above. */
+#piki-footer.piki-faded {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 1s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  #piki-footer, #piki-footer.piki-faded { transition: none; }
 }
 #piki-footer a.piki-col { color: #0969da; text-decoration: none; cursor: pointer; }
 #piki-footer a.piki-col:hover { text-decoration: underline; }
@@ -829,25 +1199,54 @@ img { max-width: 100%; }
   text-decoration: underline;
   cursor: default;
 }
+/* The line-spacing toggle uses icons rather than text; the current choice is
+   shown grey (inherit) like the active column link, the other stays a blue
+   link. `currentColor` on the SVG strokes makes them follow that color. */
+#piki-footer a.piki-spacing {
+  color: #0969da;
+  cursor: pointer;
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 1px;
+}
+#piki-footer a.piki-spacing.active { color: inherit; cursor: default; }
+#piki-footer a.piki-spacing svg { display: block; }
 
-/* Two-column reading mode: widen the column and flow the document into two
-   balanced columns, avoiding awkward breaks across headings and blocks. */
+/* Compact reading mode: tighter line height and block spacing so more content
+   fits on screen. Toggled from the footer; the `compact` class on <body>
+   survives live-reload because only #piki-doc is swapped. */
+body.compact { line-height: 1.35; }
+body.compact p,
+body.compact ul,
+body.compact ol,
+body.compact dl,
+body.compact pre,
+body.compact blockquote,
+body.compact table { margin-bottom: 10px; }
+body.compact dt { margin-top: 10px; }
+body.compact h1,
+body.compact h2,
+body.compact h3,
+body.compact h4,
+body.compact h5,
+body.compact h6 { margin-top: 16px; margin-bottom: 8px; }
+body.compact li + li { margin-top: 0.1em; }
+
+/* Two-column reading mode: widen the page and flow the document into two
+   balanced columns. Content is allowed to break across the column boundary so
+   the columns balance — a long section (e.g. a heading with a big list) splits
+   between the two columns instead of being forced whole into one and
+   overflowing it. The rules below only forbid the *awkward* breaks: a heading
+   stranded at a column foot, or a list item / code block sliced in half. */
 body.cols-2 { max-width: 1400px; }
 body.cols-2 #piki-doc { column-count: 2; column-gap: 48px; }
-/* Keep each heading with the content that follows it (see `render_sectioned_html`).
-   This is what actually prevents Firefox's balancer from orphaning a heading at
-   the foot of a column; the `break-after` hints below only help WebKit/Blink. */
-body.cols-2 #piki-doc .piki-sec {
-  break-inside: avoid;
-  -webkit-column-break-inside: avoid;
-  page-break-inside: avoid;
-}
 /* Keep a heading with the content that follows it, so a column break never
-   orphans a heading at the foot of a column. `avoid-column` is the value
-   Firefox honors in multicol; the `-webkit-`/`page-break-` forms cover
-   WebKit/Blink and older engines. */
+   orphans a heading at the foot of a column, while still letting the content
+   itself flow on into the next column. `avoid-column` is the value Firefox
+   honors in multicol; the `-webkit-`/`page-break-` forms cover WebKit/Blink
+   and older engines. */
 #piki-doc h1, #piki-doc h2, #piki-doc h3,
-#piki-doc h4, #piki-doc h5, #piki-doc h6 {
+#piki-doc h4, #piki-doc h5, #piki-doc h6, #piki-doc dt {
   break-after: avoid;
   break-after: avoid-column;
   -webkit-column-break-after: avoid;
@@ -867,14 +1266,24 @@ body.cols-2 #piki-doc .piki-sec {
   th, td { border-color: #30363d; }
   tr:nth-child(2n) { background-color: #161b22; }
   mark { background-color: #bb8009; color: #1f2328; }
+  .piki-active {
+    background-color: rgba(240, 140, 0, 0.22);
+    box-shadow: 0 0 0 0.3em rgba(240, 140, 0, 0.22);
+  }
+  .piki-lead::before {
+    border-color: transparent transparent transparent #f0a53a;
+  }
   hr { background-color: #30363d; }
   #piki-footer {
     color: #8b949e;
     background-color: rgba(13, 17, 23, 0.92);
-    border-top-color: #30363d;
+    border-color: #30363d;
+    box-shadow: 0 1px 4px rgba(1, 4, 9, 0.4);
   }
   #piki-footer a.piki-col { color: #4493f8; }
   #piki-footer a.piki-col.active { color: inherit; }
+  #piki-footer a.piki-spacing { color: #4493f8; }
+  #piki-footer a.piki-spacing.active { color: inherit; }
 }
 "##;
 
@@ -896,6 +1305,15 @@ mod tests {
         assert!(!is_valid_note_name("a//b"));
         assert!(!is_valid_note_name("a\\b"));
         assert!(!is_valid_note_name("a\nb"));
+    }
+
+    #[test]
+    fn renders_non_printable_characters_visibly() {
+        // An ESC that the Escape key typed into a note: the browser paints
+        // nothing for it, so the fragment carries the stand-in glyph instead.
+        let html = render_fragment("Production Depl\u{1b}oyment", &[]);
+        assert!(html.contains("Production Depl\u{241b}oyment"), "{html}");
+        assert!(!html.contains('\u{1b}'), "{html}");
     }
 
     #[test]
@@ -940,12 +1358,26 @@ mod tests {
     }
 
     #[test]
+    fn injects_heading_ids_alongside_active_class() {
+        // A heading already marked active (class present) must still get its id,
+        // and the pairing of later headings must not slip.
+        let html = "<h1 class=\"piki-active\">Title</h1>\n<h2>Sub</h2>";
+        let out = inject_heading_ids(html, &["title".into(), "sub".into()]);
+        assert!(
+            out.contains("<h1 id=\"title\" class=\"piki-active\">Title</h1>"),
+            "{out}"
+        );
+        assert!(out.contains("<h2 id=\"sub\">Sub</h2>"), "{out}");
+    }
+
+    #[test]
     fn render_fragment_rewrites_links_and_adds_anchors() {
         let md = "# Hello World\n\nSee [other](other) and [ext](https://example.com).\n";
-        let fragment = render_fragment(md);
+        let fragment = render_fragment(md, &[]);
         assert!(fragment.contains("<h1 id=\"hello-world\">"), "{fragment}");
-        // The heading and its content are wrapped in a section so a column break
-        // cannot orphan the heading.
+        // Each heading and its content are grouped into a section (breakable in
+        // two-column mode; the heading's own `break-after: avoid` keeps it from
+        // being orphaned at a column foot).
         assert!(
             fragment.contains("<section class=\"piki-sec\">"),
             "{fragment}"
@@ -958,6 +1390,188 @@ mod tests {
     }
 
     #[test]
+    fn marks_active_paragraph_only() {
+        let md = "# Title\n\nFirst para\n\nSecond para\n";
+        let f = render_fragment(md, &[HighlightTarget { block: 2, li: None }]);
+        // The sole highlighted element is also the lead (gets the arrow class).
+        assert!(
+            f.contains("<p class=\"piki-active piki-lead\">Second para</p>"),
+            "{f}"
+        );
+        // The other paragraph is untouched, and exactly one thing is marked.
+        assert!(f.contains("<p>First para</p>"), "{f}");
+        assert_eq!(f.matches("piki-active").count(), 1, "{f}");
+        assert_eq!(f.matches("piki-lead").count(), 1, "{f}");
+    }
+
+    #[test]
+    fn marks_active_heading_and_keeps_its_id() {
+        let md = "# Title\n\nBody\n";
+        let f = render_fragment(md, &[HighlightTarget { block: 0, li: None }]);
+        assert!(
+            f.contains("<h1 id=\"title\" class=\"piki-active piki-lead\">Title</h1>"),
+            "{f}"
+        );
+    }
+
+    #[test]
+    fn marks_active_list_item() {
+        let md = "- one\n- two\n- three\n";
+        let f = render_fragment(
+            md,
+            &[HighlightTarget {
+                block: 0,
+                li: Some(1),
+            }],
+        );
+        assert_eq!(f.matches("piki-active").count(), 1, "{f}");
+        // The class lands on the second item's `<li>`, which wraps "two".
+        assert!(
+            f.contains("<li class=\"piki-active piki-lead\">\n    <p>two</p>"),
+            "{f}"
+        );
+    }
+
+    #[test]
+    fn marks_multiple_selected_paragraphs_with_one_lead() {
+        // A selection spanning three paragraphs tints all three; only the first
+        // (document order) carries the arrow.
+        let md = "one\n\ntwo\n\nthree\n";
+        let f = render_fragment(
+            md,
+            &[
+                HighlightTarget { block: 0, li: None },
+                HighlightTarget { block: 1, li: None },
+                HighlightTarget { block: 2, li: None },
+            ],
+        );
+        assert!(
+            f.contains("<p class=\"piki-active piki-lead\">one</p>"),
+            "{f}"
+        );
+        assert!(f.contains("<p class=\"piki-active\">two</p>"), "{f}");
+        assert!(f.contains("<p class=\"piki-active\">three</p>"), "{f}");
+        assert_eq!(f.matches("piki-active").count(), 3, "{f}");
+        assert_eq!(f.matches("piki-lead").count(), 1, "{f}");
+    }
+
+    #[test]
+    fn marks_multiple_selected_list_items_with_one_lead() {
+        // Two adjacent items selected: both tinted, first one leads. Marking one
+        // `<li>` must not shift the count for the next.
+        let md = "- one\n- two\n- three\n";
+        let f = render_fragment(
+            md,
+            &[
+                HighlightTarget {
+                    block: 0,
+                    li: Some(1),
+                },
+                HighlightTarget {
+                    block: 0,
+                    li: Some(2),
+                },
+            ],
+        );
+        assert_eq!(f.matches("piki-active").count(), 2, "{f}");
+        assert_eq!(f.matches("piki-lead").count(), 1, "{f}");
+        assert!(
+            f.contains("<li class=\"piki-active piki-lead\">\n    <p>two</p>"),
+            "{f}"
+        );
+        assert!(
+            f.contains("<li class=\"piki-active\">\n    <p>three</p>"),
+            "{f}"
+        );
+        // The first item is not part of the selection.
+        assert!(f.contains("<li>\n    <p>one</p>"), "{f}");
+    }
+
+    /// Links live in both halves of a definition list — the term's inline
+    /// content and the definition's blocks — and both must be rewritten to
+    /// server paths like any other link.
+    #[test]
+    fn rewrites_links_inside_a_definition_list() {
+        let md = "[Apple](apple)\n: The [fruit](fruit), not the company\n";
+        let f = render_fragment(md, &[]);
+        assert!(f.contains("<dt><a href=\"/apple\">Apple</a></dt>"), "{f}");
+        assert!(f.contains("href=\"/fruit\""), "{f}");
+    }
+
+    /// A horizontal rule is the one block whose tag is self-closing, so the
+    /// spotlight class has to be spliced in before the `/` — `<hr / class=…>`
+    /// would not parse as a rule at all.
+    #[test]
+    fn marks_a_horizontal_rule_without_breaking_its_tag() {
+        let f = render_fragment(
+            "Intro\n\n---\n\nAfter\n",
+            &[HighlightTarget { block: 1, li: None }],
+        );
+        assert!(f.contains("<hr class=\"piki-active piki-lead\"/>"), "{f}");
+        assert!(!f.contains("<hr /"), "{f}");
+    }
+
+    /// A definition list has no `<li>`s: a selection anywhere inside it
+    /// highlights the whole `<dl>`, which must keep its content intact.
+    #[test]
+    fn marks_a_definition_list_as_one_block() {
+        let md = "Apple\n: Pomaceous fruit\n";
+        let f = render_fragment(md, &[HighlightTarget { block: 0, li: None }]);
+        assert!(f.contains("<dl class=\"piki-active piki-lead\">"), "{f}");
+        assert!(f.contains("<dt>Apple</dt>"), "{f}");
+        assert!(f.contains("<dd>Pomaceous fruit</dd>"), "{f}");
+    }
+
+    /// Anchors are paired positionally with the `<hN>` tags the writer emits, so
+    /// every place a heading can hide has to be counted — including the body of
+    /// a definition, which holds full blocks.
+    #[test]
+    fn counts_headings_inside_a_definition_body() {
+        let doc = Document::new().with_paragraphs(vec![
+            Paragraph::new_definition_list().with_definition_items(vec![
+                tdoc::DefinitionItem::new()
+                    .with_terms(vec![vec![Span::new_text("Term")]])
+                    .with_definition(vec![
+                        Paragraph::new_header2().with_content(vec![Span::new_text("Nested")]),
+                    ]),
+            ]),
+        ]);
+        assert_eq!(collect_heading_anchors(&doc), vec!["nested".to_string()]);
+    }
+
+    #[test]
+    fn out_of_range_highlight_is_a_no_op() {
+        // A stale index (e.g. after a Markdown round-trip changed the structure)
+        // must never mangle the output — it just highlights nothing.
+        let li_oob = render_fragment(
+            "- one\n- two\n",
+            &[HighlightTarget {
+                block: 0,
+                li: Some(9),
+            }],
+        );
+        assert!(!li_oob.contains("piki-active"), "{li_oob}");
+        let block_oob = render_fragment("# T\n\nBody\n", &[HighlightTarget { block: 9, li: None }]);
+        assert!(!block_oob.contains("piki-active"), "{block_oob}");
+    }
+
+    #[test]
+    fn page_styles_and_scrolls_the_active_highlight() {
+        let page = render_page("frontpage", "# Hi\n", "g1", &[]);
+        // The spotlight tint rule, the lead's gutter arrow, and its list offset.
+        assert!(page.contains(".piki-active"), "{page}");
+        assert!(page.contains("li.piki-lead::before"), "{page}");
+        // A dark-mode variant exists.
+        assert!(page.contains("rgba(240, 140, 0, 0.22)"), "{page}");
+        // The reload script brings the spotlighted element into view.
+        assert!(page.contains("scrollIntoView"), "{page}");
+        // The spotlight animates in when the selection changes.
+        assert!(page.contains("@keyframes piki-active-band"), "{page}");
+        assert!(page.contains("@keyframes piki-active-arrow"), "{page}");
+        assert!(page.contains("prefers-reduced-motion"), "{page}");
+    }
+
+    #[test]
     fn query_param_decodes_values() {
         assert_eq!(query_param("note=a%2Fb", "note"), Some("a/b".into()));
         assert_eq!(query_param("raw=1", "raw"), Some("1".into()));
@@ -967,7 +1581,7 @@ mod tests {
 
     #[test]
     fn page_has_footer_with_version_and_column_toggle() {
-        let page = render_page("frontpage", "# Hi\n", "g1");
+        let page = render_page("frontpage", "# Hi\n", "g1", &[]);
         assert!(page.contains("id=\"piki-footer\""), "{page}");
         assert!(
             page.contains(concat!("Shared by Piki v", env!("CARGO_PKG_VERSION"))),
@@ -975,17 +1589,24 @@ mod tests {
         );
         assert!(page.contains("data-cols=\"1\""), "{page}");
         assert!(page.contains("data-cols=\"2\""), "{page}");
+        // The wide/compact line-spacing toggle and the density hook it drives.
+        assert!(page.contains("data-spacing=\"wide\""), "{page}");
+        assert!(page.contains("data-spacing=\"compact\""), "{page}");
+        assert!(page.contains("body.compact"), "{page}");
+        // The footer auto-hide: both the faded style and the script that drives it.
+        assert!(page.contains("#piki-footer.piki-faded"), "{page}");
+        assert!(page.contains("piki-faded"), "{page}");
         // The layout hook the toggle drives must be present in the stylesheet,
         // including the rule that keeps headings with their following content.
         assert!(page.contains("body.cols-2"), "{page}");
         assert!(page.contains("avoid-column"), "{page}");
         // The footer is page-level, not part of the swappable fragment.
-        assert!(!render_fragment("# Hi\n").contains("piki-footer"));
+        assert!(!render_fragment("# Hi\n", &[]).contains("piki-footer"));
     }
 
     #[test]
     fn page_supports_native_dark_mode() {
-        let page = render_page("frontpage", "# Hi\n", "g1");
+        let page = render_page("frontpage", "# Hi\n", "g1", &[]);
         // Declared to the browser up front, and themed via the media query.
         assert!(
             page.contains("<meta name=\"color-scheme\" content=\"light dark\" />"),

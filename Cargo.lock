@@ -1112,7 +1112,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "piki"
-version = "0.6.0"
+version = "0.7.1"
 dependencies = [
  "clap",
  "crossterm 0.29.0",
@@ -1126,11 +1126,11 @@ dependencies = [
 
 [[package]]
 name = "piki-core"
-version = "0.6.0"
+version = "0.7.1"
 
 [[package]]
 name = "piki-gui"
-version = "0.6.0"
+version = "0.7.1"
 dependencies = [
  "arboard",
  "chrono",
@@ -1319,7 +1319,9 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
 name = "rutle"
-version = "0.5.0"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f195eb71ca951342fd3d7105302db56534ad5df74eded7efa8c1fc44da8b2984"
 dependencies = [
  "tdoc",
  "unicode-segmentation",
@@ -1529,9 +1531,9 @@ dependencies = [
 
 [[package]]
 name = "tdoc"
-version = "0.11.2"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5848e16c181f71224efacd083b87f4e6d23095bfa5b582d970c39b20a14a180"
+checksum = "f547ab6d6c1d3ba0c03069d1f26a1aa4c955832b509238caaead9259753f4195"
 dependencies = [
  "atty",
  "clap",

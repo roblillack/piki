@@ -32,7 +32,9 @@ const FORMAT_QUOTE: &str = "Format/Quote";
 const FORMAT_CODE_BLOCK: &str = "Format/Code Block";
 const FORMAT_NUMBERED_LIST: &str = "Format/Numbered List";
 const FORMAT_LIST_ITEM: &str = "Format/List Item";
-const FORMAT_CHECKLIST_ITEM: &str = "Format/_Checklist Item";
+const FORMAT_CHECKLIST_ITEM: &str = "Format/Checklist Item";
+const FORMAT_DEFINITION_LIST: &str = "Format/_Definition List";
+const FORMAT_HORIZONTAL_RULE: &str = "Format/_Horizontal Rule";
 
 const FORMAT_INLINE_BOLD: &str = "Format/Bold";
 const FORMAT_INLINE_ITALIC: &str = "Format/Italic";
@@ -64,7 +66,12 @@ const PARAGRAPH_ITEMS: &[&str] = &[
     FORMAT_NUMBERED_LIST,
     FORMAT_LIST_ITEM,
     FORMAT_CHECKLIST_ITEM,
+    FORMAT_DEFINITION_LIST,
 ];
+
+/// Items that insert a block rather than restyle the current one: enabled with
+/// the paragraph styles, but never part of their radio group.
+const INSERT_ITEMS: &[&str] = &[FORMAT_HORIZONTAL_RULE];
 
 const INLINE_ITEMS: &[&str] = &[
     FORMAT_INLINE_BOLD,
@@ -185,6 +192,8 @@ fn populate_menu<M>(
     let ordered_list_shortcut = cmd | Shortcut::Shift | '7';
     let list_shortcut = cmd | Shortcut::Shift | '8';
     let checklist_shortcut = cmd | Shortcut::Shift | '9';
+    let definition_list_shortcut = cmd | Shortcut::Shift | '0';
+    let horizontal_rule_shortcut = cmd | Shortcut::Shift | '-';
     let bold_shortcut = cmd | 'b';
     let italic_shortcut = cmd | 'i';
     let underline_shortcut = cmd | 'u';
@@ -509,11 +518,12 @@ fn populate_menu<M>(
     }
 
     // Reveal Codes (Cmd/Ctrl-R): surface rutle's inline-style tags (the
-    // WordPerfect-style `Bold`/`Italic`… code boxes) inline. A plain action rather than a checkmarked toggle, because it can
-    // also be flipped from the keyboard (Cmd/Ctrl-R / F9, handled in the editor)
-    // while the editor has focus — keeping a menu checkmark in sync would give
-    // it a chance to go stale. The tags appearing in the document are the
-    // feedback that the mode is on.
+    // WordPerfect-style `Bold`/`Italic`… code boxes) inline. A plain action
+    // rather than a checkmarked toggle, because it can also be flipped from
+    // the keyboard (Cmd/Ctrl-R / F9, handled in the editor) while the editor
+    // has focus — keeping a menu checkmark in sync would give it a chance to
+    // go stale. The tags appearing in the document are the feedback that the
+    // mode is on.
     {
         let active_editor = active_editor.clone();
         menu_bar.add(
@@ -744,6 +754,38 @@ fn populate_menu<M>(
             move |_| {
                 let _ = with_structured_editor(&active_editor, true, |editor| {
                     editor.toggle_checklist()
+                });
+                update_format_menu_state(&menu_handle, &active_editor);
+            },
+        );
+    }
+    {
+        let active_editor = active_editor.clone();
+        let menu_handle = menu_bar.clone();
+        menu_bar.add(
+            FORMAT_DEFINITION_LIST,
+            definition_list_shortcut,
+            menu::MenuFlag::Radio,
+            move |_| {
+                let _ = with_structured_editor(&active_editor, true, |editor| {
+                    editor.toggle_definition_list()
+                });
+                update_format_menu_state(&menu_handle, &active_editor);
+            },
+        );
+    }
+    // Not a paragraph style: a rule is a block of its own, inserted after the
+    // one the caret sits in, so this is a plain (non-radio) command.
+    {
+        let active_editor = active_editor.clone();
+        let menu_handle = menu_bar.clone();
+        menu_bar.add(
+            FORMAT_HORIZONTAL_RULE,
+            horizontal_rule_shortcut,
+            menu::MenuFlag::Normal,
+            move |_| {
+                let _ = with_structured_editor(&active_editor, true, |editor| {
+                    editor.insert_horizontal_rule()
                 });
                 update_format_menu_state(&menu_handle, &active_editor);
             },
@@ -1131,8 +1173,10 @@ fn paragraph_label_for_block(block: &BlockType) -> Option<&'static str> {
                 Some(FORMAT_LIST_ITEM)
             }
         }
-        // Tables have no paragraph-style menu entry.
-        BlockType::Table { .. } => None,
+        BlockType::DefinitionTerm { .. } => Some(FORMAT_DEFINITION_LIST),
+        // Neither a table nor a horizontal rule is a style a paragraph can be
+        // given, so neither has a menu entry to check.
+        BlockType::Table { .. } | BlockType::HorizontalRule => None,
     }
 }
 
@@ -1169,7 +1213,7 @@ fn update_format_menu_state<M: MenuExt>(
         item.set();
     }
 
-    for &label in INLINE_ITEMS {
+    for &label in INLINE_ITEMS.iter().chain(INSERT_ITEMS) {
         if let Some(mut item) = menu.find_item(label) {
             if !readonly {
                 item.activate();

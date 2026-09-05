@@ -1,14 +1,14 @@
 [package]
 name = "piki"
 description = "A simple personal wiki application"
-version = "0.6.0"
+version = "0.7.1"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
-piki-core = { version= "0.6.0", path = "../core" }
-tdoc = { version="0.11.0", default-features=false }
+piki-core = { version= "0.7.1", path = "../core" }
+tdoc = { version="0.12.1", default-features=false }
 fuzzypicker = "0.2.1"
 clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }

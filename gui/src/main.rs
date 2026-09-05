@@ -5,6 +5,7 @@ pub mod fltk_draw_context;
 mod history;
 mod link_handler;
 mod menu;
+pub mod nonprintable;
 mod note_picker;
 mod position_memory;
 mod recency;
@@ -1247,12 +1248,28 @@ fn main() {
         let start = Instant::now();
         let editor_ref = active_editor.clone();
         let on_air_ref = on_air.clone();
+        let live_share_ref = live_share.clone();
         app::add_timeout3(0.1, move |handle| {
             let ms = start.elapsed().as_millis() as u64;
             if let Ok(ed_ptr) = editor_ref.try_borrow()
                 && let Ok(mut ed) = (*ed_ptr).try_borrow_mut()
             {
                 ed.tick(ms);
+            }
+            // While sharing, mirror the editor's selection to the web view as a
+            // paragraph/list-item spotlight. Polling here (rather than wiring a
+            // selection-change event through every edit/navigation path) reliably
+            // catches all selection changes; `set_highlight` dedups so a bump —
+            // and thus a browser reload — only happens when the target changes.
+            if live_share_ref.borrow().is_some()
+                && let Ok(ed_ptr) = editor_ref.try_borrow()
+                && let Ok(ed) = (*ed_ptr).try_borrow()
+                && let Some(structured) = ed.as_any().downcast_ref::<StructuredRichUI>()
+            {
+                let targets = structured.highlight_targets();
+                if let Some(session) = live_share_ref.borrow().as_ref() {
+                    session.set_highlight(targets);
+                }
             }
             // Blink the ON AIR recording light while sharing.
             if let Ok(mut bar) = on_air_ref.try_borrow_mut() {
@@ -1450,32 +1467,20 @@ fn wire_editor_callbacks(
         }));
     }
 
-    // Hover handler to show link destinations in the note status bar
+    // Hover handler to show link destinations in the note status bar. The
+    // status bar keeps the note name and the hovered destination separately, so
+    // following the link under the cursor cannot leave the note we came from on
+    // screen once the hover ends.
     let current_for_hover = active_editor.borrow().clone();
     {
         let mut cur = current_for_hover.borrow_mut();
         let statusbar_clone = statusbar.clone();
-        let base_label: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         cur.on_link_hover(Box::new(move |target: Option<String>| {
             let statusbar_for_cb = statusbar_clone.clone();
-            let base_label_for_cb = base_label.clone();
-            let tgt = target.clone();
             app::awake_callback(move || {
-                match &tgt {
-                    Some(dest) => {
-                        let dest = dest.clone();
-                        if base_label_for_cb.borrow().is_none() {
-                            let current = statusbar_for_cb.borrow().note_status_widget().label();
-                            *base_label_for_cb.borrow_mut() = Some(current);
-                        }
-                        statusbar_for_cb.borrow_mut().set_note(&dest);
-                    }
-                    None => {
-                        if let Some(orig) = base_label_for_cb.borrow_mut().take() {
-                            statusbar_for_cb.borrow_mut().set_note(&orig);
-                        }
-                    }
-                }
+                statusbar_for_cb
+                    .borrow_mut()
+                    .set_link_hover(target.as_deref());
                 app::redraw();
             });
         }));

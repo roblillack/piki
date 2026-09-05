@@ -9,6 +9,7 @@ pub mod link_editor;
 pub mod link_handler;
 pub mod live_share;
 pub mod markdown_converter;
+pub mod nonprintable;
 pub mod note_ui;
 pub mod on_air_bar;
 pub mod responsive_scrollbar;

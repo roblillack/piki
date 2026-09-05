@@ -2,6 +2,7 @@
 
 use crate::clipboard;
 use crate::fltk_draw_context::FltkDrawContext;
+use crate::nonprintable::sanitize_key_text;
 use crate::responsive_scrollbar::ResponsiveScrollbar;
 use fltk::{app::MouseWheel, enums::*, prelude::*};
 use rutle::editor::UndoKind;
@@ -380,6 +381,38 @@ impl FltkStructuredRichDisplay {
                                             .borrow_mut()
                                             .editor_mut()
                                             .toggle_ordered_list()
+                                            .ok();
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                            (cb)();
+                                        }
+                                        w_r.redraw();
+                                    }
+                                }),
+                                toggle_definition_list: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let mut w_r = w_for_actions.clone();
+                                    move || {
+                                        display
+                                            .borrow_mut()
+                                            .editor_mut()
+                                            .set_block_type(BlockType::DefinitionTerm { depth: 0 })
+                                            .ok();
+                                        if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                            (cb)();
+                                        }
+                                        w_r.redraw();
+                                    }
+                                }),
+                                insert_horizontal_rule: Box::new({
+                                    let display = display.clone();
+                                    let change_cb = change_cb.clone();
+                                    let mut w_r = w_for_actions.clone();
+                                    move || {
+                                        display
+                                            .borrow_mut()
+                                            .editor_mut()
+                                            .insert_horizontal_rule()
                                             .ok();
                                         if let Some(cb) = &mut *change_cb.borrow_mut() {
                                             (cb)();
@@ -1107,6 +1140,32 @@ impl FltkStructuredRichDisplay {
                                                 w_r.redraw();
                                             }
                                         }),
+                                        toggle_definition_list: Box::new({
+                                            let display = display.clone();
+                                            let mut w_r = w_for_actions.clone();
+                                            move || {
+                                                display
+                                                    .borrow_mut()
+                                                    .editor_mut()
+                                                    .set_block_type(BlockType::DefinitionTerm {
+                                                        depth: 0,
+                                                    })
+                                                    .ok();
+                                                w_r.redraw();
+                                            }
+                                        }),
+                                        insert_horizontal_rule: Box::new({
+                                            let display = display.clone();
+                                            let mut w_r = w_for_actions.clone();
+                                            move || {
+                                                display
+                                                    .borrow_mut()
+                                                    .editor_mut()
+                                                    .insert_horizontal_rule()
+                                                    .ok();
+                                                w_r.redraw();
+                                            }
+                                        }),
                                         toggle_bold: Box::new({
                                             let display = display.clone();
                                             let mut w_r = w_for_actions.clone();
@@ -1566,6 +1625,32 @@ impl FltkStructuredRichDisplay {
                                     }
                                     handled = true;
                                 }
+                                // Cmd/Ctrl-Shift-0: toggle definition list
+                                // On US keyboards, Shift-0 produces ')'
+                                else if cmd_shift_modifier
+                                    && (key == Key::from_char('0') || key == Key::from_char(')'))
+                                {
+                                    let mut disp = display.borrow_mut();
+                                    disp.editor_mut()
+                                        .set_block_type(BlockType::DefinitionTerm { depth: 0 })
+                                        .ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                        (cb)();
+                                    }
+                                    handled = true;
+                                }
+                                // Cmd/Ctrl-Shift-- : insert a horizontal rule
+                                // On US keyboards, Shift-- produces '_'
+                                else if cmd_shift_modifier
+                                    && (key == Key::from_char('-') || key == Key::from_char('_'))
+                                {
+                                    let mut disp = display.borrow_mut();
+                                    disp.editor_mut().insert_horizontal_rule().ok();
+                                    if let Some(cb) = &mut *change_cb.borrow_mut() {
+                                        (cb)();
+                                    }
+                                    handled = true;
+                                }
                                 // Cmd/Ctrl-Alt-Enter: toggle current checklist state
                                 else if cmd_alt_modifier && key == Key::Enter {
                                     let mut disp = display.borrow_mut();
@@ -1788,15 +1873,23 @@ impl FltkStructuredRichDisplay {
                                             handled = true;
                                         }
                                         Key::Tab => {
-                                            // Tab/Shift-Tab indent/outdent within a list.
-                                            if matches!(
-                                                disp.editor().current_block_type(),
-                                                BlockType::ListItem { .. }
-                                            ) {
+                                            // Tab/Shift-Tab move the current line in or out of
+                                            // the structure around it: a list item nests deeper
+                                            // or comes back out, a paragraph next to a list or
+                                            // quote joins it, and in a definition list a term
+                                            // becomes part of the definition above it (and a
+                                            // definition becomes the next term). Anywhere else
+                                            // the key is left alone.
+                                            let can = if shift_held {
+                                                disp.editor().cursor_can_unnest()
+                                            } else {
+                                                disp.editor().cursor_can_indent()
+                                            };
+                                            if can {
                                                 if shift_held {
-                                                    disp.editor_mut().outdent_list_item().ok();
+                                                    disp.editor_mut().outdent().ok();
                                                 } else {
-                                                    disp.editor_mut().indent_list_item().ok();
+                                                    disp.editor_mut().indent().ok();
                                                 }
                                                 if let Some(cb) = &mut *change_cb.borrow_mut() {
                                                     (cb)();
@@ -1873,8 +1966,10 @@ impl FltkStructuredRichDisplay {
                                                         }
                                                     }
 
-                                                    if !text_input.is_empty()
-                                                        && editor.insert_text(&text_input).is_ok()
+                                                    let insert_text =
+                                                        sanitize_key_text(&text_input);
+                                                    if !insert_text.is_empty()
+                                                        && editor.insert_text(&insert_text).is_ok()
                                                     {
                                                         text_changed = true;
                                                         did_horizontal = true;

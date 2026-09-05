@@ -1,3 +1,4 @@
+use crate::nonprintable::printable;
 use fltk::{draw as fltk_draw, enums::*, prelude::*};
 use rutle::render_context::{
     CaretLean, FontStyle, FontType, RenderContext, RevealTag, RevealTagKind,
@@ -66,7 +67,7 @@ impl RenderContext for FltkDrawContext {
     }
 
     fn draw_text(&mut self, text: &str, x: i32, y: i32) {
-        fltk_draw::draw_text(text, x, y);
+        fltk_draw::draw_text(&printable(text), x, y);
     }
 
     fn draw_rect_filled(&mut self, x: i32, y: i32, w: i32, h: i32) {
@@ -164,7 +165,7 @@ impl RenderContext for FltkDrawContext {
 
     fn text_width(&mut self, text: &str, font: FontType, style: FontStyle, size: u8) -> f64 {
         self.set_font(font, style, size);
-        fltk_draw::width(text)
+        fltk_draw::width(&printable(text))
     }
 
     fn text_height(&self, font: FontType, style: FontStyle, size: u8) -> i32 {

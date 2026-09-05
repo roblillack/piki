@@ -68,4 +68,13 @@ mod tests {
         let doc = markdown_to_document("# Title\n\nBody text\n");
         assert_eq!(document_to_markdown(&doc), "# Title\n\nBody text\n");
     }
+
+    /// Horizontal rules and definition lists are notes' content like any other
+    /// block: loading and saving a note that has them must not rewrite it.
+    #[test]
+    fn rules_and_definition_lists_round_trip_unchanged() {
+        let md = "Intro\n\n---\n\nApple\n: Pomaceous fruit\n\nBeta\n: Second letter\n";
+        let doc = markdown_to_document(md);
+        assert_eq!(document_to_markdown(&doc), md);
+    }
 }

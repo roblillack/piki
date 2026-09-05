@@ -10,14 +10,113 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ## [Unreleased] - ReleaseDate
 
+### Added
+
+- **Horizontal rules.** Break a note into sections with a thematic break, drawn
+  as a line across the text column. Insert one with **Format → Horizontal Rule**
+  (`Cmd-Shift--`/`Ctrl-Shift--`) or from the right-click menu: it always becomes
+  a block of its own below the block the caret sits in (splitting a paragraph
+  when the caret is inside its text), and the caret lands on the line after it so
+  you can keep typing. The caret can rest on a rule and Backspace or Delete
+  removes it. It is written to the note as Markdown's `---` and shows up in the
+  shared web view as an `<hr>`. (via `tdoc 0.12.1` / `rutle 0.6.0`) (#55)
+
+- **Definition lists.** A term with its definition indented below it — for
+  glossaries, notation, parameter lists. Turn the selected paragraphs into one
+  with **Format → Definition List** (`Cmd-Shift-0`/`Ctrl-Shift-0`), one term per
+  paragraph; the same command on a list you are already in dissolves it back into
+  plain paragraphs. Terms are set in bold, definitions are indented, and both
+  halves are fully editable: Enter moves through the list one half at a time (at
+  the end of a term it opens the definition, in a definition it starts the next
+  item) and leaves the list from an empty term or definition, `Cmd-P`/`Ctrl-P`
+  adds another paragraph to the same definition, and Tab/Shift-Tab move a line
+  between the two halves. Notes keep them in the PHP Markdown Extra syntax
+  (`Term` / `: definition`), and the shared web view renders a real `<dl>`.
+  (via `tdoc 0.12.1` / `rutle 0.6.0`) (#55)
+
 ### Changed
+
+- **Tab and Shift-Tab work outside lists too.** Tab still nests a list item one
+  level deeper and Shift-Tab lifts it back out, but they now also move a
+  paragraph sitting next to a list or quote into it, lift a quoted line back out,
+  and switch a line between a definition list's two halves. Anywhere they have
+  nothing to do, they are left alone as before. (via `rutle 0.6.0`) (#55)
 
 - **Reveal Codes** (`Cmd-R`/`Ctrl-R`) now draws its codes as real tags — the
   pointed, outlined boxes WordPerfect used — instead of simulating them with
   `[Bold>` / `<Bold]` bracket text. A code's point faces the text it applies to:
   right where a style opens, left where it closes. The codes still behave
   exactly as before: the caret steps onto each one and backspacing over a code
-  removes that style from its span.
+  removes that style from its span. (via `rutle 0.6.0`)
+
+### Fixed
+
+- Turning a selection into a quote, or toggling one off, no longer does nothing
+  when the selection ends inside a list or quote — as it did after Select All on
+  a note ending in a list. Quoting now also toggles the whole selected range at
+  once, the way the list commands do. (via `rutle 0.6.0`) (#55)
+- The list commands no longer do nothing when the caret is inside a quote: the
+  list is built inside the quote it belongs to. (via `rutle 0.6.0`) (#55)
+- Deleting a checklist item no longer takes its subitems with it, and merging one
+  list item into another (Backspace or Delete at an item boundary) keeps the
+  subitems and continuation paragraphs with the text they belong to. Enter inside
+  a list item keeps them with their text as well. (via `rutle 0.6.0`) (#55)
+- Turning a range that covers a quote or a table into a list, or quoting one, no
+  longer drops their content. (via `rutle 0.6.0`) (#55)
+- A list item whose first line is empty (because its text starts with a hard
+  break) now renders all of its lines instead of a single empty bullet.
+  (via `rutle 0.6.0`) (#55)
+- Live note sharing: a selection that covers a horizontal rule no longer breaks
+  the rule's tag in the shared page. (#55)
+
+## [0.7.1] - 2026-08-27
+
+## [0.7.0] - 2026-08-19
+
+### Added
+
+- **Live note sharing: spotlight the selected paragraph.** The web view now
+  highlights whatever you have selected in the editor with a tinted background
+  band, so you can point the audience at exactly what you are discussing. As the
+  highlight lands, a large arrow sweeps in from the left gutter to draw the eye
+  and then fades out, leaving the calm band behind. Selecting across several
+  paragraphs or list items highlights the whole range (one arrow marks the
+  start). It follows the selection live: move the caret or click elsewhere to
+  clear it, and double-click a word (or drag a selection) to bring it back. The
+  spotlight appears only in the shared web view, never in the editor. (#50)
+
+- **Live note sharing: wide/compact line spacing.** The share footer gains a
+  line-spacing toggle (two small stacked-line icons) next to the column toggle.
+  _Compact_ tightens the line height and block spacing to fit noticeably more
+  content on screen (about 20% shorter on a typical checklist), useful on a
+  shared screen; _wide_ is the roomy default. Like the column choice it is
+  remembered across notes and sessions, and the two toggles combine freely. (#49)
+
+### Changed
+
+- **Live note sharing: footer no longer spans the full width.** The attribution
+  and toggles now sit in a small rounded pill pinned to the bottom-right corner
+  instead of a bar across the whole bottom edge, so they take up as little of the
+  shared page as possible. It fades away a few seconds after the page loads (and
+  a few seconds after the pointer last leaves its corner), then reappears the
+  moment the pointer returns — while faded it is click-through, so it never
+  obscures or blocks the content beneath it. (#49)
+
+### Fixed
+
+- **Live note sharing: better two-column balancing.** The two-column layout no
+  longer treats a heading and all of its following content as one unbreakable
+  block. That was too aggressive at keeping a heading glued to its content: a
+  tall section (e.g. a long checklist) was forced whole into a single column,
+  leaving the other column half-empty and the page needing to scroll even when
+  the content would have fit. Sections may now split across the column boundary,
+  so the columns balance; a heading is still kept with the start of its content
+  (never orphaned at the foot of a column) and list items, code blocks, and
+  tables are never sliced in half. (#49)
+- The GUI will not input random control characters into notes based on function
+  keypresses which are not assigned to Piki functionality anymore. Existing
+  control characters in the notes are rendered using visible replacement symbols
+  so that they can be correctly selected or deleted. (#51)
 
 ## [0.6.0] - 2026-07-08
 
@@ -247,7 +346,9 @@ While pre-1.0, the minor version is bumped for breaking changes.
   characters the bytes actually stand for on import. (#26)
 
 <!-- next-url -->
-[Unreleased]: https://github.com/roblillack/piki/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/roblillack/piki/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/roblillack/piki/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/roblillack/piki/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/roblillack/piki/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/roblillack/piki/compare/piki-v0.4.0...v0.5.0
 [0.4.0]: https://github.com/roblillack/piki/compare/piki-v0.3.0...piki-v0.4.0

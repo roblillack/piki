@@ -1,7 +1,7 @@
 [package]
 name = "piki-gui"
 description = "FLTK-based GUI for Piki personal wiki application"
-version = "0.6.0"
+version = "0.7.1"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -17,9 +17,9 @@ exclude = [
 ]
 
 [dependencies]
-piki-core = { version = "0.6.0", path = "../core" }
-#rutle = "0.5.0"
-rutle = { path = "../../rutle" }
+piki-core = { version = "0.7.1", path = "../core" }
+rutle = "0.6.0"
+#rutle = { path = "../../rutle" }
 fltk = { version = "1.5.20", features = ["use-wayland"] }
 fltk-sys = "1.5.20"
 pulldown-cmark = "0.13.0"
@@ -32,7 +32,7 @@ toml = "0.9"
 unicode-segmentation = "1.10"
 chrono = "0.4.42"
 arboard = "3.4"
-tdoc = { version="0.11.2", default-features=false }
+tdoc = { version="0.12.1", default-features=false }
 rtf-parser = "0.4"
 webbrowser = { version = "1.2.1", features = ["disable-wsl"] }
 tiny_http = "0.12.0"
