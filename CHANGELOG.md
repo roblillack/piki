@@ -47,7 +47,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   `[Bold>` / `<Bold]` bracket text. A code's point faces the text it applies to:
   right where a style opens, left where it closes. The codes still behave
   exactly as before: the caret steps onto each one and backspacing over a code
-  removes that style from its span. (via `rutle 0.6.0`)
+  removes that style from its span. (via `rutle 0.6.0`) (#54)
 
 ### Fixed
 
