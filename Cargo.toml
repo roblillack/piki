@@ -21,6 +21,3 @@ repository = "https://github.com/roblillack/piki"
 # crates.io, and pushes the tag that fires the release CI job.
 shared-version = true
 tag = false
-
-[patch.crates-io]
-rutle = { path = "../rutle" }
