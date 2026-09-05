@@ -1,6 +1,8 @@
 use crate::nonprintable::printable;
 use fltk::{draw as fltk_draw, enums::*, prelude::*};
-use rutle::render_context::{CaretLean, FontStyle, FontType, RenderContext};
+use rutle::render_context::{
+    CaretLean, FontStyle, FontType, RenderContext, RevealTag, RevealTagKind,
+};
 
 /// FLTK implementation of rutle's [`RenderContext`].
 pub struct FltkDrawContext {
@@ -113,6 +115,52 @@ impl RenderContext for FltkDrawContext {
             fltk_draw::vertex(vx as f64, vy as f64);
         }
         fltk_draw::end_complex_polygon();
+    }
+
+    /// Reveal-codes tag shape: WordPerfect's pointed code box, filled and
+    /// outlined as one polygon so the slanted tip comes out antialiased.
+    /// (rutle's default builds the same outline from scanline rects.)
+    fn draw_reveal_tag(&mut self, tag: RevealTag) {
+        if tag.width <= 0 || tag.height <= 0 {
+            return;
+        }
+        let left = tag.x;
+        let right = tag.x + tag.width - 1;
+        let top = tag.y;
+        let bottom = tag.y + tag.height - 1;
+        let tip_y = tag.y + (tag.height - 1) / 2;
+        // The corners on the pointed side pull back by `point`, meeting at the
+        // tip: right-facing for an opening tag, left-facing for a closing one.
+        let pts: [(i32, i32); 5] = match tag.kind {
+            RevealTagKind::Open => [
+                (left, top),
+                (right - tag.point, top),
+                (right, tip_y),
+                (right - tag.point, bottom),
+                (left, bottom),
+            ],
+            RevealTagKind::Close => [
+                (left + tag.point, top),
+                (right, top),
+                (right, bottom),
+                (left + tag.point, bottom),
+                (left, tip_y),
+            ],
+        };
+
+        self.set_color(tag.fill);
+        fltk_draw::begin_polygon();
+        for (vx, vy) in pts {
+            fltk_draw::vertex(vx as f64, vy as f64);
+        }
+        fltk_draw::end_polygon();
+
+        self.set_color(tag.border);
+        fltk_draw::begin_loop();
+        for (vx, vy) in pts {
+            fltk_draw::vertex(vx as f64, vy as f64);
+        }
+        fltk_draw::end_loop();
     }
 
     fn text_width(&mut self, text: &str, font: FontType, style: FontStyle, size: u8) -> f64 {

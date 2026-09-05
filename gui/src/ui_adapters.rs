@@ -246,8 +246,8 @@ impl StructuredRichUI {
         self.0.display.borrow().horizontal_padding()
     }
 
-    /// Whether reveal-codes mode is active (rutle's inline-style tags, e.g.
-    /// `[Bold>`…`<Bold]`, shown inline).
+    /// Whether reveal-codes mode is active (rutle's inline-style tags — the
+    /// pointed `Bold`…`Bold` code boxes — shown inline).
     pub fn reveal_codes(&self) -> bool {
         self.0.display.borrow().reveal_codes()
     }

@@ -42,6 +42,13 @@ While pre-1.0, the minor version is bumped for breaking changes.
   and switch a line between a definition list's two halves. Anywhere they have
   nothing to do, they are left alone as before. (via `rutle 0.6.0`) (#55)
 
+- **Reveal Codes** (`Cmd-R`/`Ctrl-R`) now draws its codes as real tags — the
+  pointed, outlined boxes WordPerfect used — instead of simulating them with
+  `[Bold>` / `<Bold]` bracket text. A code's point faces the text it applies to:
+  right where a style opens, left where it closes. The codes still behave
+  exactly as before: the caret steps onto each one and backspacing over a code
+  removes that style from its span. (via `rutle 0.6.0`) (#54)
+
 ### Fixed
 
 - Turning a selection into a quote, or toggling one off, no longer does nothing

@@ -48,14 +48,6 @@ impl FltkStructuredRichDisplay {
         // Create the rutle renderer
         let display = Rc::new(RefCell::new(Renderer::new(x, y, w - SCROLLBAR_WIDTH, h)));
 
-        // Keep the bracketed text form of the reveal-codes tags (`[Bold>` /
-        // `<Bold]`). rutle 0.6 draws WordPerfect-style boxes for a pixel backend
-        // by default; piki stays on the text tags for now.
-        display.borrow_mut().set_theme(rutle::theme::Theme {
-            reveal_tag_text: true,
-            ..Default::default()
-        });
-
         // Track click count for triple-click detection
         let last_click_time = Rc::new(RefCell::new(Instant::now()));
         let last_click_count = Rc::new(RefCell::new(0));
