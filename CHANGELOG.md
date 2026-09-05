@@ -68,6 +68,10 @@ While pre-1.0, the minor version is bumped for breaking changes.
   (via `rutle 0.6.0`) (#55)
 - Live note sharing: a selection that covers a horizontal rule no longer breaks
   the rule's tag in the shared page. (#55)
+- Edits applied from the context menu opened with the Menu key or Shift-F10 no
+  longer go unnoticed: they now mark the note as changed — so they are
+  autosaved, shown in the shared page and undoable on their own — and the
+  menu's "Edit Link…" offers to remove a link, as it does on right-click. (#56)
 
 ## [0.7.1] - 2026-08-27
 
