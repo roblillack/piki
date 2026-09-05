@@ -49,6 +49,30 @@ While pre-1.0, the minor version is bumped for breaking changes.
   exactly as before: the caret steps onto each one and backspacing over a code
   removes that style from its span. (via `rutle 0.6.0`) (#54)
 
+- **Pasted line breaks become paragraph breaks.** Pasting plain text now makes
+  every line its own paragraph (blank lines included), and a line break inside a
+  rich paste — `<br>` in HTML, a break in RTF — is split into a paragraph break
+  as well. Previously a pasted letter arrived as one huge paragraph held together
+  by hard line breaks, so it behaved as a single indivisible block: selecting
+  "some paragraphs" and converting them to a list produced one bullet for the
+  whole text, and paragraph styles or block moves could only ever apply to all of
+  it. Line breaks inside a code block are content and are left alone; a break
+  inside a list item stays with that item as a continuation paragraph. (#53)
+
+- **Pasted text is recognized as Markdown or as literal lines.** The two readings
+  disagree about newlines — Markdown joins the lines of a paragraph, literal text
+  keeps them — so piki now looks at what is actually on the clipboard. Markdown
+  source is parsed as before (headings, lists, quotes, code, tables, emphasis and
+  links all survive); anything else pastes as literal lines. Detection needs real
+  evidence rather than a single hint: syntax that cannot occur by accident (a
+  fenced code block, a table delimiter row, a `- [ ]` marker, an inline link, a
+  link reference, an ATX heading), or a pattern of block markers — text that is
+  mostly list/quote lines, or several different constructs together. A single
+  line is read as Markdown as soon as it carries inline markup, since nothing can
+  be glued together there. So a shopping list pasted as `- milk`/`- eggs` becomes
+  a real bullet list, while a letter copied out of a PDF that happens to have one
+  `- …` line among its paragraphs stays exactly as pasted. (#53)
+
 ### Fixed
 
 - Turning a selection into a quote, or toggling one off, no longer does nothing
