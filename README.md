@@ -14,7 +14,7 @@ Piki helps you manage a personal knowledge base using plain Markdown files store
 ## Features
 
 - **Local-first**: Your notes are plain Markdown files on your filesystem
-- **Git-friendly**: Version control your wiki with Git (optional)
+- **Git built in**: Every edit becomes a commit, and your notes sync with your other machines over SSH — no server needed (optional)
 - **Dual interface**: Use the CLI for quick edits or the GUI for rich text editing
 - **Live sharing**: Present the current note as a live-updating local web page — great for video calls
 - **Cross-platform**: Works on Windows, macOS, Linux, and BSD
@@ -90,8 +90,6 @@ standup = "vim work/standup-$(date +'%Y').md"
 
 # Git shortcuts
 status = "git status -u"
-sync = "git ci -m 'Auto-sync' && git pull --rebase && git push"
-push = "git commit -m 'Auto-sync' && git push"
 
 # Open in your favorite editor/IDE
 code = "code ."
@@ -99,7 +97,18 @@ cfg = "vim ~/.pikirc"
 
 # Launch GUI from CLI
 g = "piki-gui"
+
+[git]
+# Turn Git support off completely (no commits, no syncing, no warnings).
+# enabled = false
+
+# Which remotes to sync with. Leave unset to sync with the machines you added
+# via `piki remote add` (or `origin`); set to [] to only commit locally.
+# remotes = ["laptop", "origin"]
 ```
+
+An alias takes precedence over a built-in command of the same name, so an
+existing `sync` alias keeps working as before.
 
 ## CLI Usage
 
@@ -116,6 +125,12 @@ Commands:
   view [name]     View a note
   ls              List all notes
   search [terms]  Full-text search notes (all terms must match)
+  init            Create the notes directory (--from HOST imports it over SSH)
+  sync            Commit local changes and sync with the configured remotes
+  remote add NAME [URL] [--path PATH]
+                  Add a machine to sync with (NAME is its SSH host)
+  remote ls       List remotes ('*' marks the ones being synced)
+  remote rm NAME  Remove a remote
   log [-n NUM]    Show git commit log (if using git)
   run [cmd]       Run a shell command inside the notes directory
   help            Show help information
@@ -154,7 +169,7 @@ piki -d ~/my-wiki  # Interactive picker
 piki view project-ideas
 
 # Git integration
-piki run git status
+piki sync
 piki log -n 10
 ```
 
@@ -221,6 +236,8 @@ piki-gui -d /path/to/wiki
 | `Option+Down`         | Move paragraph down |
 | **View**              |                     |
 | `Cmd+Shift+L`         | Live Note Sharing   |
+| **Sync**              |                     |
+| `Cmd+Shift+S`         | Sync now            |
 
 **Live Note Sharing**
 
@@ -261,22 +278,65 @@ showing your notes while screen sharing in a video call.
 
 ## Git Integration
 
-Piki works seamlessly with Git for version control:
+When the notes directory is a Git repository, Piki keeps its history for you
+and can sync it with your other machines. Nothing else is required: no server,
+no account, just SSH access between the machines.
+
+**Commits.** Every edit is recorded automatically — after `piki edit` returns,
+and in the GUI when you move to another note, close the window, or a minute
+after the last save. Commit messages say what happened: `New note: recipes`,
+`Note recipes edited`, `Note untitled_3 renamed to recipes`, `Note draft
+deleted`. `piki log` shows the result.
+
+**Syncing.** `piki sync` commits, then fetches from, merges with and pushes to
+every configured remote. The GUI does the same shortly after launch and every
+15 minutes, or on demand via **Note → Sync Now** (`Cmd+Shift+S`); a small
+spinner in the status bar shows a sync in progress and a warning badge points
+at a failure. Syncing is deliberately cautious: remote changes are only applied
+when they merge cleanly, and anything unexpected — conflicting edits to the
+same note, unrelated histories, a machine that is not reachable, a push the
+other side refuses — is reported as an error and leaves your notes untouched.
+Conflicts are resolved with the regular `git` tools in the notes directory.
+
+**Setting it up.** On a new machine, let Piki fetch your notes from an existing
+one:
 
 ```bash
-cd ~/.piki
-git init
-git add .
-git commit -m "Initial wiki"
-
-# Use piki's git commands
-piki log
-piki run git status
-
-# Or use aliases in .pikirc
-piki sync    # Commit, pull, push
-piki push    # Commit and push
+piki init --from laptop        # imports ~/.piki from "laptop" over SSH
 ```
+
+(Both the CLI and the GUI also offer this when the notes directory does not
+exist yet.) To connect two machines that already have notes with a shared
+history, add the other one as a remote:
+
+```bash
+piki remote add laptop         # `ssh laptop` must work without a password
+piki remote add nas --path /srv/notes
+piki remote add backup ssh://user@host:2222/~/wiki
+piki remote ls
+piki sync
+```
+
+`piki remote add` checks that the host is reachable non-interactively (an SSH
+key or agent must be set up), that a Piki notes directory with a Git repository
+exists there, and that its history is related to yours, before it adds the
+remote. It also configures both repositories so that they accept pushes into
+their checked-out branch (`receive.denyCurrentBranch = updateInstead`): the
+other machine's working tree is updated when it is clean and the push is
+refused otherwise, so nothing is ever overwritten silently.
+
+**Which remotes are synced.** By default, the ones added with `piki remote
+add`, or `origin` if that exists. Set `remotes` under `[git]` in `~/.pikirc`
+to choose explicitly; an empty list keeps committing but never syncs.
+
+**Turning it off.** `enabled = false` under `[git]` disables Git support
+completely. If the notes directory is not a Git repository, Git support is
+disabled with a warning; run `git init` there to enable it.
+
+**Notes.** Remote access uses your system `ssh` (so `~/.ssh/config` aliases,
+keys and agents work as usual) and needs `git` installed on the remote machine.
+`https://` remotes are not supported; use an `ssh://` URL instead. Plain local
+paths and `host:path` remotes added with `git remote add` work too.
 
 ## Platform Support
 

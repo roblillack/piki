@@ -17,6 +17,10 @@ pub struct AutoSaveState {
     pub original_content: String,
     /// Current note being edited
     pub current_note: String,
+    /// Bumped every time note content actually reached disk (saves, renames,
+    /// deletions). Git support watches this to know when there is something
+    /// new to commit; it is never reset when switching notes.
+    pub save_generation: u64,
 }
 
 impl AutoSaveState {
@@ -28,6 +32,7 @@ impl AutoSaveState {
             pending_save: false,
             original_content: String::new(),
             current_note: String::new(),
+            save_generation: 0,
         }
     }
 
@@ -115,6 +120,7 @@ impl AutoSaveState {
                 self.last_save_time = Some(SystemTime::now());
                 self.original_content = current_content;
                 self.is_saving = false;
+                self.save_generation += 1;
                 Ok(())
             }
             Err(e) => {

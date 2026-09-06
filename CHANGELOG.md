@@ -12,6 +12,33 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Added
 
+- **Git sync.** Piki now keeps the history of your notes and syncs them with
+  your other machines over SSH — no server needed. When the notes directory is
+  a Git repository, every edit becomes a commit with a message that says what
+  happened (`New note: recipes`, `Note recipes edited`, `Note draft deleted`,
+  `Note untitled_3 renamed to recipes`): after `piki edit`, and in the GUI when
+  you move to another note, close the window, or a minute after the last save.
+  `piki sync` commits, fetches, merges and pushes for every configured remote;
+  the GUI does the same a few seconds after launch and every 15 minutes, or on
+  demand via **Note → Sync Now** (`Cmd-Shift-S`/`Ctrl-Shift-S`), with a spinner
+  in the status bar while it runs and a warning badge (hover for details) when
+  it failed. Syncing is deliberately cautious: remote changes are applied only
+  when they merge cleanly, and conflicting edits, unrelated histories, an
+  unreachable machine or a refused push are reported as errors that leave your
+  notes untouched. Set it up with `piki remote add laptop` (checks that
+  `ssh laptop` works without a password, that a Piki repository exists there and
+  that the histories are related), inspect with `piki remote ls`, remove with
+  `piki remote rm`. A new machine gets its notes with `piki init --from laptop`;
+  the CLI and the GUI offer the same choice — create or import — when the notes
+  directory does not exist yet. `[git]` in `~/.pikirc` holds the settings:
+  `enabled = false` turns Git support off, `remotes = [...]` picks the remotes
+  to sync with (default: the ones added with `piki remote add`, or `origin`;
+  `[]` commits without syncing). A notes directory that is not a Git repository
+  gets a warning and no Git support. Remote access goes through the system `ssh`
+  (keys, agent and `~/.ssh/config` apply) rather than a bundled SSH library;
+  `https://` remotes are not supported. The GUI and the CLI never commit or sync
+  the same directory at the same time.
+
 - **Horizontal rules.** Break a note into sections with a thematic break, drawn
   as a line across the text column. Insert one with **Format → Horizontal Rule**
   (`Cmd-Shift--`/`Ctrl-Shift--`) or from the right-click menu: it always becomes
@@ -35,6 +62,10 @@ While pre-1.0, the minor version is bumped for breaking changes.
   (via `tdoc 0.12.1` / `rutle 0.6.0`) (#55)
 
 ### Changed
+
+- **The CLI no longer creates a missing notes directory silently.** It asks
+  whether to create it or import it from another machine (or, when not run
+  interactively, points at `piki init`).
 
 - **Tab and Shift-Tab work outside lists too.** Tab still nests a list item one
   level deeper and Shift-Tab lifts it back out, but they now also move a
