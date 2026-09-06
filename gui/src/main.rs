@@ -719,12 +719,15 @@ fn stop_sharing(
 }
 
 fn get_directory(dir_opt: Option<PathBuf>) -> PathBuf {
-    dir_opt.unwrap_or_else(|| {
-        std::env::var("HOME")
-            .ok()
-            .map(|home| PathBuf::from(home).join(".piki"))
-            .unwrap_or_else(|| PathBuf::from(".piki"))
-    })
+    dir_opt
+        .or_else(piki_core::default_notes_dir)
+        .unwrap_or_else(|| {
+            eprintln!(
+                "Error: could not determine your home directory. \
+                 Start Piki with --directory to say where your notes live."
+            );
+            std::process::exit(1);
+        })
 }
 
 fn main() {
