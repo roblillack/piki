@@ -82,7 +82,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   different notes directory per working directory it was started from, and
   never found `.pikirc` at all. It now uses `USERPROFILE` there. Without a home
   directory to be found, Piki asks for `--directory` instead of silently using
-  the working directory.
+  the working directory. (#59)
 - Turning a selection into a quote, or toggling one off, no longer does nothing
   when the selection ends inside a list or quote — as it did after Select All on
   a note ending in a list. Quoting now also toggles the whole selected range at
