@@ -393,6 +393,107 @@ fn remotes_added_with_plain_git_paths_work() {
     assert_eq!(c.remotes().unwrap()[0].1, b_dir.to_str().unwrap());
 }
 
+// ----- Non-ASCII note names --------------------------------------------------
+
+/// Whether Git has `rel` in its index.
+fn tracked(dir: &Path, rel: &str) -> bool {
+    let repo = git2::Repository::open(dir).unwrap();
+    let index = repo.index().unwrap();
+    index.iter().any(|e| e.path == rel.as_bytes())
+}
+
+/// Like `read`, but with line endings normalised: these tests care about the
+/// note surviving, not about a `core.autocrlf` setting inherited from the
+/// developer's global Git config.
+fn read_lf(dir: &Path, rel: &str) -> String {
+    read(dir, rel).replace("\r\n", "\n")
+}
+
+/// Notes whose file name starts with a non-ASCII character ("Über.md",
+/// "öl.md", …) used to be staged as *deleted* on every commit: libgit2's
+/// index-to-workdir comparison mis-sorts such paths on `core.ignorecase`
+/// filesystems (Windows, macOS), so the file on disk is never paired with its
+/// index entry. Committing dropped the note from the repository, and the next
+/// sync then deleted it in every other working copy.
+#[test]
+fn notes_with_umlauts_are_committed_and_kept() {
+    let dir = unique_dir("umlaut");
+    let repo = Repo::init(&dir).unwrap();
+    let names = [
+        "frontpage.md",
+        "Über.md",
+        "Ärger.md",
+        "öl.md",
+        "Grüße.md",
+        "Übersicht/Maßnahmen.md",
+    ];
+    for name in names {
+        write(&dir, name, "# note\n");
+    }
+
+    let c = repo.commit_changes().unwrap().expect("initial commit");
+    assert_eq!(c.changes, names.len(), "every note is part of the commit");
+    assert!(
+        repo.is_clean().unwrap(),
+        "nothing left over after committing"
+    );
+    for name in names {
+        assert!(dir.join(name).exists(), "{name} still on disk");
+        assert!(tracked(&dir, name), "{name} is tracked");
+    }
+
+    // Nothing changed on disk, so there is nothing left to commit.
+    assert_eq!(repo.commit_changes().unwrap(), None);
+    for name in names {
+        assert!(tracked(&dir, name), "{name} is still tracked");
+    }
+
+    // Editing one works, and leaves the others alone.
+    write(&dir, "Über.md", "# Über\n\nMore.\n");
+    let c = repo.commit_changes().unwrap().expect("edit commit");
+    assert_eq!(c.changes, 1);
+    assert_eq!(c.title, "Note Über edited");
+    for name in names {
+        assert!(tracked(&dir, name), "{name} is still tracked");
+    }
+
+    // A real deletion is still staged as one.
+    fs::remove_file(dir.join("Ärger.md")).unwrap();
+    let c = repo.commit_changes().unwrap().expect("delete commit");
+    assert_eq!(c.changes, 1);
+    assert_eq!(c.title, "Note Ärger deleted");
+    assert!(!tracked(&dir, "Ärger.md"));
+    assert!(tracked(&dir, "Über.md"), "the others are untouched");
+    assert!(repo.is_clean().unwrap());
+}
+
+/// The same names over a sync: they must survive the round trip instead of
+/// disappearing from the other working copy.
+#[test]
+fn notes_with_umlauts_survive_a_sync() {
+    let (b_dir, b) = seeded_repo("umlaut-b");
+    let a_dir = unique_dir("umlaut-a");
+    let a = Repo::clone(&path_url(&b_dir), &a_dir).unwrap();
+
+    write(&a_dir, "Über.md", "# Über\n");
+    write(&a_dir, "öl.md", "# Öl\n");
+    let report = a.sync(&["origin".to_string()]).unwrap();
+    assert!(!report.has_errors(), "{}", report.summary());
+    assert_eq!(report.committed.unwrap().changes, 2);
+    assert_eq!(read_lf(&b_dir, "Über.md"), "# Über\n");
+    assert_eq!(read_lf(&b_dir, "öl.md"), "# Öl\n");
+
+    // B edits one and A pulls it: a fast-forward that loses nothing.
+    write(&b_dir, "Über.md", "# Über\n\nB was here.\n");
+    b.commit_changes().unwrap().expect("B commits");
+    let report = a.sync(&["origin".to_string()]).unwrap();
+    assert!(!report.has_errors(), "{}", report.summary());
+    assert_eq!(read_lf(&a_dir, "Über.md"), "# Über\n\nB was here.\n");
+    assert_eq!(read_lf(&a_dir, "öl.md"), "# Öl\n");
+    assert!(a.is_clean().unwrap());
+    assert!(b.is_clean().unwrap());
+}
+
 // ----- SSH transport ---------------------------------------------------------
 
 #[cfg(unix)]

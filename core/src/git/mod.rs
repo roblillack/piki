@@ -26,6 +26,7 @@ use git2::{
     build::CheckoutBuilder,
 };
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 /// Multi-valued git config key under which `piki remote add` records the
@@ -133,6 +134,20 @@ impl SyncReport {
             .collect();
         format!("Synced. {}", parts.join("; "))
     }
+}
+
+/// The merge stage of an index entry; 0 for an ordinary, conflict-free one.
+fn entry_stage(entry: &git2::IndexEntry) -> u16 {
+    const STAGE_MASK: u16 = 0x3000;
+    const STAGE_SHIFT: u16 = 12;
+    (entry.flags & STAGE_MASK) >> STAGE_SHIFT
+}
+
+/// Is there anything at `path`? Unlike `Path::exists` this does not follow
+/// symlinks, so a dangling one still counts as present — Git tracks the link,
+/// not its target, and a broken link is not a deleted note.
+fn exists(path: &Path) -> bool {
+    path.symlink_metadata().is_ok()
 }
 
 fn gerr(context: &str, e: git2::Error) -> String {
@@ -384,7 +399,44 @@ impl Repo {
             .repo
             .statuses(Some(&mut opts))
             .map_err(|e| gerr("Failed to read working tree status", e))?;
-        Ok(statuses.is_empty())
+        let tracked = self.index_paths()?;
+        Ok(statuses.iter().all(|e| {
+            self.real_status(e.path().ok(), e.status(), &tracked)
+                .is_empty()
+        }))
+    }
+
+    /// `status` with libgit2's phantom working-tree bits masked out.
+    ///
+    /// For a note whose name libgit2 fails to pair up (see [`Self::stage_all`])
+    /// it reports two entries: the index entry looks deleted from the working
+    /// tree, and the very file it could not match looks untracked. Both are
+    /// wrong whenever the path is in the index *and* on disk, and believing
+    /// them would keep [`Self::is_clean`] false forever — so a sync would never
+    /// dare update the working tree of a wiki holding such a note.
+    fn real_status(&self, path: Option<&str>, status: Status, tracked: &HashSet<String>) -> Status {
+        let mut status = status;
+        if let Some(path) = path
+            && status.intersects(Status::WT_DELETED | Status::WT_NEW)
+            && tracked.contains(path)
+            && exists(&self.workdir.join(path))
+        {
+            status.remove(Status::WT_DELETED | Status::WT_NEW);
+        }
+        status
+    }
+
+    /// Every conflict-free path in the index.
+    fn index_paths(&self) -> Result<HashSet<String>, String> {
+        let index = self
+            .repo
+            .index()
+            .map_err(|e| gerr("Failed to open the index", e))?;
+        Ok(index
+            .iter()
+            .filter(|e| entry_stage(e) == 0)
+            .filter_map(|e| String::from_utf8(e.path).ok())
+            .collect())
     }
 
     /// Stage every change in the working tree (respecting `.gitignore`).
@@ -396,9 +448,27 @@ impl Repo {
         index
             .add_all(["*"].iter(), IndexAddOption::DEFAULT, None)
             .map_err(|e| gerr("Failed to stage changes", e))?;
-        index
-            .update_all(["*"].iter(), None)
-            .map_err(|e| gerr("Failed to stage deletions", e))?;
+        // Deletions are deliberately *not* staged with `Index::update_all`.
+        // That builds on libgit2's index-to-working-tree diff, whose
+        // case-insensitive path comparison mis-sorts paths starting with a
+        // non-ASCII byte on `core.ignorecase` filesystems (Windows, macOS): a
+        // note called "Über.md" is never paired with its own file and so gets
+        // staged as deleted on every single commit — dropping it from the
+        // repository and, come the next sync, from every other machine too.
+        // Asking the filesystem itself sidesteps that comparison entirely.
+        let gone: Vec<String> = index
+            .iter()
+            .filter(|e| entry_stage(e) == 0)
+            // A path libgit2 stored as non-UTF-8 is left alone: never stage a
+            // deletion we cannot check.
+            .filter_map(|e| String::from_utf8(e.path).ok())
+            .filter(|path| !exists(&self.workdir.join(path)))
+            .collect();
+        for path in gone {
+            index
+                .remove_path(Path::new(&path))
+                .map_err(|e| gerr(&format!("Failed to stage the deletion of '{path}'"), e))?;
+        }
         index
             .write()
             .map_err(|e| gerr("Failed to write the index", e))
