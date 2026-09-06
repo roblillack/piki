@@ -106,6 +106,14 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 ### Fixed
 
+- **On Windows, Piki no longer keeps its notes in the current directory.** The
+  default notes directory is `~/.piki` and the configuration file is
+  `~/.pikirc`, but both were looked up through `HOME` alone — which Windows
+  does not set — so Piki fell back to a relative `.piki` and ended up with a
+  different notes directory per working directory it was started from, and
+  never found `.pikirc` at all. It now uses `USERPROFILE` there. Without a home
+  directory to be found, Piki asks for `--directory` instead of silently using
+  the working directory. (#59)
 - Turning a selection into a quote, or toggling one off, no longer does nothing
   when the selection ends inside a list or quote — as it did after Select All on
   a note ending in a list. Quoting now also toggles the whole selected range at

@@ -12,9 +12,9 @@
 //! Only the CLI uses `[aliases]`. The `[git]` section is honored by both
 //! programs; see [`GitConfig`] for the exact defaults.
 
+use crate::home_dir;
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::env;
 use std::fs;
 use std::path::PathBuf;
 
@@ -62,11 +62,10 @@ impl Default for GitConfig {
 }
 
 impl Config {
-    /// Location of the configuration file: `$HOME/.pikirc`.
+    /// Location of the configuration file: `~/.pikirc`, next to the notes
+    /// directory it configures — see [`home_dir`] for how that is found.
     pub fn path() -> Option<PathBuf> {
-        env::var_os("HOME")
-            .or_else(|| env::var_os("USERPROFILE"))
-            .map(|home| PathBuf::from(home).join(".pikirc"))
+        home_dir().map(|home| home.join(".pikirc"))
     }
 
     /// Load the configuration from its default location. A missing file yields
