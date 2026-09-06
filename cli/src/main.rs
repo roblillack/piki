@@ -88,19 +88,20 @@ impl Config {
     }
 
     fn config_path() -> Option<PathBuf> {
-        env::var("HOME")
-            .ok()
-            .map(|home| PathBuf::from(home).join(".pikirc"))
+        piki_core::home_dir().map(|home| home.join(".pikirc"))
     }
 }
 
 fn get_notes_dir(dir_opt: Option<PathBuf>) -> PathBuf {
-    dir_opt.unwrap_or_else(|| {
-        env::var("HOME")
-            .ok()
-            .map(|home| PathBuf::from(home).join(".piki"))
-            .unwrap_or_else(|| PathBuf::from(".piki"))
-    })
+    dir_opt
+        .or_else(piki_core::default_notes_dir)
+        .unwrap_or_else(|| {
+            eprintln!(
+                "Error: could not determine your home directory. \
+                 Pass --directory to say where your notes live."
+            );
+            std::process::exit(1);
+        })
 }
 
 fn get_editor() -> String {
