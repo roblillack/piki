@@ -2,17 +2,61 @@
 //! working copies, over local paths and over the `ssh://` transport (driven
 //! through a fake `ssh` script that runs the remote command locally).
 
+use git2::ConfigLevel;
 use piki_core::GitConfig;
-use piki_core::git::ssh::{self, RemoteCheck, SshUrl};
 use piki_core::git::{Repo, SyncLock};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Once;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Keep the developer's own Git configuration out of these tests.
+///
+/// Git for Windows ships `core.autocrlf = true` in its system configuration,
+/// which rewrites every note's line endings on checkout and turns the content
+/// assertions below into `\r\n` mismatches — on that machine only. Other
+/// inherited settings (hooks, commit templates, `core.ignorecase`) could skew
+/// results just as quietly, so the system, global and XDG configuration is
+/// pointed at an empty directory rather than any one setting overridden.
+///
+/// Both levers are needed: libgit2 reads the configuration in-process for
+/// clone and merge checkouts, while a push into a checked-out branch is
+/// carried out by a `git receive-pack` child process, which reads it itself.
+fn isolate_git_config() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        // Two directories: libgit2 searches `empty` for `.gitconfig`, so the
+        // stand-in config file has to live somewhere else entirely.
+        let base = std::env::temp_dir().join("piki-git-config-isolation");
+        let empty = base.join("empty");
+        fs::create_dir_all(&empty).unwrap();
+        let stand_in = base.join("gitconfig");
+        fs::write(&stand_in, "").unwrap();
+        // SAFETY: this runs before any test has created a repository — every
+        // test reaches `unique_dir` first, and `Once` holds them all here
+        // until this has finished — so nothing is reading Git configuration,
+        // in this process or a child, while it is being redirected.
+        unsafe {
+            std::env::set_var("GIT_CONFIG_GLOBAL", &stand_in);
+            std::env::set_var("GIT_CONFIG_SYSTEM", &stand_in);
+            std::env::set_var("GIT_CONFIG_NOSYSTEM", "1");
+            for level in [
+                ConfigLevel::ProgramData,
+                ConfigLevel::System,
+                ConfigLevel::XDG,
+                ConfigLevel::Global,
+            ] {
+                git2::opts::set_search_path(level, &empty).unwrap();
+            }
+        }
+    });
+}
+
 fn unique_dir(tag: &str) -> PathBuf {
+    isolate_git_config();
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -50,6 +94,17 @@ fn frontpage(tag: &str) -> String {
 
 fn path_url(dir: &Path) -> String {
     dir.to_str().unwrap().to_string()
+}
+
+/// The `file://` URL Piki records for a local path, on either platform:
+/// `/tmp/x` becomes `file:///tmp/x`, `C:\x` becomes `file:///C:/x`.
+fn file_url(dir: &Path) -> String {
+    let path = dir.to_str().unwrap().replace('\\', "/");
+    if path.starts_with('/') {
+        format!("file://{path}")
+    } else {
+        format!("file:///{path}")
+    }
 }
 
 #[test]
@@ -132,10 +187,7 @@ fn sync_pushes_into_other_working_copy_and_pulls_back() {
     assert_eq!(read(&a_dir, "frontpage.md"), frontpage("b"));
     // Cloning turns the path into a file:// URL and registers origin as a
     // sync target.
-    assert_eq!(
-        a.remotes().unwrap()[0].1,
-        format!("file://{}", b_dir.display())
-    );
+    assert_eq!(a.remotes().unwrap()[0].1, file_url(&b_dir));
     assert_eq!(
         a.sync_remotes(&GitConfig::default()).unwrap(),
         vec!["origin".to_string()]
@@ -499,6 +551,7 @@ fn notes_with_umlauts_survive_a_sync() {
 #[cfg(unix)]
 mod over_ssh {
     use super::*;
+    use piki_core::git::ssh::{self, RemoteCheck, SshUrl};
     use std::sync::OnceLock;
 
     /// A stand-in for `ssh` that ignores the connection options and host and
