@@ -1,12 +1,12 @@
 use clap::{Parser, Subcommand};
 use crossterm::terminal;
 use fuzzypicker::FuzzyPicker;
-use piki_core::{DocumentStore, IndexPlugin, PluginRegistry, TodoPlugin, has_md_extension};
-use serde::Deserialize;
-use std::collections::HashMap;
+use piki_core::git::ssh::{self, RemoteCheck, SshUrl};
+use piki_core::git::{Repo, SyncReport};
+use piki_core::{Config, DocumentStore, IndexPlugin, PluginRegistry, TodoPlugin, has_md_extension};
 use std::env;
 use std::fs;
-use std::io::{self, Cursor, IsTerminal};
+use std::io::{self, BufRead, Cursor, IsTerminal, Write};
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -39,6 +39,15 @@ enum Commands {
     },
     /// Generate an index of all notes
     Index,
+    /// Create the notes directory, empty or imported from another machine
+    Init {
+        /// Import the notes from this machine over SSH (as in `ssh HOST`)
+        #[arg(long, value_name = "HOST")]
+        from: Option<String>,
+        /// Notes directory on that machine (default: ~/.piki)
+        #[arg(long, value_name = "PATH", requires = "from")]
+        path: Option<String>,
+    },
     /// Show the commit log
     Log {
         /// Number of commits to show
@@ -47,6 +56,11 @@ enum Commands {
     },
     /// List all notes
     Ls,
+    /// Manage the machines (Git remotes) to sync with
+    Remote {
+        #[command(subcommand)]
+        action: RemoteCommands,
+    },
     /// Run a shell command inside the notes directory
     Run {
         /// Command to run
@@ -59,6 +73,8 @@ enum Commands {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
         terms: Vec<String>,
     },
+    /// Commit local changes and sync them with the configured remotes
+    Sync,
     /// List all todos from all notes
     Todo,
     /// View a note
@@ -68,29 +84,37 @@ enum Commands {
     },
 }
 
-#[derive(Deserialize, Debug, Default)]
-struct Config {
-    #[serde(default)]
-    aliases: HashMap<String, String>,
+#[derive(Subcommand, Debug)]
+enum RemoteCommands {
+    /// Add a machine to sync with. NAME is the host to reach over SSH (as in
+    /// `ssh NAME`, so `user@host` and ~/.ssh/config aliases work); the notes are
+    /// expected in ~/.piki there unless --path or an explicit URL is given.
+    Add {
+        /// Name for the remote; also the SSH host unless URL is given
+        name: String,
+        /// Git URL instead of the SSH host shorthand (e.g. ssh://user@host/~/notes)
+        url: Option<String>,
+        /// Notes directory on the remote machine (default: ~/.piki)
+        #[arg(long, value_name = "PATH", conflicts_with = "url")]
+        path: Option<String>,
+    },
+    /// List the configured remotes
+    Ls,
+    /// Remove a remote
+    Rm {
+        /// Name of the remote to remove
+        name: String,
+    },
 }
 
-impl Config {
-    fn load() -> Self {
-        let config_path = Self::config_path();
-        if let Some(path) = config_path
-            && path.exists()
-            && let Ok(contents) = fs::read_to_string(&path)
-            && let Ok(config) = toml::from_str::<Config>(&contents)
-        {
-            return config;
+/// Load `~/.pikirc`, warning (rather than failing) about a broken file.
+fn load_config() -> Config {
+    match Config::load() {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("Warning: {e}; using defaults.");
+            Config::default()
         }
-        Config::default()
-    }
-
-    fn config_path() -> Option<PathBuf> {
-        env::var("HOME")
-            .ok()
-            .map(|home| PathBuf::from(home).join(".pikirc"))
     }
 }
 
@@ -155,7 +179,7 @@ fn interactive_select(store: &DocumentStore) -> Result<Option<String>, String> {
     // Ok(selected)
 }
 
-fn cmd_edit(name: Option<String>, notes_dir: &PathBuf) -> Result<(), String> {
+fn cmd_edit(name: Option<String>, notes_dir: &PathBuf, config: &Config) -> Result<(), String> {
     let store = DocumentStore::new(notes_dir.clone());
 
     let note_name = if let Some(name) = name {
@@ -184,7 +208,305 @@ fn cmd_edit(name: Option<String>, notes_dir: &PathBuf) -> Result<(), String> {
         return Err(format!("Editor exited with status: {}", status));
     }
 
+    commit_after_edit(notes_dir, config)
+}
+
+/// Record the outcome of an edit as a commit (when Git support applies).
+fn commit_after_edit(notes_dir: &Path, config: &Config) -> Result<(), String> {
+    let Some(repo) = open_repo_if_enabled(notes_dir, config)? else {
+        return Ok(());
+    };
+    if let Some(commit) = repo.commit_changes()? {
+        eprintln!("Committed: {}", commit.title);
+    }
     Ok(())
+}
+
+/// The notes directory as a repository, or `None` when Git support is off or
+/// the directory is not a repository (with a warning in the latter case).
+fn open_repo_if_enabled(notes_dir: &Path, config: &Config) -> Result<Option<Repo>, String> {
+    if !config.git.enabled {
+        return Ok(None);
+    }
+    match Repo::open(notes_dir)? {
+        Some(repo) => Ok(Some(repo)),
+        None => {
+            eprintln!(
+                "Warning: {} is not a Git repository; Git support is disabled. \
+                 (Run `git init` there to enable it, or set `enabled = false` under \
+                 [git] in ~/.pikirc to silence this.)",
+                notes_dir.display()
+            );
+            Ok(None)
+        }
+    }
+}
+
+/// The repository, required: an error when Git is disabled or missing.
+fn require_repo(notes_dir: &Path, config: &Config) -> Result<Repo, String> {
+    if !config.git.enabled {
+        return Err("Git support is disabled in ~/.pikirc ([git] enabled = false).".to_string());
+    }
+    Repo::open(notes_dir)?.ok_or_else(|| {
+        format!(
+            "{} is not a Git repository. Run `git init` there first.",
+            notes_dir.display()
+        )
+    })
+}
+
+fn cmd_sync(notes_dir: &Path, config: &Config) -> Result<(), String> {
+    let repo = require_repo(notes_dir, config)?;
+    let remotes = repo.sync_remotes(&config.git)?;
+    let report = repo.sync(&remotes)?;
+    print_sync_report(&report);
+    if report.has_errors() {
+        return Err("Sync did not complete for every remote.".to_string());
+    }
+    Ok(())
+}
+
+fn print_sync_report(report: &SyncReport) {
+    if let Some(commit) = &report.committed {
+        println!("Committed: {}", commit.title);
+    }
+    if report.outcomes.is_empty() {
+        println!("No remotes configured to sync with; local changes are committed only.");
+    }
+    for outcome in &report.outcomes {
+        match outcome {
+            Ok(o) => println!("{}", o.describe()),
+            Err(e) => eprintln!("Error: {e}"),
+        }
+    }
+    if !report.changed_paths.is_empty() {
+        println!("Updated locally: {}", report.changed_paths.join(", "));
+    }
+}
+
+fn cmd_remote(action: RemoteCommands, notes_dir: &Path, config: &Config) -> Result<(), String> {
+    let repo = require_repo(notes_dir, config)?;
+    match action {
+        RemoteCommands::Ls => {
+            let syncing = repo.sync_remotes(&config.git).unwrap_or_default();
+            let remotes = repo.remotes()?;
+            if remotes.is_empty() {
+                println!("No remotes. Add one with `piki remote add <host>`.");
+            }
+            for (name, url) in remotes {
+                let marker = if syncing.contains(&name) { "*" } else { " " };
+                println!("{marker} {name}\t{url}");
+            }
+            Ok(())
+        }
+        RemoteCommands::Rm { name } => {
+            if !repo.has_remote(&name) {
+                return Err(format!("No remote named '{name}'."));
+            }
+            repo.remove_remote(&name)?;
+            println!("Removed remote '{name}'.");
+            Ok(())
+        }
+        RemoteCommands::Add { name, url, path } => cmd_remote_add(&repo, &name, url, path, config),
+    }
+}
+
+fn cmd_remote_add(
+    repo: &Repo,
+    name: &str,
+    url: Option<String>,
+    path: Option<String>,
+    config: &Config,
+) -> Result<(), String> {
+    if repo.has_remote(name) {
+        return Err(format!(
+            "A remote named '{name}' already exists (see `piki remote ls`)."
+        ));
+    }
+    let url = match url {
+        Some(u) => ssh::normalize_url(&u),
+        None => ssh::url_for_host(name, path.as_deref())?,
+    };
+
+    // For SSH targets, check the machine and its notes directory up front so
+    // problems come with a plain explanation instead of a protocol error.
+    if ssh::is_ssh_url(&url) {
+        let parsed = SshUrl::parse(&url)?;
+        eprintln!("Checking {} on {} …", parsed.path, parsed.destination());
+        match ssh::check_remote_repository(&parsed)? {
+            RemoteCheck::Ok => {}
+            RemoteCheck::Unreachable(detail) => {
+                return Err(format!(
+                    "Cannot reach {} over SSH without a password: {detail}\n\
+                     Make sure the host is reachable and that an SSH key (or agent) \
+                     lets you log in non-interactively, e.g. `ssh {}` works.",
+                    parsed.destination(),
+                    parsed.destination()
+                ));
+            }
+            RemoteCheck::NoRepository(detail) => {
+                return Err(format!(
+                    "No Piki notes directory found at {} on {}: {detail}\n\
+                     Piki must be set up there with a Git repository (see the README), \
+                     or pass --path to point at the right directory.",
+                    parsed.path,
+                    parsed.destination()
+                ));
+            }
+        }
+    }
+
+    repo.add_remote(name, &url)?;
+    // Verify the two directories share their history before keeping the
+    // remote around; otherwise syncing could only ever fail.
+    let verified = repo
+        .fetch(name)
+        .and_then(|()| repo.shares_history_with(name));
+    match verified {
+        Ok(true) => {}
+        Ok(false) => {
+            let _ = repo.remove_remote(name);
+            return Err(format!(
+                "The notes at {url} have a different history than the local ones (no common \
+                 ancestor), so they cannot be synced. To use them, start from a copy: move the \
+                 local notes directory aside and let Piki import them from '{name}'."
+            ));
+        }
+        Err(e) => {
+            let _ = repo.remove_remote(name);
+            return Err(e);
+        }
+    }
+    repo.register_sync_remote(name)?;
+    // Our side must accept pushes into the checked-out branch too, so the other
+    // machine can add us in return.
+    repo.allow_pushes_to_checked_out_branch()?;
+    println!("Added remote '{name}' ({url}).");
+
+    match &config.git.remotes {
+        Some(list) if !list.iter().any(|n| n == name) => {
+            println!(
+                "Note: ~/.pikirc lists the remotes to sync with under [git] and does not \
+                 include '{name}'; add it there to sync with it."
+            );
+        }
+        _ => println!("`piki sync` and the GUI will now sync with '{name}'."),
+    }
+    Ok(())
+}
+
+/// `piki init`: create the notes directory (as a Git repository when Git
+/// support is on), or import it from another machine.
+fn cmd_init(
+    from: Option<String>,
+    path: Option<String>,
+    notes_dir: &Path,
+    config: &Config,
+) -> Result<(), String> {
+    if notes_dir.exists() {
+        return Err(format!(
+            "{} already exists. Remove or move it aside first to import into it.",
+            notes_dir.display()
+        ));
+    }
+    match from {
+        Some(host) => {
+            let url = ssh::url_for_host(&host, path.as_deref())?;
+            import_notes(&url, notes_dir)
+        }
+        None => create_notes_dir(notes_dir, config),
+    }
+}
+
+fn create_notes_dir(notes_dir: &Path, config: &Config) -> Result<(), String> {
+    fs::create_dir_all(notes_dir)
+        .map_err(|e| format!("Failed to create {}: {e}", notes_dir.display()))?;
+    if config.git.enabled {
+        Repo::init(notes_dir)?;
+        eprintln!("Created {} as a Git repository.", notes_dir.display());
+    } else {
+        eprintln!("Created {}.", notes_dir.display());
+    }
+    Ok(())
+}
+
+/// Ask what to do about a missing notes directory: create it, import it from
+/// another machine, or quit. Non-interactive sessions get an explanation.
+fn set_up_missing_notes_dir(notes_dir: &Path, config: &Config) -> Result<(), String> {
+    let stdin = io::stdin();
+    if !stdin.is_terminal() || !io::stderr().is_terminal() {
+        return Err(format!(
+            "Notes directory {} does not exist. Create it with `piki init`, or import your \
+             notes from another machine with `piki init --from HOST`.",
+            notes_dir.display()
+        ));
+    }
+    eprintln!("Notes directory {} does not exist.", notes_dir.display());
+    eprintln!("  [c] Create it");
+    eprintln!("  [i] Import notes from another machine over SSH");
+    eprintln!("  [q] Quit");
+    let answer = prompt("Your choice [c/i/q]: ")?;
+    match answer.trim().to_lowercase().as_str() {
+        "c" | "create" => create_notes_dir(notes_dir, config),
+        "i" | "import" => {
+            let host = prompt("Host name of the machine to import from (as in `ssh HOST`): ")?;
+            let host = host.trim();
+            let path = prompt(&format!(
+                "Notes directory on {host} [{}]: ",
+                ssh::DEFAULT_REMOTE_PATH
+            ))?;
+            let path = path.trim();
+            let url = ssh::url_for_host(host, (!path.is_empty()).then_some(path))?;
+            import_notes(&url, notes_dir)
+        }
+        _ => Err("Aborted.".to_string()),
+    }
+}
+
+/// Clone `url` into `notes_dir`, which becomes a working copy with `origin`
+/// set up for syncing.
+fn import_notes(url: &str, notes_dir: &Path) -> Result<(), String> {
+    if ssh::is_ssh_url(url) {
+        let parsed = SshUrl::parse(url)?;
+        eprintln!("Checking {} on {} …", parsed.path, parsed.destination());
+        match ssh::check_remote_repository(&parsed)? {
+            RemoteCheck::Ok => {}
+            RemoteCheck::Unreachable(detail) => {
+                return Err(format!(
+                    "Cannot reach {} over SSH without a password: {detail}",
+                    parsed.destination()
+                ));
+            }
+            RemoteCheck::NoRepository(detail) => {
+                return Err(format!(
+                    "No Piki notes directory found at {} on {}: {detail}",
+                    parsed.path,
+                    parsed.destination()
+                ));
+            }
+        }
+    }
+    eprintln!("Importing notes from {url} …");
+    Repo::clone(url, notes_dir)?;
+    eprintln!(
+        "Imported notes into {}; '{url}' is set up as the 'origin' remote to sync with.",
+        notes_dir.display()
+    );
+    Ok(())
+}
+
+fn prompt(text: &str) -> Result<String, String> {
+    eprint!("{text}");
+    io::stderr().flush().ok();
+    let mut line = String::new();
+    io::stdin()
+        .lock()
+        .read_line(&mut line)
+        .map_err(|e| format!("Failed to read input: {e}"))?;
+    if line.is_empty() {
+        return Err("Aborted.".to_string());
+    }
+    Ok(line)
 }
 
 fn cmd_view(name: Option<String>, notes_dir: &Path) -> Result<(), String> {
@@ -765,10 +1087,17 @@ fn print_help_with_aliases(config: &Config) {
     println!("  edit [name] - edit a note");
     println!("  help        - show this help");
     println!("  index       - generate an index of all notes");
+    println!("  init [--from HOST [--path PATH]]");
+    println!("              - create the notes directory, or import it from another machine");
     println!("  log         - show the commit log");
     println!("  ls          - list notes");
+    println!("  remote add NAME [URL] [--path PATH]");
+    println!("              - add a machine to sync with (NAME is its SSH host)");
+    println!("  remote ls   - list remotes ('*' marks the ones being synced)");
+    println!("  remote rm NAME - remove a remote");
     println!("  run [cmd]   - run a shell command inside the notes directory");
     println!("  search [terms] - full-text search notes (all terms must match)");
+    println!("  sync        - commit local changes and sync with the configured remotes");
     println!("  todo        - list all todos from all notes");
     println!("  view [name] - view a note");
 
@@ -785,7 +1114,7 @@ fn print_help_with_aliases(config: &Config) {
 
 fn main() {
     // Load config and check for aliases
-    let config = Config::load();
+    let config = load_config();
     let raw_args: Vec<String> = env::args().collect();
 
     // Check if user is asking for help
@@ -801,15 +1130,13 @@ fn main() {
     let args = Args::parse();
     let notes_dir = get_notes_dir(args.directory.clone());
 
-    // Ensure notes directory exists
+    // A missing notes directory is set up interactively: created fresh or
+    // imported from another machine. `piki init` does the same explicitly.
     if !notes_dir.exists()
-        && let Err(e) = fs::create_dir_all(&notes_dir)
+        && !matches!(args.command, Some(Commands::Init { .. }))
+        && let Err(e) = set_up_missing_notes_dir(&notes_dir, &config)
     {
-        eprintln!(
-            "Error: Failed to create notes directory '{}': {}",
-            notes_dir.display(),
-            e
-        );
+        eprintln!("Error: {e}");
         std::process::exit(1);
     }
 
@@ -857,17 +1184,20 @@ fn main() {
     }
 
     let result = match args.command {
-        Some(Commands::Edit { name }) => cmd_edit(name, &notes_dir),
+        Some(Commands::Edit { name }) => cmd_edit(name, &notes_dir, &config),
         Some(Commands::Index) => cmd_index(&notes_dir),
+        Some(Commands::Init { from, path }) => cmd_init(from, path, &notes_dir, &config),
         Some(Commands::View { name }) => cmd_view(name, &notes_dir),
         Some(Commands::Ls) => cmd_ls(&notes_dir),
         Some(Commands::Log { count }) => cmd_log(count, &notes_dir),
+        Some(Commands::Remote { action }) => cmd_remote(action, &notes_dir, &config),
         Some(Commands::Run { command }) => cmd_run(command, &notes_dir),
         Some(Commands::Search { terms }) => cmd_search(terms, &notes_dir),
+        Some(Commands::Sync) => cmd_sync(&notes_dir, &config),
         Some(Commands::Todo) => cmd_todo(&notes_dir),
         None => {
             // Default to edit command, either with provided name or interactive
-            cmd_edit(args.name, &notes_dir)
+            cmd_edit(args.name, &notes_dir, &config)
         }
     };
 

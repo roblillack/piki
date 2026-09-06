@@ -1,12 +1,13 @@
 use super::{
-    AppState, AutoSaveState, delete_current_note, load_note_helper, navigate_back,
-    navigate_forward, note_picker, rename_current_note, search_bar::SearchBar, start_sharing,
-    statusbar::StatusBar, stop_sharing, window_state::WindowGeometry,
+    AppState, AutoSaveState, delete_current_note, git_sync::GitState, load_note_helper,
+    navigate_back, navigate_forward, note_picker, rename_current_note, request_sync,
+    search_bar::SearchBar, start_sharing, statusbar::StatusBar, stop_sharing,
+    window_state::WindowGeometry,
 };
 // Only the non-macOS in-app Quit item saves explicitly; on macOS the system
 // Quit routes through the window Close event, which already saves.
 #[cfg(not(target_os = "macos"))]
-use super::save_current_note;
+use super::{save_current_note, shutdown_git};
 use chrono::Local;
 use fltk::{
     app, button, dialog,
@@ -95,6 +96,7 @@ pub fn setup_menu(
     search_bar: Rc<RefCell<SearchBar>>,
     live_share: Rc<RefCell<Option<LiveShare>>>,
     on_air: Rc<RefCell<OnAirBar>>,
+    git_state: Rc<RefCell<GitState>>,
 ) {
     let mut menu_bar = menu::SysMenuBar::default();
     populate_menu(
@@ -108,6 +110,7 @@ pub fn setup_menu(
         search_bar,
         live_share,
         on_air,
+        git_state,
     );
 }
 
@@ -123,6 +126,7 @@ pub fn setup_menu(
     search_bar: Rc<RefCell<SearchBar>>,
     live_share: Rc<RefCell<Option<LiveShare>>>,
     on_air: Rc<RefCell<OnAirBar>>,
+    git_state: Rc<RefCell<GitState>>,
 ) -> menu::MenuBar {
     let mut menu_bar = menu::MenuBar::new(0, 0, 660, 25, None);
     populate_menu(
@@ -136,6 +140,7 @@ pub fn setup_menu(
         search_bar,
         live_share,
         on_air,
+        git_state,
     );
     menu_bar
 }
@@ -152,6 +157,7 @@ fn populate_menu<M>(
     search_bar: Rc<RefCell<SearchBar>>,
     live_share: Rc<RefCell<Option<LiveShare>>>,
     on_air: Rc<RefCell<OnAirBar>>,
+    git_state: Rc<RefCell<GitState>>,
 ) where
     M: MenuExt + Clone + 'static,
 {
@@ -207,6 +213,7 @@ fn populate_menu<M>(
 
     // Write room shortcut: Ctrl/Cmd-Shift-F
     let fullscreen_shortcut = cmd | Shortcut::Shift | 'f';
+    let sync_shortcut = cmd | Shortcut::Shift | 's';
 
     // Note menu
     // New Note creates an auto-named `untitled_…` note and opens it immediately,
@@ -359,12 +366,9 @@ fn populate_menu<M>(
     }
 
     {
-        #[cfg(not(target_os = "macos"))]
+        // The `_` divider closes the navigation group; "Sync Now" (and, off
+        // macOS, Quit) follow below it.
         let label = "Note/_Go to Index";
-        // No separator on macOS for this item,
-        // as there's not going to be a Quit item below it.
-        #[cfg(target_os = "macos")]
-        let label = "Note/Go to Index";
         let app_state = app_state.clone();
         let autosave_state = autosave_state.clone();
         let active_editor = active_editor.clone();
@@ -382,19 +386,46 @@ fn populate_menu<M>(
         });
     }
 
+    // Sync Now: commit and sync with the configured remotes right away instead
+    // of waiting for the periodic sync. Progress shows in the status bar.
+    {
+        #[cfg(not(target_os = "macos"))]
+        let label = "Note/_Sync Now";
+        // No separator on macOS for this item, as there's not going to be a
+        // Quit item below it.
+        #[cfg(target_os = "macos")]
+        let label = "Note/Sync Now";
+        let git_state = git_state.clone();
+        let app_state = app_state.clone();
+        let autosave_state = autosave_state.clone();
+        let active_editor = active_editor.clone();
+        let statusbar = statusbar.clone();
+        menu_bar.add(label, sync_shortcut, menu::MenuFlag::Normal, move |_| {
+            request_sync(
+                &git_state,
+                &app_state,
+                &autosave_state,
+                &active_editor,
+                &statusbar,
+            );
+        });
+    }
+
     #[cfg(not(target_os = "macos"))]
     {
         let app_state = app_state.clone();
         let autosave_state = autosave_state.clone();
         let active_editor = active_editor.clone();
         let statusbar = statusbar.clone();
+        let git_state = git_state.clone();
         menu_bar.add(
             "Note/Quit",
             quit_shortcut,
             menu::MenuFlag::Normal,
             move |_| {
-                // Save the open note before leaving.
+                // Save the open note before leaving, and let Git record it.
                 save_current_note(&app_state, &autosave_state, &active_editor, &statusbar);
+                shutdown_git(&git_state, &autosave_state);
                 app::quit();
             },
         );

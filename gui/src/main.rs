@@ -2,6 +2,7 @@ mod app_icon;
 mod app_url;
 mod autosave;
 pub mod fltk_draw_context;
+mod git_sync;
 mod history;
 mod link_handler;
 mod menu;
@@ -17,8 +18,11 @@ mod window_state;
 use autosave::AutoSaveState;
 use clap::Parser;
 use fltk::{prelude::*, *};
+use git_sync::{GitState, GitWorker};
 use history::History;
-use piki_core::{DocumentStore, IndexPlugin, PluginRegistry, TodoPlugin};
+use piki_core::git::Repo;
+use piki_core::git::ssh::{self, RemoteCheck, SshUrl};
+use piki_core::{Config, DocumentStore, IndexPlugin, PluginRegistry, TodoPlugin};
 use piki_gui::live_share::LiveShare;
 use piki_gui::note_ui::NoteUI;
 use piki_gui::on_air_bar::OnAirBar;
@@ -27,9 +31,9 @@ use piki_gui::ui_adapters::StructuredRichUI;
 use position_memory::{NotePosition, PositionMemory};
 use recency::RecentNotes;
 use search_bar::SearchBar;
-use statusbar::StatusBar;
+use statusbar::{StatusBar, SyncIndicator};
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Instant;
 use window_state::WindowGeometry;
@@ -45,7 +49,16 @@ const CONTENT_TOP: i32 = 25;
 /// Callback invoked with `(note, markdown)` whenever the current note changes.
 type ShareHook = Box<dyn Fn(&str, &str)>;
 
+/// Callback asking Git support to commit whatever has been saved so far.
+type GitHook = Box<dyn Fn()>;
+
 thread_local! {
+    /// Invoked when the user leaves a note (navigation, rename, delete) so the
+    /// saved edit is committed right away rather than after the debounce. Like
+    /// `SHARE_HOOK` this avoids threading the Git state through every
+    /// navigation call site.
+    static GIT_HOOK: RefCell<Option<GitHook>> = const { RefCell::new(None) };
+
     /// Invoked after the currently open note (or its content) changes, so an
     /// active Live Note Sharing session can update what it serves and the URL
     /// shown in the ON AIR bar. Installed once in `main` and only ever touched
@@ -60,6 +73,16 @@ fn notify_share_view(note: &str, markdown: &str) {
     SHARE_HOOK.with(|hook| {
         if let Some(cb) = hook.borrow().as_ref() {
             cb(note, markdown);
+        }
+    });
+}
+
+/// Ask Git support to commit saved changes now (see `GIT_HOOK`). A no-op when
+/// Git support is off.
+fn commit_saved_changes_now() {
+    GIT_HOOK.with(|hook| {
+        if let Some(cb) = hook.borrow().as_ref() {
+            cb();
         }
     });
 }
@@ -272,7 +295,10 @@ fn rename_current_note(
     app_state.borrow_mut().rename_note(&old_name, new_name);
     if let Ok(mut as_state) = autosave_state.try_borrow_mut() {
         as_state.current_note = new_name.to_string();
+        // The move changed what is on disk: let Git record it right away.
+        as_state.save_generation += 1;
     }
+    commit_saved_changes_now();
     statusbar
         .borrow_mut()
         .set_note(&format!("Note: {new_name}"));
@@ -309,6 +335,9 @@ fn delete_current_note(
     {
         let st = app_state.borrow();
         st.store.delete(&note)?;
+    }
+    if let Ok(mut as_state) = autosave_state.try_borrow_mut() {
+        as_state.save_generation += 1;
     }
 
     // Neutralize the pending autosave so the navigation below does not re-create
@@ -355,6 +384,8 @@ fn load_note_helper(
     // Save the note we're leaving before its content is replaced below, so
     // switching notes (or creating a new one) never drops unsaved edits.
     save_current_note(app_state, autosave_state, active_editor, statusbar);
+    // Moving to another note is a natural point to record the edit as a commit.
+    commit_saved_changes_now();
 
     // A restore position is only supplied by back/forward navigation; its
     // absence means this is a fresh navigation (link/picker/new note) that
@@ -730,16 +761,26 @@ fn get_directory(dir_opt: Option<PathBuf>) -> PathBuf {
 fn main() {
     let args = Args::parse();
     let directory = get_directory(args.directory);
+    let config = match Config::load() {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("Warning: {e}; using defaults.");
+            Config::default()
+        }
+    };
 
-    // Ensure directory exists
+    // Initialize FLTK (before the setup dialogs below, which need it)
+    let app = app::App::default();
+
+    // A missing notes directory is set up interactively: created fresh or
+    // imported from another machine.
     if !directory.exists()
-        && let Err(e) = std::fs::create_dir_all(&directory)
+        && let Err(e) = set_up_missing_notes_dir(&directory, &config)
     {
-        eprintln!(
-            "Error: Failed to create directory '{}': {}",
-            directory.display(),
-            e
-        );
+        if !e.is_empty() {
+            dialog::alert_default(&e);
+            eprintln!("Error: {e}");
+        }
         std::process::exit(1);
     }
 
@@ -749,8 +790,6 @@ fn main() {
         std::process::exit(1);
     }
 
-    // Initialize FLTK
-    let app = app::App::default();
     // Set the Dock icon on macOS (works even for the unbundled binary).
     app_icon::set_macos_dock_icon();
     let window_state_path = window_state::state_file_path().map(Rc::new);
@@ -795,6 +834,9 @@ fn main() {
     let autosave_state = Rc::new(RefCell::new(AutoSaveState::new()));
     // Holds the active Live Note Sharing session, if any.
     let live_share: Rc<RefCell<Option<LiveShare>>> = Rc::new(RefCell::new(None));
+    // Git support: a background worker for commits and syncing, or a reason
+    // why there is none.
+    let git_state = Rc::new(RefCell::new(start_git_support(&directory, &config)));
 
     #[cfg(target_os = "macos")]
     let editor_padding = 0;
@@ -915,6 +957,7 @@ fn main() {
         search_bar.clone(),
         live_share.clone(),
         on_air.clone(),
+        git_state.clone(),
     );
 
     #[cfg(not(target_os = "macos"))]
@@ -928,7 +971,25 @@ fn main() {
         search_bar.clone(),
         live_share.clone(),
         on_air.clone(),
+        git_state.clone(),
     );
+
+    // Install the hook that commits saved changes when the user leaves a note.
+    {
+        let git_state = git_state.clone();
+        let autosave_state = autosave_state.clone();
+        GIT_HOOK.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move || {
+                let generation = autosave_state
+                    .try_borrow()
+                    .map(|s| s.save_generation)
+                    .unwrap_or(0);
+                if let Ok(mut git) = git_state.try_borrow_mut() {
+                    git.commit_now(generation);
+                }
+            }));
+        });
+    }
 
     // Configure editor UI
     active_editor
@@ -1052,6 +1113,7 @@ fn main() {
         let app_state_for_close = app_state.clone();
         let autosave_for_close = autosave_state.clone();
         let live_share_for_close = live_share.clone();
+        let git_for_close = git_state.clone();
 
         wind.handle(move |win, event| match event {
             enums::Event::Move | enums::Event::Resize => {
@@ -1126,6 +1188,8 @@ fn main() {
                     &active_editor_for_resize,
                     &statusbar_for_resize,
                 );
+                // Commit it and let the Git worker finish before exiting.
+                shutdown_git(&git_for_close, &autosave_for_close);
                 // Shut the sharing server down cleanly (joins its thread).
                 let session = live_share_for_close.borrow_mut().take();
                 drop(session);
@@ -1222,6 +1286,34 @@ fn main() {
         &live_share,
     );
 
+    // Say so when Git support is unavailable for this notes directory.
+    if let Some(reason) = git_state.borrow().unavailable_reason.clone() {
+        eprintln!("Warning: {reason}");
+        let mut sb = statusbar.borrow_mut();
+        sb.set_status(&reason);
+        sb.set_status_tooltip(&reason);
+    }
+
+    // Sync with the configured remotes shortly after launch and then every
+    // SYNC_INTERVAL. "Sync Now" in the Note menu does the same on request.
+    if git_state.borrow().is_available() {
+        let git_state = git_state.clone();
+        let app_state = app_state.clone();
+        let autosave_state = autosave_state.clone();
+        let active_editor = active_editor.clone();
+        let statusbar = statusbar.clone();
+        app::add_timeout3(git_sync::FIRST_SYNC_DELAY.as_secs_f64(), move |handle| {
+            request_sync(
+                &git_state,
+                &app_state,
+                &autosave_state,
+                &active_editor,
+                &statusbar,
+            );
+            app::repeat_timeout3(git_sync::SYNC_INTERVAL.as_secs_f64(), handle);
+        });
+    }
+
     // Set up periodic timer to update "X ago" display
     {
         let autosave_ref = autosave_state.clone();
@@ -1249,12 +1341,38 @@ fn main() {
         let editor_ref = active_editor.clone();
         let on_air_ref = on_air.clone();
         let live_share_ref = live_share.clone();
+        let git_ref = git_state.clone();
+        let app_state_ref = app_state.clone();
+        let autosave_ref = autosave_state.clone();
+        let statusbar_ref = statusbar.clone();
         app::add_timeout3(0.1, move |handle| {
             let ms = start.elapsed().as_millis() as u64;
             if let Ok(ed_ptr) = editor_ref.try_borrow()
                 && let Ok(mut ed) = (*ed_ptr).try_borrow_mut()
             {
                 ed.tick(ms);
+            }
+            // Git: fire the debounced commit, pick up worker results, spin.
+            if let Ok(mut git) = git_ref.try_borrow_mut() {
+                let generation = autosave_ref
+                    .try_borrow()
+                    .map(|s| s.save_generation)
+                    .unwrap_or(0);
+                git.observe(generation, Instant::now());
+                let events = git.poll();
+                drop(git);
+                for event in events {
+                    handle_git_event(
+                        event,
+                        &app_state_ref,
+                        &autosave_ref,
+                        &editor_ref,
+                        &statusbar_ref,
+                    );
+                }
+            }
+            if let Ok(mut sb) = statusbar_ref.try_borrow_mut() {
+                sb.tick(ms);
             }
             // While sharing, mirror the editor's selection to the web view as a
             // paragraph/list-item spotlight. Polling here (rather than wiring a
@@ -1321,6 +1439,267 @@ fn main() {
     }
 
     app.run().unwrap();
+}
+
+/// Start Git support for `directory` according to the configuration: a worker
+/// when the directory is a repository, otherwise a state that only knows why
+/// there is none (Git disabled, not a repository, or an error opening it).
+fn start_git_support(directory: &Path, config: &Config) -> GitState {
+    if !config.git.enabled {
+        return GitState::new(
+            None,
+            Some("Git support is disabled in ~/.pikirc.".to_string()),
+        );
+    }
+    match GitWorker::spawn(directory.to_path_buf(), config.git.clone()) {
+        Ok(Some(worker)) => GitState::new(Some(worker), None),
+        Ok(None) => GitState::new(
+            None,
+            Some("Not a Git repository – Git support disabled.".to_string()),
+        ),
+        Err(e) => GitState::new(None, Some(format!("Git support disabled: {e}"))),
+    }
+}
+
+/// Commit whatever is saved and stop the Git worker (blocking briefly). Called
+/// on the way out, after the open note has been saved.
+fn shutdown_git(git_state: &Rc<RefCell<GitState>>, autosave_state: &Rc<RefCell<AutoSaveState>>) {
+    let generation = autosave_state
+        .try_borrow()
+        .map(|s| s.save_generation)
+        .unwrap_or(0);
+    if let Ok(mut git) = git_state.try_borrow_mut() {
+        git.shutdown(generation);
+    }
+}
+
+/// Save the open note and queue a sync (commit + fetch/merge/push for every
+/// configured remote). Feedback arrives through `handle_git_event`.
+fn request_sync(
+    git_state: &Rc<RefCell<GitState>>,
+    app_state: &Rc<RefCell<AppState>>,
+    autosave_state: &Rc<RefCell<AutoSaveState>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
+    statusbar: &Rc<RefCell<StatusBar>>,
+) {
+    save_current_note(app_state, autosave_state, active_editor, statusbar);
+    let Ok(mut git) = git_state.try_borrow_mut() else {
+        return;
+    };
+    if let Some(reason) = git.unavailable_reason.clone() {
+        drop(git);
+        if let Ok(mut sb) = statusbar.try_borrow_mut() {
+            sb.set_status(&reason);
+        }
+        return;
+    }
+    if git.syncing {
+        return;
+    }
+    if git.request_sync()
+        && let Ok(mut sb) = statusbar.try_borrow_mut()
+    {
+        sb.set_status("Syncing …");
+        sb.set_sync_indicator(SyncIndicator::Syncing, "Syncing with remotes …");
+        app::redraw();
+    }
+}
+
+/// React to a result from the Git worker: update the status bar and, after a
+/// sync that changed the note on screen, refresh the editor.
+fn handle_git_event(
+    event: git_sync::Event,
+    app_state: &Rc<RefCell<AppState>>,
+    autosave_state: &Rc<RefCell<AutoSaveState>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
+    statusbar: &Rc<RefCell<StatusBar>>,
+) {
+    match event {
+        git_sync::Event::SyncStarted => {
+            if let Ok(mut sb) = statusbar.try_borrow_mut() {
+                sb.set_sync_indicator(SyncIndicator::Syncing, "Syncing with remotes …");
+                app::redraw();
+            }
+        }
+        git_sync::Event::Committed(Err(e)) => {
+            if let Ok(mut sb) = statusbar.try_borrow_mut() {
+                sb.set_status(&format!("Git: {e}"));
+                sb.set_status_tooltip(&e);
+                app::redraw();
+            }
+        }
+        git_sync::Event::Committed(Ok(_)) => {}
+        git_sync::Event::Synced(result) => {
+            let (summary, error) = match &result {
+                Ok(report) if report.has_errors() => {
+                    (report.summary(), Some(report.errors().join("\n")))
+                }
+                Ok(report) => (report.summary(), None),
+                Err(e) => (format!("Sync failed: {e}"), Some(e.clone())),
+            };
+            if let Ok(mut sb) = statusbar.try_borrow_mut() {
+                sb.set_status(&summary);
+                sb.set_status_tooltip(&summary);
+                match &error {
+                    Some(detail) => sb.set_sync_indicator(SyncIndicator::Error, detail),
+                    None => sb.set_sync_indicator(SyncIndicator::Idle, ""),
+                }
+            }
+            if let Some(detail) = &error {
+                eprintln!("Sync: {detail}");
+            }
+            if let Ok(report) = &result
+                && !report.changed_paths.is_empty()
+            {
+                refresh_note_after_sync(
+                    &report.changed_paths,
+                    app_state,
+                    autosave_state,
+                    active_editor,
+                    statusbar,
+                );
+            }
+            app::redraw();
+        }
+    }
+}
+
+/// After a sync pulled changes, bring the editor in line with the note's new
+/// on-disk content — but only when the editor has no unsaved edits of its own.
+/// With unsaved edits the user's version wins (the merged one is safe in the
+/// history) and the status bar says so.
+fn refresh_note_after_sync(
+    changed_paths: &[String],
+    app_state: &Rc<RefCell<AppState>>,
+    autosave_state: &Rc<RefCell<AutoSaveState>>,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
+    statusbar: &Rc<RefCell<StatusBar>>,
+) {
+    let (note, relative) = {
+        let st = app_state.borrow();
+        let note = st.current_note.clone();
+        if note.starts_with('!') {
+            return;
+        }
+        let path = st.store.path_for(&note);
+        let relative = path
+            .strip_prefix(st.store.base_path())
+            .map(Path::to_path_buf)
+            .unwrap_or(path);
+        (note, relative)
+    };
+    if !changed_paths
+        .iter()
+        .any(|p| Path::new(p) == relative.as_path())
+    {
+        return;
+    }
+
+    let (disk_content, modified_time) = match app_state.borrow().store.load(&note) {
+        Ok(doc) => (doc.content, doc.modified_time),
+        Err(_) => return,
+    };
+    let has_unsaved_edits = {
+        let editor = active_editor.borrow();
+        let ed = editor.borrow();
+        let baseline = autosave_state
+            .try_borrow()
+            .map(|s| s.original_content.clone())
+            .unwrap_or_default();
+        ed.get_content() != baseline
+    };
+    if has_unsaved_edits {
+        if let Ok(mut sb) = statusbar.try_borrow_mut() {
+            sb.set_status("Synced; this note also changed remotely – keeping your unsaved edits.");
+        }
+        return;
+    }
+
+    {
+        let editor = active_editor.borrow();
+        let mut ed = editor.borrow_mut();
+        let scroll = ed.scroll_pos();
+        let cursor = ed.cursor_pos();
+        ed.set_content_from_markdown(&disk_content);
+        if let Some(cursor) = cursor {
+            ed.set_cursor_pos(cursor);
+        }
+        ed.set_scroll_pos(scroll);
+    }
+    if let Ok(mut as_state) = autosave_state.try_borrow_mut() {
+        as_state.reset_for_note(&note, &disk_content);
+        as_state.last_save_time = modified_time;
+    }
+    notify_share_view(&note, &disk_content);
+}
+
+/// Ask what to do about a missing notes directory: create it, import it from
+/// another machine over SSH, or quit. `Err("")` means the user chose to quit.
+fn set_up_missing_notes_dir(directory: &Path, config: &Config) -> Result<(), String> {
+    let message = format!(
+        "The notes directory {} does not exist yet.\n\nCreate it, or import your notes from \
+         another machine running Piki?",
+        directory.display()
+    );
+    // fl_choice: b1 (middle) is the default that Enter activates, so "Create"
+    // goes there in both variants. Only an empty *third* label hides its
+    // button, hence the different order without the import option.
+    let choice = if config.git.enabled {
+        dialog::choice2_default(&message, "Import from another machine…", "Create", "Quit")
+    } else {
+        dialog::choice2_default(&message, "Quit", "Create", "")
+    };
+    match choice {
+        Some(1) => {
+            std::fs::create_dir_all(directory)
+                .map_err(|e| format!("Failed to create {}: {e}", directory.display()))?;
+            if config.git.enabled {
+                Repo::init(directory)?;
+            }
+            Ok(())
+        }
+        Some(0) if config.git.enabled => import_notes_dialog(directory),
+        _ => Err(String::new()),
+    }
+}
+
+/// Prompt for a host (and notes path) and clone from it into `directory`.
+fn import_notes_dialog(directory: &Path) -> Result<(), String> {
+    let Some(host) = dialog::input_default(
+        "Name of the machine to import from, as you would use it with ssh\n(e.g. laptop or \
+         user@laptop):",
+        "",
+    ) else {
+        return Err(String::new());
+    };
+    let Some(path) = dialog::input_default(
+        &format!("Notes directory on {}:", host.trim()),
+        ssh::DEFAULT_REMOTE_PATH,
+    ) else {
+        return Err(String::new());
+    };
+    let path = path.trim();
+    let url = ssh::url_for_host(&host, (!path.is_empty()).then_some(path))?;
+    let parsed = SshUrl::parse(&url)?;
+    match ssh::check_remote_repository(&parsed)? {
+        RemoteCheck::Ok => {}
+        RemoteCheck::Unreachable(detail) => {
+            return Err(format!(
+                "Cannot reach {} over SSH without a password:\n{detail}\n\nMake sure the host \
+                 is reachable and that an SSH key (or agent) lets you log in non-interactively.",
+                parsed.destination()
+            ));
+        }
+        RemoteCheck::NoRepository(detail) => {
+            return Err(format!(
+                "No Piki notes directory (Git repository) found at {} on {}:\n{detail}",
+                parsed.path,
+                parsed.destination()
+            ));
+        }
+    }
+    Repo::clone(&url, directory)?;
+    Ok(())
 }
 
 fn wire_editor_callbacks(
