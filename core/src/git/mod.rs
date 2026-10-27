@@ -963,6 +963,27 @@ impl Repo {
     }
 }
 
+/// Three-way merge of a text: the changes from `base` to `ours` and from `base`
+/// to `theirs`, combined. `None` when both change the same lines.
+///
+/// The GUI uses this when a note it has open changed on disk (a sync brought
+/// in an edit from another machine) while it was holding unsaved edits.
+pub fn merge_text(base: &str, ours: &str, theirs: &str) -> Option<String> {
+    fn input(text: &str) -> git2::MergeFileInput<'_> {
+        let mut input = git2::MergeFileInput::new();
+        input.content(text.as_bytes());
+        input
+    }
+    // Unlike its other entry points, git2's `merge_file` does not initialize
+    // libgit2 first (and crashes when nothing else has yet). `Buf::new` does.
+    drop(git2::Buf::new());
+    let result = git2::merge_file(&input(base), &input(ours), &input(theirs), None).ok()?;
+    if !result.is_automergeable() {
+        return None;
+    }
+    String::from_utf8(result.content().to_vec()).ok()
+}
+
 fn hostname() -> String {
     std::env::var("HOSTNAME")
         .or_else(|_| std::env::var("COMPUTERNAME"))
@@ -999,6 +1020,19 @@ mod tests {
         assert_eq!(regex_escape("laptop"), "laptop");
         assert_eq!(regex_escape("a.b"), r"a\.b");
         assert_eq!(regex_escape("x(1)"), r"x\(1\)");
+    }
+
+    #[test]
+    fn text_merge_combines_separate_edits_and_refuses_overlapping_ones() {
+        let base = "# Todo\n\nMilk\n\nEggs\n\nBread\n";
+        let ours = "# Todo\n\nMilk\n\nEggs\n\nBread\n\nButter\n";
+        let theirs = "# Shopping\n\nMilk\n\nEggs\n\nBread\n";
+        assert_eq!(
+            merge_text(base, ours, theirs).as_deref(),
+            Some("# Shopping\n\nMilk\n\nEggs\n\nBread\n\nButter\n")
+        );
+        let theirs = "# Todo\n\nMilk\n\nEggs\n\nBread\n\nCheese\n";
+        assert_eq!(merge_text(base, ours, theirs), None);
     }
 
     #[test]

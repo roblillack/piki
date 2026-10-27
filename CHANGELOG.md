@@ -26,7 +26,8 @@ While pre-1.0, the minor version is bumped for breaking changes.
   deliberately cautious: remote changes are applied only when they merge
   cleanly, and conflicting edits, unrelated histories, an unreachable machine
   or a refused push are reported as errors that leave your notes untouched.
-  Set it up with `piki remote add laptop` (checks that
+  Unsaved edits to a note that a sync just changed are merged with the new
+  version. Set it up with `piki remote add laptop` (checks that
   `ssh laptop` works without a password, that a Piki repository exists there and
   that the histories are related), inspect with `piki remote ls`, remove with
   `piki remote rm`. A new machine gets its notes with `piki init --from laptop`;

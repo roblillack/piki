@@ -1,7 +1,23 @@
 use chrono::{DateTime, Local};
 use piki_core::DocumentStore;
+use piki_core::git::merge_text;
 use piki_gui::content::ContentProvider;
 use std::time::SystemTime;
+
+/// What [`AutoSaveState::trigger_save`] wrote.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SaveOutcome {
+    /// The editor's content as it is (or nothing, when nothing had changed).
+    Saved,
+    /// The note had also changed on disk since it was loaded or last saved
+    /// here — typically a sync bringing in an edit from another machine. Both
+    /// changes were merged and the result saved; the editor should show it.
+    Merged(String),
+    /// The note had also changed on disk, in the same lines as the unsaved
+    /// edits, so the editor's version was saved over it. With Git support the
+    /// other version is still in the history.
+    Overwrote,
+}
 
 /// State management for auto-save functionality
 pub struct AutoSaveState {
@@ -13,7 +29,8 @@ pub struct AutoSaveState {
     pub is_saving: bool,
     /// Whether a save is pending (for debounce)
     pub pending_save: bool,
-    /// Original content to detect changes
+    /// Content as last loaded from or saved to disk, to detect changes in the
+    /// editor and on disk
     pub original_content: String,
     /// Current note being edited
     pub current_note: String,
@@ -77,16 +94,16 @@ impl AutoSaveState {
         &mut self,
         editor: &T,
         store: &DocumentStore,
-    ) -> Result<(), String> {
+    ) -> Result<SaveOutcome, String> {
         // Don't save plugin notes
         if !self.should_save() {
             self.pending_save = false;
-            return Ok(());
+            return Ok(SaveOutcome::Saved);
         }
 
         // Don't save if already saving
         if self.is_saving {
-            return Ok(());
+            return Ok(SaveOutcome::Saved);
         }
 
         // Get current content
@@ -95,7 +112,7 @@ impl AutoSaveState {
         // Check if content actually changed
         if current_content == self.original_content {
             self.pending_save = false;
-            return Ok(());
+            return Ok(SaveOutcome::Saved);
         }
 
         // Mark as saving
@@ -107,27 +124,43 @@ impl AutoSaveState {
 
         let result = match doc_result {
             Ok(mut doc) => {
-                // Update content and save
-                doc.content = current_content.clone();
-                store.save(&doc)
+                let (content, outcome) =
+                    if doc.path.exists() && doc.content != self.original_content {
+                        // Changed on disk behind our back: keep that change too.
+                        merge_with_disk(&self.original_content, current_content, &doc.content)
+                    } else {
+                        (current_content, SaveOutcome::Saved)
+                    };
+                doc.content = content;
+                store.save(&doc).map(|()| (doc.content, outcome))
             }
             Err(e) => Err(e),
         };
 
         // Update state based on result
         match result {
-            Ok(()) => {
+            Ok((saved, outcome)) => {
                 self.last_save_time = Some(SystemTime::now());
-                self.original_content = current_content;
+                self.original_content = saved;
                 self.is_saving = false;
                 self.save_generation += 1;
-                Ok(())
+                Ok(outcome)
             }
             Err(e) => {
                 self.is_saving = false;
                 Err(e)
             }
         }
+    }
+}
+
+/// Combine the editor's unsaved edits (`ours`, made on top of `base`) with a
+/// change made to the file meanwhile (`theirs`): what to save, and how.
+fn merge_with_disk(base: &str, ours: String, theirs: &str) -> (String, SaveOutcome) {
+    match merge_text(base, &ours, theirs) {
+        Some(merged) if merged == ours => (ours, SaveOutcome::Saved),
+        Some(merged) => (merged.clone(), SaveOutcome::Merged(merged)),
+        None => (ours, SaveOutcome::Overwrote),
     }
 }
 
@@ -219,6 +252,66 @@ mod tests {
         let mut state = AutoSaveState::new();
         state.reset_for_note("frontpage", "");
         assert!(state.should_save());
+    }
+
+    struct Text(String);
+
+    impl ContentProvider for Text {
+        fn get_content(&self) -> String {
+            self.0.clone()
+        }
+    }
+
+    /// A store with `note.md` holding `on_disk`, and autosave state for it as
+    /// if it had been loaded with `loaded`.
+    fn note_on_disk(tag: &str, loaded: &str, on_disk: &str) -> (DocumentStore, AutoSaveState) {
+        let dir = std::env::temp_dir().join(format!("piki-autosave-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("note.md"), on_disk).unwrap();
+        let mut state = AutoSaveState::new();
+        state.reset_for_note("note", loaded);
+        (DocumentStore::new(dir), state)
+    }
+
+    fn disk(store: &DocumentStore) -> String {
+        store.load("note").unwrap().content
+    }
+
+    #[test]
+    fn saving_keeps_a_change_made_on_disk_meanwhile() {
+        let base = "# Todo\n\nMilk\n\nEggs\n";
+        let (store, mut state) = note_on_disk("merge", base, "# Shopping\n\nMilk\n\nEggs\n");
+        let edited = Text("# Todo\n\nMilk\n\nEggs\n\nButter\n".into());
+        let merged = "# Shopping\n\nMilk\n\nEggs\n\nButter\n";
+        assert_eq!(
+            state.trigger_save(&edited, &store),
+            Ok(SaveOutcome::Merged(merged.into()))
+        );
+        assert_eq!(disk(&store), merged);
+        assert_eq!(state.original_content, merged);
+        assert_eq!(state.save_generation, 1);
+    }
+
+    #[test]
+    fn overlapping_edits_keep_the_editors_version() {
+        let base = "# Todo\n\nMilk\n";
+        let (store, mut state) = note_on_disk("overlap", base, "# Todo\n\nCheese\n");
+        let edited = Text("# Todo\n\nButter\n".into());
+        assert_eq!(
+            state.trigger_save(&edited, &store),
+            Ok(SaveOutcome::Overwrote)
+        );
+        assert_eq!(disk(&store), "# Todo\n\nButter\n");
+    }
+
+    #[test]
+    fn unchanged_disk_is_simply_overwritten() {
+        let base = "# Todo\n\nMilk\n";
+        let (store, mut state) = note_on_disk("plain", base, base);
+        let edited = Text("# Todo\n\nMilk and honey\n".into());
+        assert_eq!(state.trigger_save(&edited, &store), Ok(SaveOutcome::Saved));
+        assert_eq!(disk(&store), "# Todo\n\nMilk and honey\n");
     }
 
     #[test]

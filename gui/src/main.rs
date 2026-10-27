@@ -15,7 +15,7 @@ mod search_bar;
 mod statusbar;
 mod window_state;
 
-use autosave::AutoSaveState;
+use autosave::{AutoSaveState, SaveOutcome};
 use clap::Parser;
 use fltk::{prelude::*, *};
 use git_sync::{GitState, GitWorker};
@@ -218,25 +218,83 @@ fn save_current_note(
     active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     statusbar: &Rc<RefCell<StatusBar>>,
 ) {
-    if let (Ok(ed_ptr), Ok(mut as_state), Ok(app_st)) = (
-        active_editor.try_borrow(),
-        autosave_state.try_borrow_mut(),
-        app_state.try_borrow(),
-    ) {
+    let (result, status, note) = {
+        let (Ok(ed_ptr), Ok(mut as_state), Ok(app_st)) = (
+            active_editor.try_borrow(),
+            autosave_state.try_borrow_mut(),
+            app_state.try_borrow(),
+        ) else {
+            return;
+        };
         let ed_ref = (*ed_ptr).borrow();
-        match as_state.trigger_save(&*ed_ref, &app_st.store) {
-            Ok(()) => {
-                if let Ok(mut sb) = statusbar.try_borrow_mut() {
-                    sb.set_status(&as_state.get_status_text());
-                }
+        let result = as_state.trigger_save(&*ed_ref, &app_st.store);
+        (
+            result,
+            as_state.get_status_text(),
+            as_state.current_note.clone(),
+        )
+    };
+    match result {
+        Ok(outcome) => {
+            if let Ok(mut sb) = statusbar.try_borrow_mut() {
+                sb.set_status(&status);
             }
-            Err(e) => {
-                if let Ok(mut sb) = statusbar.try_borrow_mut() {
-                    sb.set_status(&format!("Error: {}", e));
-                }
+            apply_save_outcome(outcome, &note, active_editor, statusbar);
+        }
+        Err(e) => {
+            if let Ok(mut sb) = statusbar.try_borrow_mut() {
+                sb.set_status(&format!("Error: {}", e));
             }
         }
     }
+}
+
+/// Follow up on a save that had to deal with the note changing on disk
+/// meanwhile (see `SaveOutcome`): show the merged text, or warn that the
+/// editor's version replaced the other one.
+fn apply_save_outcome(
+    outcome: SaveOutcome,
+    note: &str,
+    active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
+    statusbar: &Rc<RefCell<StatusBar>>,
+) {
+    match outcome {
+        SaveOutcome::Saved => {}
+        SaveOutcome::Merged(content) => {
+            replace_editor_content(active_editor, &content);
+            notify_share_view(note, &content);
+            if let Ok(mut sb) = statusbar.try_borrow_mut() {
+                sb.set_status("Saved, merged with changes made elsewhere");
+            }
+        }
+        SaveOutcome::Overwrote => {
+            let message = format!(
+                "Note {note} was also changed elsewhere, in the lines you were editing; your \
+                 version was kept. If the change came from a sync, the other version is in \
+                 the Git history."
+            );
+            eprintln!("Warning: {message}");
+            if let Ok(mut sb) = statusbar.try_borrow_mut() {
+                sb.set_status("Kept your version over changes made elsewhere");
+                sb.set_status_tooltip(&message);
+                sb.set_sync_indicator(SyncIndicator::Error, &message);
+            }
+        }
+    }
+}
+
+/// Show `markdown` in the editor in place of what it holds, keeping the caret
+/// and scroll position.
+fn replace_editor_content(active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>, markdown: &str) {
+    let editor = active_editor.borrow();
+    let mut ed = editor.borrow_mut();
+    let scroll = ed.scroll_pos();
+    let cursor = ed.cursor_pos();
+    ed.set_content_from_markdown(markdown);
+    if let Some(cursor) = cursor {
+        ed.set_cursor_pos(cursor);
+    }
+    ed.set_scroll_pos(scroll);
 }
 
 /// Rename the currently open note: move its file on disk and update every piece
@@ -1576,9 +1634,9 @@ fn handle_git_event(
 }
 
 /// After a sync pulled changes, bring the editor in line with the note's new
-/// on-disk content — but only when the editor has no unsaved edits of its own.
-/// With unsaved edits the user's version wins (the merged one is safe in the
-/// history) and the status bar says so.
+/// on-disk content. Unsaved edits made meanwhile are saved right away instead:
+/// the save notices the change on disk and merges the two (see
+/// `AutoSaveState::trigger_save`).
 fn refresh_note_after_sync(
     changed_paths: &[String],
     app_state: &Rc<RefCell<AppState>>,
@@ -1620,23 +1678,11 @@ fn refresh_note_after_sync(
         ed.get_content() != baseline
     };
     if has_unsaved_edits {
-        if let Ok(mut sb) = statusbar.try_borrow_mut() {
-            sb.set_status("Synced; this note also changed remotely – keeping your unsaved edits.");
-        }
+        save_current_note(app_state, autosave_state, active_editor, statusbar);
         return;
     }
 
-    {
-        let editor = active_editor.borrow();
-        let mut ed = editor.borrow_mut();
-        let scroll = ed.scroll_pos();
-        let cursor = ed.cursor_pos();
-        ed.set_content_from_markdown(&disk_content);
-        if let Some(cursor) = cursor {
-            ed.set_cursor_pos(cursor);
-        }
-        ed.set_scroll_pos(scroll);
-    }
+    replace_editor_content(active_editor, &disk_content);
     if let Ok(mut as_state) = autosave_state.try_borrow_mut() {
         as_state.reset_for_note(&note, &disk_content);
         as_state.last_save_time = modified_time;
@@ -1776,28 +1822,13 @@ fn wire_editor_callbacks(
                     sb.set_status("Saving …");
                     app::redraw();
                 }
-
-                if let (Ok(ed_ptr), Ok(mut as_state), Ok(app_st)) = (
-                    editor_clone.try_borrow(),
-                    autosave_clone.try_borrow_mut(),
-                    app_state_clone.try_borrow(),
-                ) {
-                    let ed_ref = (*ed_ptr).borrow();
-                    match as_state.trigger_save(&*ed_ref, &app_st.store) {
-                        Ok(()) => {
-                            if let Ok(mut sb) = statusbar_clone.try_borrow_mut() {
-                                sb.set_status(&as_state.get_status_text());
-                                app::redraw();
-                            }
-                        }
-                        Err(e) => {
-                            if let Ok(mut sb) = statusbar_clone.try_borrow_mut() {
-                                sb.set_status(&format!("Error: {}", e));
-                                app::redraw();
-                            }
-                        }
-                    }
-                }
+                save_current_note(
+                    &app_state_clone,
+                    &autosave_clone,
+                    &editor_clone,
+                    &statusbar_clone,
+                );
+                app::redraw();
             }
         });
     }));

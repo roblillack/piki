@@ -297,7 +297,8 @@ cautious: remote changes are only applied when they merge cleanly, and
 anything unexpected — conflicting edits to the same note, unrelated histories,
 a machine that is not reachable, a push the other side refuses — is reported as
 an error and leaves your notes untouched. Conflicts are resolved with the
-regular `git` tools in the notes directory.
+regular `git` tools in the notes directory. If a sync changes the note you are
+editing in the GUI, your unsaved edits are merged with the new version.
 
 **Setting it up.** On a new machine, let Piki fetch your notes from an existing
 one:
