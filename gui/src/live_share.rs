@@ -43,15 +43,16 @@ use tdoc::{ChecklistItem, DefinitionItem, Document, InlineStyle, Paragraph, Span
 const POLL_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// One element the web view should spotlight, mirroring the presenter's
-/// *selection* in the editor (never the bare caret). Computed on the GUI thread
-/// from the selection and its position in the document tree.
+/// selection in the editor — or, without one, the paragraph or list item the
+/// caret is in. Computed on the GUI thread from the editor state and its
+/// position in the document tree.
 ///
 /// A selection spanning several paragraphs or list items yields several of
 /// these (see [`LiveShare::set_highlight`]). The web view tints each with a
 /// background band; the document-order-first one also gets a large arrow in the
 /// left gutter, so a multi-paragraph selection reads as one region with a single
-/// pointer. The set is empty whenever the editor has no selection, so moving the
-/// caret removes the highlight and double-clicking a word brings it back.
+/// pointer. The set is empty when the caret sits on an empty line with no
+/// selection, so stepping onto a blank line clears the highlight.
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
 pub struct HighlightTarget {
     /// Index into `Document.paragraphs` of the top-level block to highlight.
@@ -69,8 +70,9 @@ struct ShareState {
     current_note: String,
     /// Live Markdown of the current note (includes not-yet-saved edits).
     current_markdown: String,
-    /// The elements to spotlight in the current note (empty when the editor has
-    /// no selection). Only ever applies to the current note.
+    /// The elements to spotlight in the current note (empty when the caret is
+    /// on an empty line with no selection). Only ever applies to the current
+    /// note.
     highlight: Vec<HighlightTarget>,
     /// Bumped whenever the current note, its Markdown, or the highlight changes.
     /// Drives the browser's live reload.
@@ -151,8 +153,8 @@ impl LiveShare {
     }
 
     /// Update which elements the web view should spotlight (mirroring the
-    /// editor's selection; empty clears it). Bumps the generation — triggering
-    /// live reload — only when the set actually changed.
+    /// editor's selection or caret line; empty clears it). Bumps the
+    /// generation — triggering live reload — only when the set actually changed.
     pub fn set_highlight(&self, targets: Vec<HighlightTarget>) {
         if let Ok(mut st) = self.state.lock()
             && st.highlight != targets
@@ -856,6 +858,17 @@ const RELOAD_SCRIPT: &str = r#"(function () {
   var pathNote = decodeURIComponent(location.pathname.replace(/^\//, ""));
   var version = window.__pikiInitialVersion;
   var statusEl = document.getElementById("piki-status");
+  // Names the spotlighted elements by tag and position among their kind, so a
+  // swap that leaves the spotlight in place can be told from one that moves it.
+  function spotlightKey(root) {
+    var active = root.querySelectorAll(".piki-active");
+    var key = [];
+    for (var i = 0; i < active.length; i++) {
+      var tag = active[i].tagName;
+      key.push(tag + Array.prototype.indexOf.call(root.getElementsByTagName(tag), active[i]));
+    }
+    return key.join(",");
+  }
   function poll() {
     fetch("/__piki/version?note=" + encodeURIComponent(pathNote))
       .then(function (r) { if (!r.ok) throw new Error("bad"); return r.text(); })
@@ -868,7 +881,11 @@ const RELOAD_SCRIPT: &str = r#"(function () {
           .then(function (html) {
             var doc = document.getElementById("piki-doc");
             if (doc) {
+              // Typing on the spotlighted line reloads the content about once a
+              // second; replay the spotlight's entrance only when it moved.
+              var before = spotlightKey(doc);
               doc.innerHTML = html;
+              doc.classList.toggle("piki-still", before !== "" && spotlightKey(doc) === before);
               // Bring the spotlighted paragraph/item into view for the audience.
               // `nearest` leaves it alone when already visible, so ordinary edits
               // don't yank the page around.
@@ -1083,14 +1100,14 @@ tr:nth-child(2n) { background-color: #f6f8fa; }
 
 mark { background-color: #fff8c5; color: inherit; }
 
-/* Live selection spotlight: the paragraph or list item the presenter has
-   selected in the app (see `HighlightTarget`). Every selected paragraph/item
-   gets a warm tint (`piki-active`) that persists; the first one (`piki-lead`)
-   also gets a large arrow in the left gutter that sweeps in to draw the eye and
-   then fades out, leaving just the tint. A multi-paragraph selection thus reads
-   as one region with a single, momentary pointer. The classes are added
-   server-side; they appear only while the editor has a selection and clear when
-   the caret moves. */
+/* Live spotlight: the paragraphs or list items the presenter has selected in
+   the app, or else the one holding the caret (see `HighlightTarget`). Every
+   spotlighted paragraph/item gets a warm tint (`piki-active`) that persists; the
+   first one (`piki-lead`) also gets a large arrow in the left gutter that sweeps
+   in to draw the eye and then fades out, leaving just the tint. A
+   multi-paragraph selection thus reads as one region with a single, momentary
+   pointer. The classes are added server-side; they clear when the caret steps
+   onto an empty line. */
 .piki-active {
   position: relative;
   background-color: #fff3bf;
@@ -1099,8 +1116,9 @@ mark { background-color: #fff8c5; color: inherit; }
      rather than a background stuck to the glyphs. */
   box-shadow: 0 0 0 0.3em #fff3bf;
   /* Play the entrance each time the spotlight lands: the live-reload swap
-     re-inserts this element on every selection change, so the animation
-     re-triggers precisely then (see the reload script). */
+     re-inserts this element on every change, so the animation re-triggers
+     then — unless the spotlight stayed put (`piki-still`, see the reload
+     script). */
   animation: piki-active-band 0.28s ease-out;
 }
 .piki-lead::before {
@@ -1139,6 +1157,10 @@ li.piki-lead::before { left: -2.6em; }
   60% { opacity: 1; }
   100% { opacity: 0; }
 }
+/* A reload that left the spotlight where it was (the presenter typing on the
+   spotlighted line) shows it at rest: no band fade, no second arrow sweep. */
+#piki-doc.piki-still .piki-active,
+#piki-doc.piki-still .piki-lead::before { animation: none; }
 /* With motion reduced there is no sweep to notice, so keep the arrow shown for
    the life of the selection rather than flashing it invisibly. */
 @media (prefers-reduced-motion: reduce) {
@@ -1565,10 +1587,13 @@ mod tests {
         assert!(page.contains("rgba(240, 140, 0, 0.22)"), "{page}");
         // The reload script brings the spotlighted element into view.
         assert!(page.contains("scrollIntoView"), "{page}");
-        // The spotlight animates in when the selection changes.
+        // The spotlight animates in when it moves...
         assert!(page.contains("@keyframes piki-active-band"), "{page}");
         assert!(page.contains("@keyframes piki-active-arrow"), "{page}");
         assert!(page.contains("prefers-reduced-motion"), "{page}");
+        // ...but not again when a reload (typing on its line) leaves it in place.
+        assert!(page.contains("#piki-doc.piki-still .piki-active"), "{page}");
+        assert!(page.contains("spotlightKey(doc) === before"), "{page}");
     }
 
     #[test]

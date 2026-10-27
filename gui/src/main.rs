@@ -1377,11 +1377,12 @@ fn main() {
             if let Ok(mut sb) = statusbar_ref.try_borrow_mut() {
                 sb.tick(ms);
             }
-            // While sharing, mirror the editor's selection to the web view as a
-            // paragraph/list-item spotlight. Polling here (rather than wiring a
-            // selection-change event through every edit/navigation path) reliably
-            // catches all selection changes; `set_highlight` dedups so a bump —
-            // and thus a browser reload — only happens when the target changes.
+            // While sharing, mirror the editor's selection (or caret line) to the
+            // web view as a paragraph/list-item spotlight. Polling here (rather
+            // than wiring a change event through every edit/navigation path)
+            // reliably catches all caret/selection moves; `set_highlight` dedups
+            // so a bump — and thus a browser reload — only happens when the
+            // target changes.
             if live_share_ref.borrow().is_some()
                 && let Ok(ed_ptr) = editor_ref.try_borrow()
                 && let Ok(ed) = (*ed_ptr).try_borrow()

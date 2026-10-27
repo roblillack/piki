@@ -67,6 +67,13 @@ While pre-1.0, the minor version is bumped for breaking changes.
   whether to create it or import it from another machine (or, when not run
   interactively, points at `piki init`).
 
+- **Live note sharing: the spotlight follows the caret.** The shared web view
+  now highlights the paragraph or list item the caret is in, not only a
+  selection, so the audience can follow along as you move through a note with
+  the arrow keys or a click. A selection still highlights everything it covers.
+  An empty line shows no highlight. Typing on the highlighted line keeps it
+  steady instead of replaying the arrow on every update. (#60)
+
 - **Tab and Shift-Tab work outside lists too.** Tab still nests a list item one
   level deeper and Shift-Tab lifts it back out, but they now also move a
   paragraph sitting next to a list or quote into it, lift a quoted line back out,
