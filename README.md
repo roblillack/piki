@@ -125,7 +125,8 @@ Commands:
   view [name]     View a note
   ls              List all notes
   search [terms]  Full-text search notes (all terms must match)
-  init            Create the notes directory (--from HOST imports it over SSH)
+  init            Create the notes directory or make it a Git repository
+                  (--from HOST imports it over SSH instead)
   sync            Commit local changes and sync with the configured remotes
   remote add NAME [URL] [--path PATH]
                   Add a machine to sync with (NAME is its SSH host)
@@ -308,8 +309,9 @@ piki init --from laptop        # imports ~/.piki from "laptop" over SSH
 ```
 
 (Both the CLI and the GUI also offer this when the notes directory does not
-exist yet.) To connect two machines that already have notes with a shared
-history, add the other one as a remote:
+exist yet.) An existing notes directory becomes a Git repository with `piki
+init`. To connect two machines that already have notes with a shared history,
+add the other one as a remote:
 
 ```bash
 piki remote add laptop         # `ssh laptop` must work without a password
@@ -333,7 +335,7 @@ to choose explicitly; an empty list keeps committing but never syncs.
 
 **Turning it off.** `enabled = false` under `[git]` disables Git support
 completely. If the notes directory is not a Git repository, Git support is
-disabled with a warning; run `git init` there to enable it.
+disabled with a warning; run `piki init` to enable it.
 
 **Notes.** Remote access uses your system `ssh` (so `~/.ssh/config` aliases,
 keys and agents work as usual) and needs `git` installed on the remote machine.

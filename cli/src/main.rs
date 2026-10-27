@@ -39,7 +39,8 @@ enum Commands {
     },
     /// Generate an index of all notes
     Index,
-    /// Create the notes directory, empty or imported from another machine
+    /// Create the notes directory (or import it from another machine), or
+    /// make an existing one a Git repository
     Init {
         /// Import the notes from this machine over SSH (as in `ssh HOST`)
         #[arg(long, value_name = "HOST")]
@@ -242,8 +243,8 @@ fn open_repo_if_enabled(notes_dir: &Path, config: &Config) -> Result<Option<Repo
         None => {
             eprintln!(
                 "Warning: {} is not a Git repository; Git support is disabled. \
-                 (Run `git init` there to enable it, or set `enabled = false` under \
-                 [git] in ~/.pikirc to silence this.)",
+                 (Run `piki init` to enable it, or set `enabled = false` under [git] in \
+                 ~/.pikirc to silence this.)",
                 notes_dir.display()
             );
             Ok(None)
@@ -258,7 +259,7 @@ fn require_repo(notes_dir: &Path, config: &Config) -> Result<Repo, String> {
     }
     Repo::open(notes_dir)?.ok_or_else(|| {
         format!(
-            "{} is not a Git repository. Run `git init` there first.",
+            "{} is not a Git repository. Run `piki init` first.",
             notes_dir.display()
         )
     })
@@ -405,26 +406,51 @@ fn check_remote_notes(url: &str) -> Result<(), String> {
 }
 
 /// `piki init`: create the notes directory (as a Git repository when Git
-/// support is on), or import it from another machine.
+/// support is on), import it from another machine, or turn an existing one
+/// into a Git repository.
 fn cmd_init(
     from: Option<String>,
     path: Option<String>,
     notes_dir: &Path,
     config: &Config,
 ) -> Result<(), String> {
-    if notes_dir.exists() {
-        return Err(format!(
-            "{} already exists. Remove or move it aside first to import into it.",
-            notes_dir.display()
-        ));
-    }
     match from {
+        Some(_) if notes_dir.exists() => Err(format!(
+            "{} already exists. Move it aside first to import the notes from another machine.",
+            notes_dir.display()
+        )),
         Some(host) => {
             let url = ssh::url_for_host(&host, path.as_deref())?;
             import_notes(&url, notes_dir)
         }
+        None if notes_dir.exists() => init_existing_notes_dir(notes_dir, config),
         None => create_notes_dir(notes_dir, config),
     }
+}
+
+/// Turn an existing notes directory into a Git repository holding the notes
+/// it has so far.
+fn init_existing_notes_dir(notes_dir: &Path, config: &Config) -> Result<(), String> {
+    if !config.git.enabled {
+        return Err(format!(
+            "{} already exists, and Git support is disabled in ~/.pikirc.",
+            notes_dir.display()
+        ));
+    }
+    if Repo::open(notes_dir)?.is_some() {
+        eprintln!("{} is already a Git repository.", notes_dir.display());
+        return Ok(());
+    }
+    let repo = Repo::init(notes_dir)?;
+    match repo.commit_changes()? {
+        Some(commit) => eprintln!(
+            "Made {} a Git repository and committed its notes: {}",
+            notes_dir.display(),
+            commit.title
+        ),
+        None => eprintln!("Made {} a Git repository.", notes_dir.display()),
+    }
+    Ok(())
 }
 
 fn create_notes_dir(notes_dir: &Path, config: &Config) -> Result<(), String> {
@@ -1078,7 +1104,8 @@ fn print_help_with_aliases(config: &Config) {
     println!("  help        - show this help");
     println!("  index       - generate an index of all notes");
     println!("  init [--from HOST [--path PATH]]");
-    println!("              - create the notes directory, or import it from another machine");
+    println!("              - create the notes directory (or import it from another machine),");
+    println!("                or make an existing one a Git repository");
     println!("  log         - show the commit log");
     println!("  ls          - list notes");
     println!("  remote add NAME [URL] [--path PATH]");
