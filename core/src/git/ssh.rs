@@ -512,15 +512,28 @@ pub enum RemoteCheck {
 /// accept pushes to its checked-out branch (`receive.denyCurrentBranch =
 /// updateInstead`), updating its working tree when clean, refusing otherwise —
 /// the piece of setup that makes pushing between two working copies possible.
+///
+/// The directory must be a repository of its own (or a bare one), just as
+/// [`super::Repo::open`] demands locally: one that merely sits inside another
+/// repository — a home directory kept under version control, say — is
+/// rejected, and that repository's configuration is left alone.
 pub fn check_remote_repository(url: &SshUrl) -> Result<RemoteCheck, String> {
     let dir = shell_quote_path(&url.path);
+    // `git rev-parse --git-dir` prints `.git` in the top-level directory of a
+    // working copy, `.` in a bare repository and an absolute path anywhere
+    // deeper. Run by `sh` whatever the login shell there is, and kept on one
+    // line for shells that do not accept newlines inside quotes.
     let script = format!(
-        "cd {dir} && git rev-parse --is-inside-work-tree >/dev/null && \
-         git config receive.denyCurrentBranch updateInstead"
+        "cd {dir} || exit 1; gitdir=$(git rev-parse --git-dir) || exit 1; \
+         case \"$gitdir\" in \
+         .git) git config receive.denyCurrentBranch updateInstead ;; \
+         .) ;; \
+         *) echo \"not the top-level directory of a Git repository\" >&2; exit 1 ;; \
+         esac"
     );
     let output = url
         .command()
-        .arg(script)
+        .arg(format!("sh -c {}", shell_quote(&script)))
         .stdin(Stdio::null())
         .output()
         .map_err(|e| format!("Failed to start '{}': {e}", ssh_program()))?;

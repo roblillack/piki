@@ -741,6 +741,18 @@ mod over_ssh {
         let missing = SshUrl::parse("ssh://laptop/nonexistent/dir").unwrap();
         assert!(matches!(check(&missing), RemoteCheck::NoRepository(_)));
 
+        // A directory inside another repository (a home directory under
+        // version control, say) is not a notes repository of its own, and the
+        // outer repository's configuration stays untouched.
+        let outer = unique_dir("ssh-check-outer");
+        git2::Repository::init(&outer).unwrap();
+        let nested = outer.join(".piki");
+        fs::create_dir_all(&nested).unwrap();
+        let inside = SshUrl::parse(&format!("ssh://laptop{}", nested.display())).unwrap();
+        assert!(matches!(check(&inside), RemoteCheck::NoRepository(m) if m.contains("top-level")));
+        let outer_cfg = git2::Repository::open(&outer).unwrap().config().unwrap();
+        assert!(outer_cfg.get_string("receive.denyCurrentBranch").is_err());
+
         let down = SshUrl::parse("ssh://unreachable/~/.piki").unwrap();
         assert!(matches!(check(&down), RemoteCheck::Unreachable(m) if m.contains("No route")));
     }
