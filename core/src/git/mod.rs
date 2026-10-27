@@ -323,8 +323,21 @@ impl Repo {
     }
 
     /// Resolve which remotes a sync should use, applying the rules documented
-    /// on [`GitConfig::remotes`]. An empty result means "commit only".
+    /// on [`GitConfig::remotes`]. An empty result means "commit only"; having
+    /// nothing to sync with at all is an error that says how to set it up.
     pub fn sync_remotes(&self, config: &GitConfig) -> Result<Vec<String>, String> {
+        self.sync_remotes_if_any(config)?.ok_or_else(|| {
+            "No remote to sync with: there is no 'origin' remote and none was added with \
+             `piki remote add <host>`. To sync with nothing (commits only), set \
+             `remotes = []` under [git] in ~/.pikirc."
+                .to_string()
+        })
+    }
+
+    /// Like [`Self::sync_remotes`], but `None` instead of an error when the
+    /// repository was never set up to sync with anything — for background
+    /// syncs, which should then just commit and stay quiet.
+    pub fn sync_remotes_if_any(&self, config: &GitConfig) -> Result<Option<Vec<String>>, String> {
         if let Some(list) = &config.remotes {
             for name in list {
                 if !self.has_remote(name) {
@@ -334,7 +347,7 @@ impl Repo {
                     ));
                 }
             }
-            return Ok(list.clone());
+            return Ok(Some(list.clone()));
         }
         let registered: Vec<String> = self
             .registered_sync_remotes()?
@@ -342,17 +355,12 @@ impl Repo {
             .filter(|n| self.has_remote(n))
             .collect();
         if !registered.is_empty() {
-            return Ok(registered);
+            return Ok(Some(registered));
         }
         if self.has_remote("origin") {
-            return Ok(vec!["origin".to_string()]);
+            return Ok(Some(vec!["origin".to_string()]));
         }
-        Err(
-            "No remote to sync with: there is no 'origin' remote and none was added with \
-             `piki remote add <host>`. To sync with nothing (commits only), set \
-             `remotes = []` under [git] in ~/.pikirc."
-                .to_string(),
-        )
+        Ok(None)
     }
 
     // ----- Local state -----------------------------------------------------

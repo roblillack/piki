@@ -290,13 +290,14 @@ deleted`. `piki log` shows the result.
 
 **Syncing.** `piki sync` commits, then fetches from, merges with and pushes to
 every configured remote. The GUI does the same shortly after launch and every
-15 minutes, or on demand via **Note → Sync Now** (`Cmd+Shift+S`); a small
-spinner in the status bar shows a sync in progress and a warning badge points
-at a failure. Syncing is deliberately cautious: remote changes are only applied
-when they merge cleanly, and anything unexpected — conflicting edits to the
-same note, unrelated histories, a machine that is not reachable, a push the
-other side refuses — is reported as an error and leaves your notes untouched.
-Conflicts are resolved with the regular `git` tools in the notes directory.
+15 minutes (once there is anything to sync with), or on demand via **Note →
+Sync Now** (`Cmd+Shift+S`); a small spinner in the status bar shows a sync in
+progress and a warning badge points at a failure. Syncing is deliberately
+cautious: remote changes are only applied when they merge cleanly, and
+anything unexpected — conflicting edits to the same note, unrelated histories,
+a machine that is not reachable, a push the other side refuses — is reported as
+an error and leaves your notes untouched. Conflicts are resolved with the
+regular `git` tools in the notes directory.
 
 **Setting it up.** On a new machine, let Piki fetch your notes from an existing
 one:

@@ -1312,6 +1312,7 @@ fn main() {
                 &autosave_state,
                 &active_editor,
                 &statusbar,
+                false,
             );
             app::repeat_timeout3(git_sync::SYNC_INTERVAL.as_secs_f64(), handle);
         });
@@ -1478,13 +1479,15 @@ fn shutdown_git(git_state: &Rc<RefCell<GitState>>, autosave_state: &Rc<RefCell<A
 }
 
 /// Save the open note and queue a sync (commit + fetch/merge/push for every
-/// configured remote). Feedback arrives through `handle_git_event`.
+/// configured remote); `manual` when the user asked for it rather than the
+/// timer. Feedback arrives through `handle_git_event`.
 fn request_sync(
     git_state: &Rc<RefCell<GitState>>,
     app_state: &Rc<RefCell<AppState>>,
     autosave_state: &Rc<RefCell<AutoSaveState>>,
     active_editor: &Rc<RefCell<Rc<RefCell<dyn NoteUI>>>>,
     statusbar: &Rc<RefCell<StatusBar>>,
+    manual: bool,
 ) {
     save_current_note(app_state, autosave_state, active_editor, statusbar);
     let Ok(mut git) = git_state.try_borrow_mut() else {
@@ -1500,7 +1503,10 @@ fn request_sync(
     if git.syncing {
         return;
     }
-    if git.request_sync()
+    // Asked for explicitly, show progress right away. A background sync shows
+    // it once it starts — if there is anything to sync with at all.
+    if git.request_sync(manual)
+        && manual
         && let Ok(mut sb) = statusbar.try_borrow_mut()
     {
         sb.set_status("Syncing …");
@@ -1521,6 +1527,7 @@ fn handle_git_event(
     match event {
         git_sync::Event::SyncStarted => {
             if let Ok(mut sb) = statusbar.try_borrow_mut() {
+                sb.set_status("Syncing …");
                 sb.set_sync_indicator(SyncIndicator::Syncing, "Syncing with remotes …");
                 app::redraw();
             }

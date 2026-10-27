@@ -19,13 +19,14 @@ While pre-1.0, the minor version is bumped for breaking changes.
   `Note untitled_3 renamed to recipes`): after `piki edit`, and in the GUI when
   you move to another note, close the window, or a minute after the last save.
   `piki sync` commits, fetches, merges and pushes for every configured remote;
-  the GUI does the same a few seconds after launch and every 15 minutes, or on
-  demand via **Note → Sync Now** (`Cmd-Shift-S`/`Ctrl-Shift-S`), with a spinner
-  in the status bar while it runs and a warning badge (hover for details) when
-  it failed. Syncing is deliberately cautious: remote changes are applied only
-  when they merge cleanly, and conflicting edits, unrelated histories, an
-  unreachable machine or a refused push are reported as errors that leave your
-  notes untouched. Set it up with `piki remote add laptop` (checks that
+  the GUI does the same a few seconds after launch and every 15 minutes (once
+  there is anything to sync with), or on demand via **Note → Sync Now**
+  (`Cmd-Shift-S`/`Ctrl-Shift-S`), with a spinner in the status bar while it
+  runs and a warning badge (hover for details) when it failed. Syncing is
+  deliberately cautious: remote changes are applied only when they merge
+  cleanly, and conflicting edits, unrelated histories, an unreachable machine
+  or a refused push are reported as errors that leave your notes untouched.
+  Set it up with `piki remote add laptop` (checks that
   `ssh laptop` works without a password, that a Piki repository exists there and
   that the histories are related), inspect with `piki remote ls`, remove with
   `piki remote rm`. A new machine gets its notes with `piki init --from laptop`;

@@ -33,13 +33,17 @@ pub const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(15);
 
 enum Job {
     Commit,
-    Sync,
+    /// `manual` when the user asked for it; a background sync of a repository
+    /// that has nothing to sync with only commits, without complaint.
+    Sync {
+        manual: bool,
+    },
     Shutdown,
 }
 
 /// What the worker reports back.
 pub enum Event {
-    /// A sync has begun (after its preceding commit).
+    /// A sync with at least one remote has begun.
     SyncStarted,
     Committed(Result<Option<CommitSummary>, String>),
     Synced(Result<SyncReport, String>),
@@ -76,8 +80,8 @@ impl GitWorker {
         let _ = self.jobs.send(Job::Commit);
     }
 
-    pub fn request_sync(&self) {
-        let _ = self.jobs.send(Job::Sync);
+    pub fn request_sync(&self, manual: bool) {
+        let _ = self.jobs.send(Job::Sync { manual });
     }
 
     /// Drain all events the worker has produced so far.
@@ -120,16 +124,30 @@ fn worker_loop(repo: Repo, config: GitConfig, jobs: Receiver<Job>, events: Sende
                     break;
                 }
             }
-            Job::Sync => {
-                if events.send(Event::SyncStarted).is_err() {
-                    break;
-                }
+            Job::Sync { manual } => {
                 // Remotes are resolved per run so ones added with the CLI while
-                // the GUI is open are picked up.
-                let result = repo
-                    .sync_remotes(&config)
-                    .and_then(|remotes| repo.sync(&remotes));
-                if events.send(Event::Synced(result)).is_err() {
+                // the GUI is open are picked up. Asked for explicitly, a sync
+                // with nothing to sync with says why; in the background it
+                // just commits.
+                let remotes = if manual {
+                    repo.sync_remotes(&config)
+                } else {
+                    repo.sync_remotes_if_any(&config)
+                        .map(Option::unwrap_or_default)
+                };
+                let event = match remotes {
+                    Ok(remotes) if remotes.is_empty() && !manual => {
+                        Event::Committed(repo.commit_changes())
+                    }
+                    Ok(remotes) => {
+                        if events.send(Event::SyncStarted).is_err() {
+                            break;
+                        }
+                        Event::Synced(repo.sync(&remotes))
+                    }
+                    Err(e) => Event::Synced(Err(e)),
+                };
+                if events.send(event).is_err() {
                     break;
                 }
             }
@@ -196,9 +214,10 @@ impl GitState {
         }
     }
 
-    /// Queue a sync (which commits first). Returns false when Git support is
-    /// unavailable or a sync is already running.
-    pub fn request_sync(&mut self) -> bool {
+    /// Queue a sync (which commits first); `manual` when the user asked for
+    /// it. Returns false when Git support is unavailable or a sync is already
+    /// running.
+    pub fn request_sync(&mut self, manual: bool) -> bool {
         if self.syncing {
             return false;
         }
@@ -206,7 +225,7 @@ impl GitState {
             return false;
         };
         self.pending_since = None;
-        worker.request_sync();
+        worker.request_sync(manual);
         true
     }
 
@@ -286,7 +305,7 @@ mod tests {
     fn sync_requires_a_worker() {
         let mut st = GitState::new(None, Some("disabled".into()));
         assert!(!st.is_available());
-        assert!(!st.request_sync());
+        assert!(!st.request_sync(true));
         assert!(st.poll().is_empty());
     }
 }

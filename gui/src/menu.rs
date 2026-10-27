@@ -407,6 +407,7 @@ fn populate_menu<M>(
                 &autosave_state,
                 &active_editor,
                 &statusbar,
+                true,
             );
         });
     }

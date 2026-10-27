@@ -357,9 +357,11 @@ fn sync_remote_resolution_rules() {
     let repo = Repo::init(&dir).unwrap();
     let other = unique_dir("resolve-other");
 
-    // Nothing configured at all: error pointing at `piki remote add`.
+    // Nothing configured at all: error pointing at `piki remote add` — or,
+    // for background syncs, simply nothing to sync with.
     let err = repo.sync_remotes(&GitConfig::default()).unwrap_err();
     assert!(err.contains("piki remote add"), "{err}");
+    assert_eq!(repo.sync_remotes_if_any(&GitConfig::default()), Ok(None));
 
     // Explicit empty list: commit only.
     let cfg = GitConfig {
@@ -380,6 +382,10 @@ fn sync_remote_resolution_rules() {
     assert_eq!(
         repo.sync_remotes(&GitConfig::default()).unwrap(),
         vec!["origin".to_string()]
+    );
+    assert_eq!(
+        repo.sync_remotes_if_any(&GitConfig::default()),
+        Ok(Some(vec!["origin".to_string()]))
     );
 
     // Registered remotes win over the origin default, in order; duplicates
