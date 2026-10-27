@@ -1,6 +1,59 @@
 #![allow(dead_code)]
 
 use fltk::{prelude::*, *};
+use std::cell::RefCell;
+use std::rc::Rc;
+
+/// Side of the square sync indicator at the right end of the bar.
+const SYNC_INDICATOR_SIZE: i32 = 14;
+/// Gap between the save status text and the sync indicator.
+const SYNC_GAP: i32 = 6;
+/// Horizontal padding at both ends of the bar.
+const PADDING: i32 = 5;
+/// Milliseconds for one full turn of the syncing spinner.
+const SPINNER_PERIOD_MS: u64 = 1200;
+
+/// What the sync indicator shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncIndicator {
+    /// Nothing drawn.
+    Idle,
+    /// A rotating arc: a sync is in progress.
+    Syncing,
+    /// A warning badge: the last sync failed (details in the tooltip).
+    Error,
+}
+
+/// State shared with the indicator's draw callback.
+struct SyncVisual {
+    mode: SyncIndicator,
+    /// Start angle of the spinner arc in degrees.
+    angle: i32,
+    bg: enums::Color,
+    fg: enums::Color,
+}
+
+/// Positions of the three children for a bar at `(x, y, w, h)`.
+struct Layout {
+    /// Note button (left half): x and width; it spans the bar's full height.
+    note: (i32, i32),
+    /// Save status (right half minus the indicator): x and width.
+    save: (i32, i32),
+    /// Sync indicator (right end): x, y and side length.
+    indicator: (i32, i32, i32),
+}
+
+fn layout(x: i32, y: i32, w: i32, h: i32) -> Layout {
+    let ind_x = x + w - PADDING - SYNC_INDICATOR_SIZE;
+    let ind_y = y + (h - SYNC_INDICATOR_SIZE) / 2;
+    let save_x = x + PADDING + w / 2;
+    let save_w = (ind_x - SYNC_GAP - save_x).max(10);
+    Layout {
+        note: (x + PADDING, w / 2 - 2 * PADDING),
+        save: (save_x, save_w),
+        indicator: (ind_x, ind_y, SYNC_INDICATOR_SIZE),
+    }
+}
 
 /// Helper function to create a brighter version of a color
 /// Increases each RGB component by a factor (clamped to 255)
@@ -55,6 +108,9 @@ pub struct StatusBar {
     note_status: button::Button,
     // Right side: save status (frame for display)
     save_status: frame::Frame,
+    // Far right: the sync spinner / error badge
+    sync_indicator: frame::Frame,
+    sync_visual: Rc<RefCell<SyncVisual>>,
     // Current note name plus any transient link-hover destination
     note_label: NoteLabel,
     // Colors
@@ -81,8 +137,14 @@ impl StatusBar {
         background.set_frame(enums::FrameType::FlatBox);
         background.set_color(bg_color);
 
+        let Layout {
+            note: (note_x, note_w),
+            save: (save_x, save_w),
+            indicator: (ind_x, ind_y, ind_size),
+        } = layout(x, y, w, h);
+
         // Create note status button (left side)
-        let mut note_status = button::Button::new(x + 5, y, w / 2 - 10, h, None);
+        let mut note_status = button::Button::new(note_x, y, note_w, h, None);
         note_status.set_frame(enums::FrameType::FlatBox);
         note_status.set_align(enums::Align::Left | enums::Align::Inside);
         note_status.set_label_size(app::font_size() - 1);
@@ -107,17 +169,64 @@ impl StatusBar {
         });
 
         // Create save status frame (right side)
-        let mut save_status = frame::Frame::new(x + 5 + w / 2, y, w / 2 - 10, h, None);
+        let mut save_status = frame::Frame::new(save_x, y, save_w, h, None);
         save_status.set_frame(enums::FrameType::FlatBox);
         save_status.set_align(enums::Align::Right | enums::Align::Inside);
         save_status.set_label_size(app::font_size() - 1);
         save_status.set_color(bg_color);
         save_status.set_label_color(text_color);
 
+        // Sync indicator: custom-drawn from shared state so the animation
+        // timer only has to bump an angle and ask for a redraw.
+        let sync_visual = Rc::new(RefCell::new(SyncVisual {
+            mode: SyncIndicator::Idle,
+            angle: 0,
+            bg: bg_color,
+            fg: text_color,
+        }));
+        let mut sync_indicator = frame::Frame::new(ind_x, ind_y, ind_size, ind_size, None);
+        sync_indicator.set_frame(enums::FrameType::FlatBox);
+        sync_indicator.set_color(bg_color);
+        {
+            let visual = sync_visual.clone();
+            sync_indicator.draw(move |f| {
+                let v = visual.borrow();
+                draw::set_draw_color(v.bg);
+                draw::draw_rectf(f.x(), f.y(), f.w(), f.h());
+                match v.mode {
+                    SyncIndicator::Idle => {}
+                    SyncIndicator::Syncing => {
+                        // A three-quarter arc that turns: the classic spinner.
+                        draw::set_draw_color(v.fg);
+                        draw::set_line_style(draw::LineStyle::Solid, 2);
+                        draw::draw_arc(
+                            f.x() + 2,
+                            f.y() + 2,
+                            f.w() - 4,
+                            f.h() - 4,
+                            v.angle as f64,
+                            v.angle as f64 + 270.0,
+                        );
+                        draw::set_line_style(draw::LineStyle::Solid, 0);
+                    }
+                    SyncIndicator::Error => {
+                        // A filled warning disc with an exclamation mark.
+                        draw::set_draw_color(enums::Color::from_rgb(250, 204, 21));
+                        draw::draw_pie(f.x(), f.y(), f.w(), f.h(), 0.0, 360.0);
+                        draw::set_draw_color(enums::Color::from_rgb(60, 40, 0));
+                        draw::set_font(enums::Font::HelveticaBold, f.h() - 3);
+                        draw::draw_text2("!", f.x(), f.y(), f.w(), f.h(), enums::Align::Center);
+                    }
+                }
+            });
+        }
+
         StatusBar {
             background,
             note_status,
             save_status,
+            sync_indicator,
+            sync_visual,
             note_label: NoteLabel::default(),
             bg_color,
             text_color,
@@ -133,6 +242,8 @@ impl StatusBar {
         self.background.set_color(color);
         self.note_status.set_color(color);
         self.save_status.set_color(color);
+        self.sync_indicator.set_color(color);
+        self.sync_visual.borrow_mut().bg = color;
 
         // Update the hover handler with the new colors
         let mut but2 = self.note_status.clone();
@@ -158,6 +269,35 @@ impl StatusBar {
         self.text_color = color;
         self.note_status.set_label_color(color);
         self.save_status.set_label_color(color);
+        self.sync_visual.borrow_mut().fg = color;
+    }
+
+    /// Switch the sync indicator at the right end of the bar. The tooltip
+    /// explains the state (e.g. the last sync error) on hover.
+    pub fn set_sync_indicator(&mut self, mode: SyncIndicator, tooltip: &str) {
+        self.sync_visual.borrow_mut().mode = mode;
+        self.sync_indicator.set_tooltip(tooltip);
+        self.sync_indicator.redraw();
+    }
+
+    pub fn sync_indicator(&self) -> SyncIndicator {
+        self.sync_visual.borrow().mode
+    }
+
+    /// Advance the spinner. Driven from the app's animation timer with
+    /// milliseconds since start; a no-op unless a sync is showing.
+    pub fn tick(&mut self, ms_since_start: u64) {
+        let mut v = self.sync_visual.borrow_mut();
+        if v.mode != SyncIndicator::Syncing {
+            return;
+        }
+        // Clockwise on screen: FLTK angles grow counter-clockwise.
+        let angle = 360 - ((ms_since_start % SPINNER_PERIOD_MS) * 360 / SPINNER_PERIOD_MS) as i32;
+        if angle != v.angle {
+            v.angle = angle;
+            drop(v);
+            self.sync_indicator.redraw();
+        }
     }
 
     /// Set the note status text (left side).
@@ -252,9 +392,15 @@ impl StatusBar {
 
     /// Resize the status bar and update child positions
     pub fn resize(&mut self, x: i32, y: i32, w: i32, h: i32) {
+        let Layout {
+            note: (note_x, note_w),
+            save: (save_x, save_w),
+            indicator: (ind_x, ind_y, ind_size),
+        } = layout(x, y, w, h);
         self.background.resize(x, y, w, h);
-        self.note_status.resize(x + 5, y, w / 2 - 10, h);
-        self.save_status.resize(x + 5 + w / 2, y, w / 2 - 10, h);
+        self.note_status.resize(note_x, y, note_w, h);
+        self.save_status.resize(save_x, y, save_w, h);
+        self.sync_indicator.resize(ind_x, ind_y, ind_size, ind_size);
     }
 
     /// Get the height of the status bar
@@ -282,6 +428,7 @@ impl StatusBar {
         self.background.hide();
         self.note_status.hide();
         self.save_status.hide();
+        self.sync_indicator.hide();
     }
 
     /// Show the status bar
@@ -289,6 +436,7 @@ impl StatusBar {
         self.background.show();
         self.note_status.show();
         self.save_status.show();
+        self.sync_indicator.show();
     }
 
     /// Check if the status bar is visible
@@ -299,7 +447,26 @@ impl StatusBar {
 
 #[cfg(test)]
 mod tests {
-    use super::NoteLabel;
+    use super::{NoteLabel, SYNC_GAP, SYNC_INDICATOR_SIZE, layout};
+
+    #[test]
+    fn layout_keeps_indicator_at_the_right_end() {
+        let l = layout(0, 100, 400, 25);
+        let ((note_x, note_w), (save_x, save_w), (ind_x, ind_y, size)) =
+            (l.note, l.save, l.indicator);
+        assert_eq!(size, SYNC_INDICATOR_SIZE);
+        assert_eq!(ind_x + size, 400 - 5, "indicator ends at the right padding");
+        assert!(
+            ind_y > 100 && ind_y + size < 125,
+            "vertically inside the bar"
+        );
+        assert_eq!(
+            save_x + save_w + SYNC_GAP,
+            ind_x,
+            "save text stops before it"
+        );
+        assert!(note_x + note_w <= save_x, "halves do not overlap");
+    }
 
     #[test]
     fn hover_overlays_the_note_name_and_falls_back_to_it() {
