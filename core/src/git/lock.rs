@@ -4,83 +4,70 @@
 //! Git itself only guards the index (`.git/index.lock`), which would turn a
 //! concurrent run into a cryptic "index is locked" failure half-way through a
 //! sync. This lock is taken for the whole operation instead and produces a
-//! clear message. It is a plain lock file created with `O_EXCL` semantics in
-//! the repository's `.git` directory; a stale file left behind by a crashed
-//! process is reclaimed after [`STALE_AFTER`].
+//! clear message. It is an operating-system file lock on a file in the
+//! repository's `.git` directory, so it goes away with the process holding it:
+//! a crash, or the GUI exiting while a sync is still running, never leaves a
+//! stale lock behind. The file itself stays; only the lock on it matters.
 
-use std::fs;
-use std::io;
+use std::fs::{self, TryLockError};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant};
 
 /// Name of the lock file inside `.git/`.
 pub const LOCK_FILE_NAME: &str = "piki.lock";
 
-/// A lock older than this is assumed to be left over from a crashed process.
-pub const STALE_AFTER: Duration = Duration::from_secs(10 * 60);
+/// How long to wait for the lock before giving up. Long enough to ride out a
+/// commit by the other program, and the moment a process spawned elsewhere
+/// holds an inherited copy of the lock before it starts its own program.
+pub const WAIT_FOR_LOCK: Duration = Duration::from_secs(2);
 
-/// Held for the duration of a commit or sync; removes the lock file on drop.
+/// Held for the duration of a commit or sync; released on drop.
 #[derive(Debug)]
 pub struct SyncLock {
-    path: PathBuf,
+    _file: fs::File,
 }
 
 impl SyncLock {
-    /// Take the lock for the repository whose `.git` directory is `git_dir`.
+    /// Take the lock for the repository whose `.git` directory is `git_dir`,
+    /// waiting up to [`WAIT_FOR_LOCK`] for another process to release it.
     pub fn acquire(git_dir: &Path) -> Result<SyncLock, String> {
-        Self::acquire_path(git_dir.join(LOCK_FILE_NAME), STALE_AFTER)
+        Self::acquire_path(git_dir.join(LOCK_FILE_NAME), WAIT_FOR_LOCK)
     }
 
-    fn acquire_path(path: PathBuf, stale_after: Duration) -> Result<SyncLock, String> {
-        for attempt in 0..2 {
-            match fs::File::create_new(&path) {
-                Ok(mut file) => {
-                    use std::io::Write;
-                    let _ = writeln!(file, "{}", std::process::id());
-                    return Ok(SyncLock { path });
+    fn acquire_path(path: PathBuf, wait: Duration) -> Result<SyncLock, String> {
+        // Never truncate or delete the file: another process may be holding a
+        // lock on it, and replacing the file would let two processes "hold"
+        // locks on two different files.
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&path)
+            .map_err(|e| format!("Failed to open lock file {}: {e}", path.display()))?;
+        let deadline = Instant::now() + wait;
+        loop {
+            match file.try_lock() {
+                Ok(()) => return Ok(SyncLock { _file: file }),
+                Err(TryLockError::WouldBlock) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(50));
                 }
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-                    if attempt == 0 && Self::is_stale(&path, stale_after) {
-                        // Reclaim a lock left behind by a crashed process; if the
-                        // removal races with another reclaimer that is fine, the
-                        // second `create_new` decides who wins.
-                        let _ = fs::remove_file(&path);
-                        continue;
-                    }
+                Err(TryLockError::WouldBlock) => {
                     return Err("Another Piki process is committing or syncing this notes \
                          directory right now; please try again in a moment."
                         .to_string());
                 }
-                Err(e) => {
-                    return Err(format!(
-                        "Failed to create lock file {}: {e}",
-                        path.display()
-                    ));
+                Err(TryLockError::Error(e)) => {
+                    return Err(format!("Failed to lock {}: {e}", path.display()));
                 }
             }
         }
-        Err("Another Piki process is committing or syncing this notes directory.".to_string())
-    }
-
-    fn is_stale(path: &Path, stale_after: Duration) -> bool {
-        fs::metadata(path)
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|mtime| SystemTime::now().duration_since(mtime).ok())
-            .map(|age| age > stale_after)
-            .unwrap_or(false)
-    }
-}
-
-impl Drop for SyncLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::SystemTime;
 
     fn temp_dir(tag: &str) -> PathBuf {
         let nanos = SystemTime::now()
@@ -95,28 +82,34 @@ mod tests {
     #[test]
     fn lock_is_exclusive_and_released_on_drop() {
         let dir = temp_dir("exclusive");
+        let path = dir.join(LOCK_FILE_NAME);
         let first = SyncLock::acquire(&dir).unwrap();
-        let err = SyncLock::acquire(&dir).unwrap_err();
+        let err = SyncLock::acquire_path(path.clone(), Duration::ZERO).unwrap_err();
         assert!(err.contains("Another Piki process"), "{err}");
         drop(first);
-        assert!(SyncLock::acquire(&dir).is_ok());
+        assert!(SyncLock::acquire_path(path, Duration::ZERO).is_ok());
         fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn stale_lock_is_reclaimed() {
-        let dir = temp_dir("stale");
-        let path = dir.join(LOCK_FILE_NAME);
-        fs::write(&path, "12345\n").unwrap();
-        // With a zero staleness threshold the just-written file already counts
-        // as abandoned and gets replaced.
-        let lock = SyncLock::acquire_path(path.clone(), Duration::ZERO).unwrap();
-        assert_eq!(
-            fs::read_to_string(&path).unwrap().trim(),
-            std::process::id().to_string()
-        );
-        drop(lock);
-        assert!(!path.exists());
+    fn waits_for_a_lock_released_meanwhile() {
+        let dir = temp_dir("wait");
+        let first = SyncLock::acquire(&dir).unwrap();
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            drop(first);
+        });
+        assert!(SyncLock::acquire(&dir).is_ok());
+        releaser.join().unwrap();
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn leftover_lock_file_does_not_block() {
+        // What a crashed process leaves behind: the file, but no lock on it.
+        let dir = temp_dir("leftover");
+        fs::write(dir.join(LOCK_FILE_NAME), "12345\n").unwrap();
+        assert!(SyncLock::acquire(&dir).is_ok());
         fs::remove_dir_all(&dir).ok();
     }
 }
