@@ -9,7 +9,7 @@ use rutle::editor::Editor;
 use rutle::renderer::SearchMatch;
 use rutle::structured_document::BlockType;
 use rutle::tree_path::{DocumentPosition, PathSegment, TreePath};
-use rutle::tree_walk::LeafInfo;
+use rutle::tree_walk::{LeafInfo, ParaKind};
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use tdoc::Document;
@@ -30,20 +30,23 @@ impl StructuredRichUI {
         self.0.display.borrow().editor().selection().is_some()
     }
 
-    /// The web-view highlights mirroring the editor's *selection*: one
-    /// [`HighlightTarget`] per top-level block (or list/checklist item) the
-    /// selection touches, in document order. Empty when there is no selection,
-    /// so a bare caret shows no highlight and double-clicking a word brings one
-    /// back.
+    /// The web-view highlights mirroring the editor: one [`HighlightTarget`]
+    /// per top-level block (or list/checklist item) the selection touches, in
+    /// document order. Without a selection, the block or item holding the
+    /// caret — unless its line is empty, or the caret is hidden (a read-only
+    /// note), in which case there is nothing to highlight.
     pub fn highlight_targets(&self) -> Vec<HighlightTarget> {
         let disp = self.0.display.borrow();
         let editor = disp.editor();
-        let Some((a, b)) = editor.selection() else {
-            return Vec::new();
-        };
-        // Order the endpoints so a reversed drag is handled the same way.
-        let (start, end) = if a <= b { (a, b) } else { (b, a) };
-        selection_targets(editor.document(), &start, &end)
+        match editor.selection() {
+            Some((a, b)) => {
+                // Order the endpoints so a reversed drag is handled the same way.
+                let (start, end) = if a <= b { (a, b) } else { (b, a) };
+                selection_targets(editor.document(), &start, &end)
+            }
+            None if disp.cursor_visible() => caret_targets(editor.document(), &editor.cursor()),
+            None => Vec::new(),
+        }
     }
 
     /// Cut the current selection to the system clipboard (HTML + Markdown).
@@ -387,6 +390,27 @@ fn selection_targets(
         }
     }
     out
+}
+
+/// The web-view [`HighlightTarget`] for a bare caret at `caret`: the block or
+/// list/checklist item holding it, or nothing when the caret's line has no
+/// content to point at — a blank (or all-whitespace) paragraph, or a horizontal
+/// rule. A table carries no editable text but is not empty, so it qualifies.
+fn caret_targets(doc: &Document, caret: &DocumentPosition) -> Vec<HighlightTarget> {
+    let leaves = rutle::tree_walk::enumerate_leaves(doc);
+    let Some(leaf) = leaves.iter().find(|l| l.path == caret.path) else {
+        return Vec::new();
+    };
+    let has_content = match leaf.kind {
+        ParaKind::Table => true,
+        _ => !rutle::tree_walk::leaf_plain_text(doc, &leaf.path)
+            .trim()
+            .is_empty(),
+    };
+    if !has_content {
+        return Vec::new();
+    }
+    vec![leaf_element(&build_li_index(&leaves), &leaf.path)]
 }
 
 /// Map each list/checklist marker leaf (the leaf that begins a `<li>`) to that
@@ -764,6 +788,51 @@ mod tests {
                 HighlightTarget { block: 1, li: None },
             ]
         );
+    }
+
+    #[test]
+    fn caret_highlights_its_block_or_list_item() {
+        let md = "# Title\n\nA paragraph\n\n- one\n- two\n";
+        let doc = crate::markdown_converter::markdown_to_document(md);
+        let leaves = rutle::tree_walk::enumerate_leaves(&doc);
+        let caret = |i: usize| DocumentPosition::at(leaves[i].path.clone(), 0);
+        assert_eq!(
+            caret_targets(&doc, &caret(0)),
+            vec![HighlightTarget { block: 0, li: None }]
+        );
+        assert_eq!(
+            caret_targets(&doc, &caret(1)),
+            vec![HighlightTarget { block: 1, li: None }]
+        );
+        assert_eq!(
+            caret_targets(&doc, &caret(3)),
+            vec![HighlightTarget {
+                block: 2,
+                li: Some(1)
+            }]
+        );
+    }
+
+    /// A caret on a line with nothing to read — a blank or all-whitespace
+    /// paragraph, a horizontal rule — shows no highlight; a table does.
+    #[test]
+    fn caret_on_an_empty_line_highlights_nothing() {
+        let mut doc = crate::markdown_converter::markdown_to_document(
+            "Above\n\n---\n\n| a | b |\n|---|---|\n| 1 | 2 |\n",
+        );
+        doc.add_paragraph(tdoc::Paragraph::new_text());
+        doc.add_paragraph(
+            tdoc::Paragraph::new_text().with_content(vec![tdoc::Span::new_text("   ")]),
+        );
+        let leaves = rutle::tree_walk::enumerate_leaves(&doc);
+        assert_eq!(leaves.len(), 5);
+        let targets =
+            |i: usize| caret_targets(&doc, &DocumentPosition::at(leaves[i].path.clone(), 0));
+        assert_eq!(targets(0), vec![HighlightTarget { block: 0, li: None }]);
+        assert_eq!(targets(1), vec![]);
+        assert_eq!(targets(2), vec![HighlightTarget { block: 2, li: None }]);
+        assert_eq!(targets(3), vec![]);
+        assert_eq!(targets(4), vec![]);
     }
 
     #[test]
