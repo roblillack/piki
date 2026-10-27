@@ -10,7 +10,8 @@
 //! `ssh` runs in batch mode, so a host that would ask for a password fails
 //! immediately with a clear error instead of hanging on a prompt, and with
 //! keepalives, so a machine that disappears mid-sync fails the sync instead of
-//! stalling it forever.
+//! stalling it forever. Like git, `GIT_SSH_COMMAND` and `GIT_SSH` select a
+//! different SSH client, and PuTTY's `plink` gets its own option syntax.
 //!
 //! The same mechanism serves `file://` URLs by running `git upload-pack` /
 //! `git receive-pack` locally. libgit2's built-in local transport cannot push
@@ -19,6 +20,7 @@
 
 use git2::transport::{Service, SmartSubtransport, SmartSubtransportStream, Transport};
 use std::io::{self, Read, Write};
+use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex, Once, RwLock};
 use std::time::{Duration, Instant};
@@ -44,20 +46,114 @@ static SSH_PROGRAM_OVERRIDE: RwLock<Option<String>> = RwLock::new(None);
 
 /// Use `program` instead of `ssh` for every remote connection made by this
 /// process. Tests use this to substitute a script that runs the remote command
-/// locally; `PIKI_SSH` / `GIT_SSH` in the environment do the same for users.
+/// locally; `PIKI_SSH` in the environment does the same for users.
 pub fn set_ssh_program(program: Option<&str>) {
     *SSH_PROGRAM_OVERRIDE.write().unwrap() = program.map(str::to_string);
 }
 
-fn ssh_program() -> String {
-    if let Some(p) = SSH_PROGRAM_OVERRIDE.read().unwrap().as_ref() {
-        return p.clone();
+/// The option syntax of an SSH client.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SshVariant {
+    /// OpenSSH and compatible clients: `-o Option=value`, `-p PORT`.
+    OpenSsh,
+    /// PuTTY's `plink` and TortoiseGit's `TortoisePlink`: `-batch`, `-P PORT`.
+    Plink,
+}
+
+impl SshVariant {
+    /// As git decides it: `GIT_SSH_VARIANT` when set, otherwise from the name
+    /// of the program.
+    fn detect(program: &str) -> SshVariant {
+        match std::env::var("GIT_SSH_VARIANT") {
+            Ok(v) if !v.is_empty() && v != "auto" => Self::from_name(&v),
+            _ => Self::from_name(
+                &Path::new(program)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+            ),
+        }
     }
-    std::env::var("PIKI_SSH")
-        .or_else(|_| std::env::var("GIT_SSH"))
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "ssh".to_string())
+
+    fn from_name(name: &str) -> SshVariant {
+        match name.to_ascii_lowercase().as_str() {
+            "plink" | "putty" | "tortoiseplink" => SshVariant::Plink,
+            _ => SshVariant::OpenSsh,
+        }
+    }
+}
+
+/// The SSH client to start, without any arguments yet: `PIKI_SSH` or the
+/// override from [`set_ssh_program`], then git's `GIT_SSH_COMMAND` (a command
+/// line) and `GIT_SSH` (a program), then plain `ssh`.
+fn ssh_client() -> (Command, SshVariant) {
+    let env = |name: &str| std::env::var(name).ok().filter(|s| !s.is_empty());
+    let program = SSH_PROGRAM_OVERRIDE
+        .read()
+        .unwrap()
+        .clone()
+        .or_else(|| env("PIKI_SSH"));
+    if let Some(program) = program {
+        return (Command::new(&program), SshVariant::detect(&program));
+    }
+    if let Some(command_line) = env("GIT_SSH_COMMAND") {
+        return ssh_command_line(&command_line);
+    }
+    let program = env("GIT_SSH").unwrap_or_else(|| "ssh".to_string());
+    (Command::new(&program), SshVariant::detect(&program))
+}
+
+/// A `GIT_SSH_COMMAND` such as `ssh -i ~/.ssh/notes_key`, ready for more
+/// arguments. On Unix it goes through the shell, exactly as git runs it.
+fn ssh_command_line(command_line: &str) -> (Command, SshVariant) {
+    let words = split_command_line(command_line);
+    let program = words.first().map(String::as_str).unwrap_or("ssh");
+    let variant = SshVariant::detect(program);
+    if cfg!(unix) {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c")
+            .arg(format!("{command_line} \"$@\""))
+            .arg(program);
+        (cmd, variant)
+    } else {
+        let mut cmd = Command::new(program);
+        cmd.args(words.iter().skip(1));
+        (cmd, variant)
+    }
+}
+
+/// Split a command line into words at whitespace, keeping quoted parts
+/// (`"C:\Program Files\PuTTY\plink.exe" -v`) together. Backslashes are not
+/// escapes, so Windows paths survive.
+fn split_command_line(s: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let mut in_word = false;
+    let mut quote = None;
+    for c in s.chars() {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => word.push(c),
+            None if c == '"' || c == '\'' => {
+                quote = Some(c);
+                in_word = true;
+            }
+            None if c.is_whitespace() => {
+                if in_word {
+                    words.push(std::mem::take(&mut word));
+                    in_word = false;
+                }
+            }
+            None => {
+                word.push(c);
+                in_word = true;
+            }
+        }
+    }
+    if in_word {
+        words.push(word);
+    }
+    words
 }
 
 /// The parts of an `ssh://[user@]host[:port]/path` URL.
@@ -140,20 +236,36 @@ impl SshUrl {
 
     /// An `ssh` command line addressing this host, without a remote command.
     fn command(&self) -> Command {
-        let mut cmd = Command::new(ssh_program());
-        cmd.arg("-o")
-            .arg("BatchMode=yes")
-            .arg("-o")
-            .arg(format!("ConnectTimeout={CONNECT_TIMEOUT_SECS}"))
-            .arg("-o")
-            .arg(format!("ServerAliveInterval={SERVER_ALIVE_INTERVAL_SECS}"))
-            .arg("-o")
-            .arg(format!("ServerAliveCountMax={SERVER_ALIVE_COUNT_MAX}"));
-        if let Some(p) = self.port {
-            cmd.arg("-p").arg(p.to_string());
-        }
-        cmd.arg("--").arg(self.destination());
+        let (mut cmd, variant) = ssh_client();
+        self.add_connection_args(&mut cmd, variant);
         cmd
+    }
+
+    fn add_connection_args(&self, cmd: &mut Command, variant: SshVariant) {
+        match variant {
+            SshVariant::OpenSsh => {
+                for option in [
+                    "BatchMode=yes".to_string(),
+                    format!("ConnectTimeout={CONNECT_TIMEOUT_SECS}"),
+                    format!("ServerAliveInterval={SERVER_ALIVE_INTERVAL_SECS}"),
+                    format!("ServerAliveCountMax={SERVER_ALIVE_COUNT_MAX}"),
+                ] {
+                    cmd.arg("-o").arg(option);
+                }
+                if let Some(p) = self.port {
+                    cmd.arg("-p").arg(p.to_string());
+                }
+                cmd.arg("--");
+            }
+            SshVariant::Plink => {
+                // plink's way of never prompting for anything.
+                cmd.arg("-batch");
+                if let Some(p) = self.port {
+                    cmd.arg("-P").arg(p.to_string());
+                }
+            }
+        }
+        cmd.arg(self.destination());
     }
 }
 
@@ -531,12 +643,13 @@ pub fn check_remote_repository(url: &SshUrl) -> Result<RemoteCheck, String> {
          *) echo \"not the top-level directory of a Git repository\" >&2; exit 1 ;; \
          esac"
     );
-    let output = url
-        .command()
-        .arg(format!("sh -c {}", shell_quote(&script)))
+    let mut cmd = url.command();
+    cmd.arg(format!("sh -c {}", shell_quote(&script)));
+    let program = cmd.get_program().to_string_lossy().into_owned();
+    let output = cmd
         .stdin(Stdio::null())
         .output()
-        .map_err(|e| format!("Failed to start '{}': {e}", ssh_program()))?;
+        .map_err(|e| format!("Failed to start '{program}': {e}"))?;
     if output.status.success() {
         return Ok(RemoteCheck::Ok);
     }
@@ -628,6 +741,71 @@ mod tests {
         assert_eq!(normalize_url("./relative"), "./relative");
         assert_eq!(file_url_path("file:///tmp/x").unwrap(), "/tmp/x");
         assert_eq!(file_url_path("file:///C:/x").unwrap(), "C:/x");
+    }
+
+    fn connection_args(url: &str, variant: SshVariant) -> Vec<String> {
+        let mut cmd = Command::new("client");
+        SshUrl::parse(url)
+            .unwrap()
+            .add_connection_args(&mut cmd, variant);
+        cmd.get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn openssh_gets_batch_mode_timeouts_and_keepalives() {
+        let args = connection_args("ssh://rob@nas:2222/srv/notes", SshVariant::OpenSsh);
+        assert_eq!(
+            args,
+            [
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=15",
+                "-o",
+                "ServerAliveInterval=15",
+                "-o",
+                "ServerAliveCountMax=3",
+                "-p",
+                "2222",
+                "--",
+                "rob@nas"
+            ]
+        );
+    }
+
+    #[test]
+    fn plink_gets_its_own_options() {
+        assert_eq!(
+            connection_args("ssh://rob@nas:2222/srv/notes", SshVariant::Plink),
+            ["-batch", "-P", "2222", "rob@nas"]
+        );
+        assert_eq!(
+            connection_args("ssh://nas/~/.piki", SshVariant::Plink),
+            ["-batch", "nas"]
+        );
+    }
+
+    #[test]
+    fn ssh_variant_follows_the_program_name() {
+        assert_eq!(SshVariant::from_name("ssh"), SshVariant::OpenSsh);
+        assert_eq!(SshVariant::from_name("plink"), SshVariant::Plink);
+        assert_eq!(SshVariant::from_name("TortoisePlink"), SshVariant::Plink);
+        assert_eq!(SshVariant::from_name("my-ssh-wrapper"), SshVariant::OpenSsh);
+    }
+
+    #[test]
+    fn command_lines_are_split_into_words() {
+        assert_eq!(
+            split_command_line("ssh -i ~/.ssh/notes_key  -v"),
+            ["ssh", "-i", "~/.ssh/notes_key", "-v"]
+        );
+        assert_eq!(
+            split_command_line(r#""C:\Program Files\PuTTY\plink.exe" -v ''"#),
+            [r"C:\Program Files\PuTTY\plink.exe", "-v", ""]
+        );
+        assert!(split_command_line("  ").is_empty());
     }
 
     #[test]

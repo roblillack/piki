@@ -337,6 +337,8 @@ disabled with a warning; run `git init` there to enable it.
 
 **Notes.** Remote access uses your system `ssh` (so `~/.ssh/config` aliases,
 keys and agents work as usual) and needs `git` installed on the remote machine.
+As with git, `GIT_SSH_COMMAND` or `GIT_SSH` select another SSH client, PuTTY's
+`plink` included.
 `https://` remotes are not supported; use an `ssh://` URL instead. Plain local
 paths and `host:path` remotes added with `git remote add` work too.
 

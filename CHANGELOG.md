@@ -37,9 +37,10 @@ While pre-1.0, the minor version is bumped for breaking changes.
   to sync with (default: the ones added with `piki remote add`, or `origin`;
   `[]` commits without syncing). A notes directory that is not a Git repository
   gets a warning and no Git support. Remote access goes through the system `ssh`
-  (keys, agent and `~/.ssh/config` apply) rather than a bundled SSH library;
-  `https://` remotes are not supported. The GUI and the CLI never commit or sync
-  the same directory at the same time.
+  (keys, agent and `~/.ssh/config` apply, as do `GIT_SSH_COMMAND` and `GIT_SSH`,
+  PuTTY's `plink` included) rather than a bundled SSH library; `https://`
+  remotes are not supported. The GUI and the CLI never commit or sync the same
+  directory at the same time.
 
 - **Horizontal rules.** Break a note into sections with a thematic break, drawn
   as a line across the text column. Insert one with **Format → Horizontal Rule**
