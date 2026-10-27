@@ -451,6 +451,31 @@ fn remotes_added_with_plain_git_paths_work() {
     assert_eq!(c.remotes().unwrap()[0].1, b_dir.to_str().unwrap());
 }
 
+#[test]
+fn detached_head_is_neither_committed_on_nor_synced() {
+    let (b_dir, _b) = seeded_repo("detached-b");
+    let a_dir = unique_dir("detached-a");
+    let a = Repo::clone(&path_url(&b_dir), &a_dir).unwrap();
+    {
+        // As after `git checkout <commit>` to look at an older version.
+        let raw = git2::Repository::open(&a_dir).unwrap();
+        let head = raw.head().unwrap().target().unwrap();
+        raw.set_head_detached(head).unwrap();
+    }
+    write(&a_dir, "new.md", "new\n");
+    let err = a.commit_changes().unwrap_err();
+    assert!(err.contains("detached HEAD"), "{err}");
+    let err = a.sync(&["origin".to_string()]).unwrap_err();
+    assert!(err.contains("detached HEAD"), "{err}");
+    assert!(a.current_branch().is_err());
+    // No branch called "HEAD" appeared anywhere, and nothing was pushed.
+    for dir in [&a_dir, &b_dir] {
+        let raw = git2::Repository::open(dir).unwrap();
+        assert!(raw.find_reference("refs/heads/HEAD").is_err());
+    }
+    assert_eq!(read(&b_dir, "new.md"), "");
+}
+
 // ----- Non-ASCII note names --------------------------------------------------
 
 /// Whether Git has `rel` in its index.

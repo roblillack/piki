@@ -365,8 +365,10 @@ impl Repo {
 
     // ----- Local state -----------------------------------------------------
 
-    /// Name of the checked-out branch (also for an unborn one).
+    /// Name of the checked-out branch (also for an unborn one). An error while
+    /// HEAD is detached: libgit2 would call that branch "HEAD".
     pub fn current_branch(&self) -> Result<String, String> {
+        self.ensure_on_branch()?;
         match self.repo.head() {
             Ok(head) => head
                 .shorthand()
@@ -586,6 +588,25 @@ impl Repo {
             return Err(format!(
                 "A Git operation (merge, rebase, …) is in progress in {}; finish or abort it \
                  with git first.",
+                self.workdir.display()
+            ));
+        }
+        self.ensure_on_branch()
+    }
+
+    /// Refuse to work on a detached HEAD (an older version checked out with
+    /// `git checkout <commit>`): commits made there belong to no branch and
+    /// are easily lost, and there is no branch to sync.
+    fn ensure_on_branch(&self) -> Result<(), String> {
+        let detached = self
+            .repo
+            .head_detached()
+            .map_err(|e| gerr("Failed to read HEAD", e))?;
+        if detached {
+            return Err(format!(
+                "An older version of the notes is checked out in {} (detached HEAD). Switch \
+                 back to your branch with git (e.g. `git switch main`) so Piki can commit and \
+                 sync again.",
                 self.workdir.display()
             ));
         }
