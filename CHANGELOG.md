@@ -40,7 +40,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   access goes through the system `ssh` (keys, agent and `~/.ssh/config` apply,
   as do `GIT_SSH_COMMAND` and `GIT_SSH`, PuTTY's `plink` included) rather than
   a bundled SSH library; `https://` remotes are not supported. The GUI and the
-  CLI never commit or sync the same directory at the same time.
+  CLI never commit or sync the same directory at the same time. (#58)
 
 - **Horizontal rules.** Break a note into sections with a thematic break, drawn
   as a line across the text column. Insert one with **Format → Horizontal Rule**
@@ -68,7 +68,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
 
 - **The CLI no longer creates a missing notes directory silently.** It asks
   whether to create it or import it from another machine (or, when not run
-  interactively, points at `piki init`).
+  interactively, points at `piki init`). (#58)
 
 - **Live note sharing: the spotlight follows the caret.** The shared web view
   now highlights the paragraph or list item the caret is in, not only a
