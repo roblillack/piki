@@ -211,18 +211,24 @@ fn cmd_edit(name: Option<String>, notes_dir: &PathBuf, config: &Config) -> Resul
         return Err(format!("Editor exited with status: {}", status));
     }
 
-    commit_after_edit(notes_dir, config)
+    commit_after_edit(notes_dir, config);
+    Ok(())
 }
 
-/// Record the outcome of an edit as a commit (when Git support applies).
-fn commit_after_edit(notes_dir: &Path, config: &Config) -> Result<(), String> {
-    let Some(repo) = open_repo_if_enabled(notes_dir, config)? else {
-        return Ok(());
+/// Record the outcome of an edit as a commit (when Git support applies). The
+/// note is saved either way, so a failed commit is only a warning: the change
+/// goes into the next commit instead.
+fn commit_after_edit(notes_dir: &Path, config: &Config) {
+    let committed = match open_repo_if_enabled(notes_dir, config) {
+        Ok(Some(repo)) => repo.commit_changes(),
+        Ok(None) => return,
+        Err(e) => Err(e),
     };
-    if let Some(commit) = repo.commit_changes()? {
-        eprintln!("Committed: {}", commit.title);
+    match committed {
+        Ok(Some(commit)) => eprintln!("Committed: {}", commit.title),
+        Ok(None) => {}
+        Err(e) => eprintln!("Warning: The note is saved, but committing it failed: {e}"),
     }
-    Ok(())
 }
 
 /// The notes directory as a repository, or `None` when Git support is off or
