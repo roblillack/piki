@@ -41,7 +41,7 @@ While pre-1.0, the minor version is bumped for breaking changes.
   selection, so the audience can follow along as you move through a note with
   the arrow keys or a click. A selection still highlights everything it covers.
   An empty line shows no highlight. Typing on the highlighted line keeps it
-  steady instead of replaying the arrow on every update.
+  steady instead of replaying the arrow on every update. (#60)
 
 - **Tab and Shift-Tab work outside lists too.** Tab still nests a list item one
   level deeper and Shift-Tab lifts it back out, but they now also move a
