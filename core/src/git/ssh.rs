@@ -8,7 +8,9 @@
 //! unchanged, which is exactly what "sync with my laptop over SSH" needs.
 //!
 //! `ssh` runs in batch mode, so a host that would ask for a password fails
-//! immediately with a clear error instead of hanging on a prompt.
+//! immediately with a clear error instead of hanging on a prompt, and with
+//! keepalives, so a machine that disappears mid-sync fails the sync instead of
+//! stalling it forever.
 //!
 //! The same mechanism serves `file://` URLs by running `git upload-pack` /
 //! `git receive-pack` locally. libgit2's built-in local transport cannot push
@@ -27,6 +29,12 @@ pub const DEFAULT_REMOTE_PATH: &str = "~/.piki";
 
 /// Seconds `ssh` waits for a connection before giving up.
 const CONNECT_TIMEOUT_SECS: u32 = 15;
+
+/// Seconds between keepalive probes on an established connection, and how
+/// many may go unanswered before `ssh` drops it: a machine that goes to sleep
+/// in the middle of a sync fails that sync within a minute.
+const SERVER_ALIVE_INTERVAL_SECS: u32 = 15;
+const SERVER_ALIVE_COUNT_MAX: u32 = 3;
 
 /// Exit status `ssh` uses for its own failures (connection refused, host key
 /// problems, authentication failure) as opposed to the remote command failing.
@@ -136,7 +144,11 @@ impl SshUrl {
         cmd.arg("-o")
             .arg("BatchMode=yes")
             .arg("-o")
-            .arg(format!("ConnectTimeout={CONNECT_TIMEOUT_SECS}"));
+            .arg(format!("ConnectTimeout={CONNECT_TIMEOUT_SECS}"))
+            .arg("-o")
+            .arg(format!("ServerAliveInterval={SERVER_ALIVE_INTERVAL_SECS}"))
+            .arg("-o")
+            .arg(format!("ServerAliveCountMax={SERVER_ALIVE_COUNT_MAX}"));
         if let Some(p) = self.port {
             cmd.arg("-p").arg(p.to_string());
         }
