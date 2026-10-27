@@ -18,6 +18,7 @@ pub mod ssh;
 
 pub use lock::SyncLock;
 pub use message::{Change, commit_message, describe_change};
+pub use ssh::RemoteCheck;
 
 use crate::config::GitConfig;
 use git2::{
@@ -899,10 +900,19 @@ impl Repo {
         drop(opts);
         pushed.map_err(|e| gerr(&format!("Pushing to '{name}' failed"), e))?;
         if let Some(msg) = rejected.into_inner() {
-            return Err(format!(
-                "Pushing to '{name}' was rejected ({msg}). If the other machine has uncommitted \
-                 changes, sync there first."
-            ));
+            // git's default for a non-bare repository is to refuse pushes into
+            // its checked-out branch outright; with `updateInstead` it only
+            // refuses while the working tree there has uncommitted changes.
+            let hint = if msg.contains("checked out") {
+                format!(
+                    "The repository there does not accept pushes into its checked-out branch; \
+                     run `git config {DENY_CURRENT_BRANCH_KEY} {DENY_CURRENT_BRANCH_VALUE}` in \
+                     it (`piki remote add` does this for you)."
+                )
+            } else {
+                "If the other machine has uncommitted changes, sync there first.".to_string()
+            };
+            return Err(format!("Pushing to '{name}' was rejected ({msg}). {hint}"));
         }
         Ok(())
     }
@@ -982,6 +992,31 @@ impl Repo {
             .filter_map(|(b, _)| b.name().ok().flatten().map(str::to_string))
             .collect())
     }
+}
+
+/// Check that `url` (as [`ssh::normalize_url`] returns it) leads to a notes
+/// directory that is a Git repository of its own, and prepare that repository
+/// to accept pushes into its checked-out branch (see
+/// [`ssh::check_remote_repository`]). `file://` URLs are checked right here;
+/// other kinds of URL are left to the first fetch to vet.
+pub fn check_remote(url: &str) -> Result<RemoteCheck, String> {
+    if ssh::is_ssh_url(url) {
+        return ssh::check_remote_repository(&ssh::SshUrl::parse(url)?);
+    }
+    let Some(path) = ssh::file_url_path(url) else {
+        return Ok(RemoteCheck::Ok);
+    };
+    // Like `Repo::open`, this does not search parent directories.
+    let repo = match Repository::open(&path) {
+        Ok(repo) => repo,
+        Err(e) => return Ok(RemoteCheck::NoRepository(e.message().to_string())),
+    };
+    if !repo.is_bare() {
+        repo.config()
+            .and_then(|mut c| c.set_str(DENY_CURRENT_BRANCH_KEY, DENY_CURRENT_BRANCH_VALUE))
+            .map_err(|e| gerr(&format!("Failed to update the configuration of {path}"), e))?;
+    }
+    Ok(RemoteCheck::Ok)
 }
 
 /// Three-way merge of a text: the changes from `base` to `ours` and from `base`

@@ -476,6 +476,50 @@ fn detached_head_is_neither_committed_on_nor_synced() {
     assert_eq!(read(&b_dir, "new.md"), "");
 }
 
+#[test]
+fn local_remotes_are_checked_and_prepared() {
+    use piki_core::git::{RemoteCheck, check_remote};
+    // A repository made with plain `git init` refuses pushes into its
+    // checked-out branch, and says so in a way the error explains.
+    let (b_dir, _b) = seeded_repo("plain-b");
+    git2::Repository::open(&b_dir)
+        .unwrap()
+        .config()
+        .unwrap()
+        .remove("receive.denyCurrentBranch")
+        .unwrap();
+    let a_dir = unique_dir("plain-a");
+    let a = Repo::clone(&path_url(&b_dir), &a_dir).unwrap();
+    write(&a_dir, "new.md", "new\n");
+    let report = a.sync(&["origin".to_string()]).unwrap();
+    let err = report.outcomes[0].clone().unwrap_err();
+    assert!(err.contains("receive.denyCurrentBranch"), "{err}");
+
+    // Checking it as `piki remote add` does fixes that …
+    assert_eq!(check_remote(&file_url(&b_dir)), Ok(RemoteCheck::Ok));
+    let report = a.sync(&["origin".to_string()]).unwrap();
+    assert!(report.outcomes[0].clone().unwrap().pushed, "{report:?}");
+    assert_eq!(read(&b_dir, "new.md"), "new\n");
+
+    // … while a plain directory, or one inside another repository, is no
+    // notes repository — and the outer repository is left alone.
+    let plain = unique_dir("plain-dir");
+    assert!(matches!(
+        check_remote(&file_url(&plain)),
+        Ok(RemoteCheck::NoRepository(_))
+    ));
+    let outer = unique_dir("plain-outer");
+    git2::Repository::init(&outer).unwrap();
+    let nested = outer.join("notes");
+    fs::create_dir_all(&nested).unwrap();
+    assert!(matches!(
+        check_remote(&file_url(&nested)),
+        Ok(RemoteCheck::NoRepository(_))
+    ));
+    let outer_cfg = git2::Repository::open(&outer).unwrap().config().unwrap();
+    assert!(outer_cfg.get_string("receive.denyCurrentBranch").is_err());
+}
+
 // ----- Non-ASCII note names --------------------------------------------------
 
 /// Whether Git has `rel` in its index.

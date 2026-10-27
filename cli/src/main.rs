@@ -1,8 +1,8 @@
 use clap::{Parser, Subcommand};
 use crossterm::terminal;
 use fuzzypicker::FuzzyPicker;
-use piki_core::git::ssh::{self, RemoteCheck, SshUrl};
-use piki_core::git::{Repo, SyncReport};
+use piki_core::git::ssh::{self, SshUrl};
+use piki_core::git::{self, RemoteCheck, Repo, SyncReport};
 use piki_core::{Config, DocumentStore, IndexPlugin, PluginRegistry, TodoPlugin, has_md_extension};
 use std::env;
 use std::fs;
@@ -330,35 +330,7 @@ fn cmd_remote_add(
         Some(u) => ssh::normalize_url(&u),
         None => ssh::url_for_host(name, path.as_deref())?,
     };
-
-    // For SSH targets, check the machine and its notes directory up front so
-    // problems come with a plain explanation instead of a protocol error.
-    if ssh::is_ssh_url(&url) {
-        let parsed = SshUrl::parse(&url)?;
-        eprintln!("Checking {} on {} …", parsed.path, parsed.destination());
-        match ssh::check_remote_repository(&parsed)? {
-            RemoteCheck::Ok => {}
-            RemoteCheck::Unreachable(detail) => {
-                return Err(format!(
-                    "Cannot reach {} over SSH without a password: {detail}\n\
-                     Make sure the host is reachable and that an SSH key (or agent) \
-                     lets you log in non-interactively, e.g. `ssh {}` works.",
-                    parsed.destination(),
-                    parsed.destination()
-                ));
-            }
-            RemoteCheck::NoRepository(detail) => {
-                return Err(format!(
-                    "No Piki notes directory found at {} on {}: {detail}\n\
-                     Piki must be set up there with a Git repository (see the README), \
-                     or pass --path to point at the right directory.",
-                    parsed.path,
-                    parsed.destination()
-                ));
-            }
-        }
-    }
-
+    check_remote_notes(&url)?;
     repo.add_remote(name, &url)?;
     // Verify the two directories share their history before keeping the
     // remote around; otherwise syncing could only ever fail.
@@ -396,6 +368,34 @@ fn cmd_remote_add(
         _ => println!("`piki sync` and the GUI will now sync with '{name}'."),
     }
     Ok(())
+}
+
+/// Check the notes directory a remote URL leads to before using it (and
+/// prepare it to accept pushes), so problems come with a plain explanation
+/// instead of a protocol error.
+fn check_remote_notes(url: &str) -> Result<(), String> {
+    let ssh_url = SshUrl::parse(url).ok();
+    let place = match &ssh_url {
+        Some(u) => format!("{} on {}", u.path, u.destination()),
+        None => url.to_string(),
+    };
+    eprintln!("Checking {place} …");
+    match git::check_remote(url)? {
+        RemoteCheck::Ok => Ok(()),
+        RemoteCheck::Unreachable(detail) => {
+            let host = ssh_url.map(|u| u.destination()).unwrap_or_default();
+            Err(format!(
+                "Cannot reach {host} over SSH without a password: {detail}\n\
+                 Make sure the host is reachable and that an SSH key (or agent) lets you log \
+                 in non-interactively, e.g. `ssh {host}` works."
+            ))
+        }
+        RemoteCheck::NoRepository(detail) => Err(format!(
+            "No Piki notes directory found at {place}: {detail}\n\
+             Piki must be set up there with a Git repository (`piki init`), or pass --path \
+             to point at the right directory."
+        )),
+    }
 }
 
 /// `piki init`: create the notes directory (as a Git repository when Git
@@ -469,26 +469,7 @@ fn set_up_missing_notes_dir(notes_dir: &Path, config: &Config) -> Result<(), Str
 /// Clone `url` into `notes_dir`, which becomes a working copy with `origin`
 /// set up for syncing.
 fn import_notes(url: &str, notes_dir: &Path) -> Result<(), String> {
-    if ssh::is_ssh_url(url) {
-        let parsed = SshUrl::parse(url)?;
-        eprintln!("Checking {} on {} …", parsed.path, parsed.destination());
-        match ssh::check_remote_repository(&parsed)? {
-            RemoteCheck::Ok => {}
-            RemoteCheck::Unreachable(detail) => {
-                return Err(format!(
-                    "Cannot reach {} over SSH without a password: {detail}",
-                    parsed.destination()
-                ));
-            }
-            RemoteCheck::NoRepository(detail) => {
-                return Err(format!(
-                    "No Piki notes directory found at {} on {}: {detail}",
-                    parsed.path,
-                    parsed.destination()
-                ));
-            }
-        }
-    }
+    check_remote_notes(url)?;
     eprintln!("Importing notes from {url} …");
     Repo::clone(url, notes_dir)?;
     eprintln!(

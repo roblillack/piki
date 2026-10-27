@@ -224,7 +224,7 @@ pub fn is_file_url(url: &str) -> bool {
 }
 
 /// The local path named by a `file://` URL.
-fn file_url_path(url: &str) -> Option<String> {
+pub(crate) fn file_url_path(url: &str) -> Option<String> {
     let rest = url.strip_prefix("file://")?;
     // `file:///C:/x` → `C:/x`; `file:///tmp/x` → `/tmp/x`.
     let bytes = rest.as_bytes();
